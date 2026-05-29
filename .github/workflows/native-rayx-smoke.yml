@@ -1,0 +1,111 @@
+name: Native RayX smoke
+
+# Heavy native path: builds HPX from source (pinned v1.11.0), builds the native
+# HPX baseline and the rayx pybind extension, and runs the --diag and rayx
+# contract smokes. Separate from the lightweight ci.yml (which does only
+# static/structural checks and never builds HPX). The HPX install prefix is
+# cached, so the slow from-source build is paid once per cache key.
+#
+# Runs on every push to main (current development happens directly on main) and
+# on manual dispatch.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel an in-progress run if a newer commit is pushed.
+concurrency:
+  group: native-rayx-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  HPX_TAG: v1.11.0
+  HPX_PREFIX: ${{ github.workspace }}/hpx-install
+  HPX_SRC: ${{ github.workspace }}/hpx-src
+
+jobs:
+  native-rayx-smoke:
+    name: Build HPX + RayX and smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            ninja-build \
+            git \
+            libboost-all-dev \
+            libhwloc-dev
+
+      - name: Install Python build dependencies
+        run: python -m pip install --upgrade pip pybind11
+
+      # The install prefix is the only durable HPX artifact RayX consumes. Cache
+      # it keyed on OS + pinned tag + the configure flags, so a flag change busts
+      # the cache. The HPX build/install steps below are skipped on a cache hit.
+      - name: Cache HPX install prefix
+        id: cache-hpx
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.HPX_PREFIX }}
+          key: hpx-${{ runner.os }}-${{ env.HPX_TAG }}-fetchasio-mallocsystem-noexamples-notests-nodocs-v1
+
+      - name: Fetch HPX source (pinned)
+        if: steps.cache-hpx.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "${HPX_TAG}" \
+            https://github.com/STEllAR-GROUP/hpx.git "${HPX_SRC}"
+
+      - name: Configure HPX
+        if: steps.cache-hpx.outputs.cache-hit != 'true'
+        run: |
+          cmake -S "${HPX_SRC}" -B "${HPX_SRC}/build" -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${HPX_PREFIX}" \
+            -DHPX_WITH_FETCH_ASIO=ON \
+            -DHPX_WITH_MALLOC=system \
+            -DHPX_WITH_EXAMPLES=OFF \
+            -DHPX_WITH_TESTS=OFF \
+            -DHPX_WITH_DOCUMENTATION=OFF
+
+      - name: Build and install HPX
+        if: steps.cache-hpx.outputs.cache-hit != 'true'
+        # Cap parallelism: HPX is template-heavy and can OOM a 16 GB runner at
+        # full -j. Tune up later once the cold build is known-green.
+        run: |
+          cmake --build "${HPX_SRC}/build" --parallel 3
+          cmake --install "${HPX_SRC}/build"
+
+      - name: Build native HPX baseline (hpx_impl)
+        run: |
+          cmake -S hpx_impl -B hpx_impl/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${HPX_PREFIX}"
+          cmake --build hpx_impl/build
+
+      - name: Run --diag smoke
+        run: python bench/smoke_diag.py
+
+      - name: Build rayx pybind extension (python)
+        run: |
+          cmake -S python -B python/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYBIND11_FINDPYTHON=ON \
+            -DCMAKE_PREFIX_PATH="${HPX_PREFIX};$(python -m pybind11 --cmakedir)" \
+            -DPython_EXECUTABLE="$(which python)"
+          cmake --build python/build
+
+      - name: Run rayx smoke
+        run: python bench/smoke_rayx.py

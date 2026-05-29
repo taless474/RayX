@@ -1,0 +1,3 @@
+# Build/runtime deps for the HPX Python frontend (rayx extension).
+# Kept separate from requirements.txt, which pins the Ray baseline env.
+pybind11

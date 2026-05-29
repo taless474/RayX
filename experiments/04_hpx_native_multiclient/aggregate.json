@@ -1,0 +1,90 @@
+{
+  "experiment": "hpx_native_multiclient",
+  "engine": "hpx-intra-locality",
+  "workload": "bimodal lo1 hi20 p_high0.1 seed0",
+  "concurrency": 32,
+  "requests": 1000,
+  "warmup": 20,
+  "hpx_threads": 4,
+  "repeats": 3,
+  "cells": [
+    {
+      "lanes": 8,
+      "client_threads": 1,
+      "repeats": 3,
+      "throughput_req_s": 1121.3,
+      "total_ms_p50": 25.495,
+      "total_ms_p90": 45.978,
+      "total_ms_p99": 51.314,
+      "service_ms_p50": 1.263,
+      "service_ms_p99": 25.017,
+      "queue_wait_ms_p50": 0.035,
+      "queue_wait_ms_p99": 43.74
+    },
+    {
+      "lanes": 8,
+      "client_threads": 2,
+      "repeats": 3,
+      "throughput_req_s": 1316.5,
+      "total_ms_p50": 24.726,
+      "total_ms_p90": 41.455,
+      "total_ms_p99": 49.71,
+      "service_ms_p50": 1.263,
+      "service_ms_p99": 25.022,
+      "queue_wait_ms_p50": 0.835,
+      "queue_wait_ms_p99": 39.706
+    },
+    {
+      "lanes": 8,
+      "client_threads": 4,
+      "repeats": 3,
+      "throughput_req_s": 1347.8,
+      "total_ms_p50": 24.216,
+      "total_ms_p90": 45.256,
+      "total_ms_p99": 70.671,
+      "service_ms_p50": 1.263,
+      "service_ms_p99": 25.021,
+      "queue_wait_ms_p50": 0.867,
+      "queue_wait_ms_p99": 47.835
+    },
+    {
+      "lanes": 16,
+      "client_threads": 1,
+      "repeats": 3,
+      "throughput_req_s": 1390.1,
+      "total_ms_p50": 23.826,
+      "total_ms_p90": 42.163,
+      "total_ms_p99": 47.944,
+      "service_ms_p50": 1.262,
+      "service_ms_p99": 25.016,
+      "queue_wait_ms_p50": 0.021,
+      "queue_wait_ms_p99": 23.827
+    },
+    {
+      "lanes": 16,
+      "client_threads": 2,
+      "repeats": 3,
+      "throughput_req_s": 1634.7,
+      "total_ms_p50": 23.071,
+      "total_ms_p90": 25.765,
+      "total_ms_p99": 46.29,
+      "service_ms_p50": 1.261,
+      "service_ms_p99": 25.019,
+      "queue_wait_ms_p50": 0.016,
+      "queue_wait_ms_p99": 24.502
+    },
+    {
+      "lanes": 16,
+      "client_threads": 4,
+      "repeats": 3,
+      "throughput_req_s": 1771.5,
+      "total_ms_p50": 21.874,
+      "total_ms_p90": 26.285,
+      "total_ms_p99": 48.393,
+      "service_ms_p50": 1.261,
+      "service_ms_p99": 25.023,
+      "queue_wait_ms_p50": 0.016,
+      "queue_wait_ms_p99": 25.06
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "l1": {
+    "repeats": 5,
+    "throughput_req_s_median": 304.7726095369902,
+    "total_ms_p50_median": 29.582666500000002,
+    "total_ms_p90_median": 53.9386122,
+    "total_ms_p99_median": 78.19799158,
+    "service_ms_p50_median": 1.266,
+    "service_ms_p90_median": 1.2906828000000001,
+    "service_ms_p99_median": 25.02355533,
+    "queue_wait_ms_p50_median": 8.932375,
+    "queue_wait_ms_p90_median": 51.280441399999994,
+    "queue_wait_ms_p99_median": 74.95266833,
+    "total_tail_amp_p99_over_p50_median": 2.6576523970997643
+  },
+  "l4": {
+    "repeats": 5,
+    "throughput_req_s_median": 633.8422981346972,
+    "total_ms_p50_median": 2.5720625,
+    "total_ms_p90_median": 25.115083300000002,
+    "total_ms_p99_median": 28.439062410000002,
+    "service_ms_p50_median": 1.260792,
+    "service_ms_p90_median": 1.2831297,
+    "service_ms_p99_median": 25.02196149,
+    "queue_wait_ms_p50_median": 1.3155204999999999,
+    "queue_wait_ms_p90_median": 23.7925952,
+    "queue_wait_ms_p99_median": 25.1026681,
+    "total_tail_amp_p99_over_p50_median": 11.092311791605878
+  }
+}

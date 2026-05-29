@@ -1,0 +1,35 @@
+{
+  "schema": "diag-1",
+  "run_id": "hpx-20260531T221933Z-6fb85f",
+  "workload": "bimodal_lo1_hi20_p10_c32_l16",
+  "boundary": "hpx-intra-locality",
+  "config": {"lanes": 16, "client_threads": 1, "concurrency": 32, "service_ms": 0, "work_mode": "sleep", "service_pattern": "bimodal", "retire_mode": "submit_all_get_all", "repeat": 0, "num_requests": 1000, "completed": 1000},
+  "throughput_req_s": 2971.43559556273,
+  "wall_s": 0.336537666,
+  "phases_ms": {
+    "push": {"p50": 4.2e-05, "p90": 4.2e-05, "p99": 0.00104101, "mean": 5.78410000000001e-05},
+    "pickup": {"p50": 89.274667, "p90": 180.7271215, "p99": 303.36137467, "mean": 94.5447920370001},
+    "service": {"p50": 1.2615, "p90": 1.3082038, "p99": 25.00393009, "mean": 3.171862297},
+    "completion": {"p50": 244.4723745, "p90": 320.2670619, "p99": 335.09000458, "mean": 238.569944492},
+    "total": {"p50": 336.2885415, "p90": 336.3361785, "p99": 336.37165883, "mean": 336.286656667}
+  },
+  "queue_depth_at_enqueue": {"p50": 31, "p90": 56, "p99": 61, "max": 62},
+  "lanes": [
+    {"actor_id": "act-hpx-e8868508", "processed": 63, "busy_ms": 336.124376, "utilization": 0.99877193538271},
+    {"actor_id": "act-hpx-acf8308e", "processed": 63, "busy_ms": 122.676958, "utilization": 0.364526679756554},
+    {"actor_id": "act-hpx-9967cfc3", "processed": 63, "busy_ms": 164.442791, "utilization": 0.488631162611082},
+    {"actor_id": "act-hpx-3d67b837", "processed": 63, "busy_ms": 161.829291, "utilization": 0.480865315682079},
+    {"actor_id": "act-hpx-03435467", "processed": 63, "busy_ms": 276.125791, "utilization": 0.820490004230314},
+    {"actor_id": "act-hpx-fce77162", "processed": 63, "busy_ms": 164.478499, "utilization": 0.488737266633328},
+    {"actor_id": "act-hpx-2077be42", "processed": 63, "busy_ms": 183.310333, "utilization": 0.544694848510657},
+    {"actor_id": "act-hpx-c1ac9b92", "processed": 63, "busy_ms": 202.779127, "utilization": 0.602545116004935},
+    {"actor_id": "act-hpx-5e78d862", "processed": 62, "busy_ms": 163.164, "utilization": 0.484831317514397},
+    {"actor_id": "act-hpx-3f825fc8", "processed": 62, "busy_ms": 173.193748, "utilization": 0.514634067736121},
+    {"actor_id": "act-hpx-5892a0cb", "processed": 62, "busy_ms": 176.976874, "utilization": 0.52587538299502},
+    {"actor_id": "act-hpx-8f681b08", "processed": 62, "busy_ms": 293.549626, "utilization": 0.872263807760526},
+    {"actor_id": "act-hpx-04b310f7", "processed": 62, "busy_ms": 173.166255, "utilization": 0.514552374057292},
+    {"actor_id": "act-hpx-c9626f45", "processed": 62, "busy_ms": 183.325544, "utilization": 0.544740047017501},
+    {"actor_id": "act-hpx-95526761", "processed": 62, "busy_ms": 198.465084, "utilization": 0.589726215073947},
+    {"actor_id": "act-hpx-23d0b594", "processed": 62, "busy_ms": 198.254, "utilization": 0.589098992562693}
+  ]
+}

@@ -1,0 +1,3 @@
+# RayX baseline dependencies.
+# Ray core only (no Serve, no dashboard). Everything else uses the stdlib.
+ray==2.55.1

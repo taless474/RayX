@@ -1,0 +1,72 @@
+{
+  "experiment": "07_rayx_as_completed",
+  "driver": "bench/run_hpx_python_baseline.py",
+  "boundary": "hpx-python-frontend",
+  "cell": {
+    "api": "engine",
+    "work_mode": "sleep",
+    "service_pattern": "bimodal",
+    "service_low_ms": 1,
+    "service_high_ms": 20,
+    "service_p_high": 0.1,
+    "seed": 0,
+    "num_lanes": 16,
+    "concurrency": 32,
+    "requests": 1000,
+    "warmup_requests": 20,
+    "hpx_threads": 4
+  },
+  "repeats": 3,
+  "modes": [
+    {
+      "mode": "one_by_one",
+      "throughput_req_s": {
+        "repeats": [
+          1362.3,
+          1365.5,
+          1380.0
+        ],
+        "median": 1365.5,
+        "min": 1362.3,
+        "max": 1380.0
+      },
+      "representative_repeat_index": 2,
+      "total_ms": {
+        "p50": 23.956,
+        "p90": 38.606,
+        "p99": 48.782
+      },
+      "service_ms_p50": 1.251
+    },
+    {
+      "mode": "batch_wait",
+      "throughput_req_s": {
+        "repeats": [
+          2557.1,
+          2528.8,
+          2523.9
+        ],
+        "median": 2528.8,
+        "min": 2523.9,
+        "max": 2557.1
+      },
+      "representative_repeat_index": 2,
+      "total_ms": {
+        "p50": 1.355,
+        "p90": 28.025,
+        "p99": 70.197
+      },
+      "service_ms_p50": 1.259
+    }
+  ],
+  "lift_batch_wait_over_one_by_one": {
+    "ratio": 1.852,
+    "percent": 85.2
+  },
+  "native_anchors": {
+    "fifo_one_by_one_req_s": 1384,
+    "fifo_completion_ms_p50": 21.9,
+    "batch_wait_req_s": 2558,
+    "batch_wait_completion_ms_p50": 0.003
+  }
+}

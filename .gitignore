@@ -1,0 +1,46 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build artifacts
+python/build/
+hpx_impl/build/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Compiled extensions / binaries
+*.so
+*.dylib
+*.o
+*.a
+*.dSYM/
+
+# Benchmark results / generated artifacts
+results/
+*.jsonl
+*.summary.json
+aggregate.json
+
+# Exception: curated aggregate.json files co-located with benchmark/experiment
+# docs are tracked (must come after the global aggregate.json ignore above).
+# Raw aggregate.json under results/ stays ignored (results/ is ignored wholesale).
+!benchmarks/**/aggregate.json
+!experiments/**/aggregate.json
+
+# Local/editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Local notes
+CLAUDE.local.md
+
+# Local handoff notes
+handoff

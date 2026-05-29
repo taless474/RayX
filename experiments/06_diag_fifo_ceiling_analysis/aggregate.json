@@ -1,0 +1,175 @@
+{
+  "experiment": "06_diag_fifo_ceiling_analysis",
+  "cell": {
+    "service_pattern": "bimodal",
+    "service_low_ms": 1,
+    "service_high_ms": 20,
+    "service_p_high": 0.1,
+    "seed": 0,
+    "num_lanes": 16,
+    "concurrency": 32,
+    "requests": 1000,
+    "warmup_requests": 20,
+    "client_threads": 1,
+    "hpx_threads": 4
+  },
+  "repeats": 3,
+  "modes": [
+    {
+      "mode": "one_by_one",
+      "label": "one_by_one",
+      "context_only": false,
+      "throughput_req_s": {
+        "median": 1391.50456379475,
+        "min": 1348.80790610552,
+        "max": 1421.78881953698,
+        "all": [
+          1421.78881953698,
+          1348.80790610552,
+          1391.50456379475
+        ]
+      },
+      "representative_repeat": 3,
+      "phases_ms": {
+        "push": {
+          "p50": 8.4e-05,
+          "p90": 0.000375,
+          "p99": 0.00100042
+        },
+        "pickup": {
+          "p50": 0.0187915,
+          "p90": 1.2753003,
+          "p99": 23.83950008
+        },
+        "service": {
+          "p50": 1.261688,
+          "p90": 1.3081333,
+          "p99": 25.01383383
+        },
+        "completion": {
+          "p50": 20.934729,
+          "p90": 28.5863958,
+          "p99": 45.660093
+        }
+      },
+      "queue_depth_at_enqueue": {
+        "p50": 1,
+        "p90": 1,
+        "p99": 2,
+        "max": 2
+      },
+      "lanes": {
+        "n_lanes": 16,
+        "util_min": 0.17450963653994,
+        "util_median": 0.2642478180404845,
+        "util_max": 0.476298218202201,
+        "processed_min": 62,
+        "processed_max": 63
+      }
+    },
+    {
+      "mode": "batch_wait",
+      "label": "batch_wait --wait-batch 8",
+      "context_only": false,
+      "throughput_req_s": {
+        "median": 2544.13976270457,
+        "min": 2492.93538260134,
+        "max": 2582.41480518654,
+        "all": [
+          2544.13976270457,
+          2582.41480518654,
+          2492.93538260134
+        ]
+      },
+      "representative_repeat": 1,
+      "phases_ms": {
+        "push": {
+          "p50": 0.000333,
+          "p90": 0.000542,
+          "p99": 0.000962589999999996
+        },
+        "pickup": {
+          "p50": 0.016917,
+          "p90": 23.8062666,
+          "p99": 65.78248926
+        },
+        "service": {
+          "p50": 1.262396,
+          "p90": 1.3039048,
+          "p99": 24.82810492
+        },
+        "completion": {
+          "p50": 0.0029585,
+          "p90": 0.006708,
+          "p99": 0.01800583
+        }
+      },
+      "queue_depth_at_enqueue": {
+        "p50": 1,
+        "p90": 5,
+        "p99": 11,
+        "max": 16
+      },
+      "lanes": {
+        "n_lanes": 16,
+        "util_min": 0.314600889079661,
+        "util_median": 0.4797165824233725,
+        "util_max": 0.854515804955632,
+        "processed_min": 62,
+        "processed_max": 63
+      }
+    },
+    {
+      "mode": "submit_all",
+      "label": "submit_all_get_all (upper-bound/context only)",
+      "context_only": true,
+      "throughput_req_s": {
+        "median": 2971.43559556273,
+        "min": 2924.4173401127,
+        "max": 2982.34415280472,
+        "all": [
+          2924.4173401127,
+          2971.43559556273,
+          2982.34415280472
+        ]
+      },
+      "representative_repeat": 2,
+      "phases_ms": {
+        "push": {
+          "p50": 4.2e-05,
+          "p90": 4.2e-05,
+          "p99": 0.00104101
+        },
+        "pickup": {
+          "p50": 89.274667,
+          "p90": 180.7271215,
+          "p99": 303.36137467
+        },
+        "service": {
+          "p50": 1.2615,
+          "p90": 1.3082038,
+          "p99": 25.00393009
+        },
+        "completion": {
+          "p50": 244.4723745,
+          "p90": 320.2670619,
+          "p99": 335.09000458
+        }
+      },
+      "queue_depth_at_enqueue": {
+        "p50": 31,
+        "p90": 56,
+        "p99": 61,
+        "max": 62
+      },
+      "lanes": {
+        "n_lanes": 16,
+        "util_min": 0.364526679756554,
+        "util_median": 0.5352851157528384,
+        "util_max": 0.99877193538271,
+        "processed_min": 62,
+        "processed_max": 63
+      }
+    }
+  ]
+}

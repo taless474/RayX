@@ -1,0 +1,246 @@
+# Experiment Plan
+
+The measurement contract for Ray-vs-HPX serving-control experiments. This doc
+is locked before implementation so that future Ray and HPX results are
+interpretable and comparisons stay honest. It defines schemas and benchmark
+shapes, not implementation.
+
+## 1. Goal
+
+* The first experiments compare a **Ray actor-style serving-control** baseline
+  with a **future HPX-native serving-control** runtime.
+* The first backend is **synthetic**, not a real model.
+* The first goal is **not** to prove HPX is faster. It is to measure
+  **control-plane overhead** and **workload sensitivity** — i.e., how much each
+  runtime costs per request, and how that cost changes with service time and
+  concurrency.
+
+## 2. Boundary Being Measured
+
+The "boundary" is the path a request crosses to reach and return from the work.
+It is not the same across runtimes and must be stated in every report.
+
+* **Ray actor baseline** measures public Ray API actor-call overhead, which
+  includes Python, the Ray runtime, the process boundary, serialization, and
+  IPC. Boundary label: `ray-actor-process`.
+* **Future HPX baseline** may first measure **in-process intra-locality**
+  futures/actions, with no serialization or IPC. Boundary label:
+  `hpx-intra-locality`.
+* These boundaries are **not identical**. A difference between them may reflect
+  the boundary cost, not the scheduling or control-plane design.
+* Every report must state the boundary explicitly (the `boundary` field carries
+  it in the data).
+
+## 3. Synthetic Backend Contract
+
+The synthetic backend stands in for an opaque inference engine. It performs no
+real computation; it only consumes a controlled amount of time so that
+control-plane overhead can be isolated.
+
+Request fields:
+
+* `request_id` — unique id for the request.
+* `service_ms` — total time the backend should spend servicing the request.
+* `chunks` — number of output chunks the backend will produce (1 = single
+  response; >1 reserved for future streaming).
+* `chunk_delay_ms` — delay between chunks (reserved for future streaming).
+* `work_mode` — how the backend consumes `service_ms`.
+
+Rules for the first implementation:
+
+* First supported `work_mode` is **`sleep`**.
+* `sleep` models **I/O-bound or GPU-offloaded** serving, where the control
+  plane is waiting for external work rather than burning a CPU core.
+* Compute-bound **busy-spin** is a **future separate axis** (`work_mode`
+  `spin`) and must **not** be mixed into the first results — it changes
+  scheduling behavior on both runtimes.
+* First implementation uses **no streaming** (`chunks = 1`) and **no
+  cancellation**. `chunks`/`chunk_delay_ms` are carried in the schema now so it
+  stays stable when streaming is added.
+
+### Service-time patterns
+
+How each request's `service_ms` is chosen (a workload-generation concern; the
+backend still just sleeps for the per-request value):
+
+* **`fixed`** — every request uses the same `service_ms` (the original
+  behavior).
+* **`bimodal`** — each request draws a *high* service time with probability
+  `p_high`, else a *low* service time, to study queueing and tail latency under
+  non-uniform work.
+
+Determinism: the per-request service time is a **pure function of
+`(seed, request_index)`** computed by a small portable integer hash
+(splitmix64-style), not a stateful RNG. The same `seed` reproduces the same
+sequence, and — because the hash is plain integer arithmetic — the sequence is
+**engine-independent** (Ray, native HPX, and rayx can produce the identical
+sequence). The draw is decorrelated from round-robin lane assignment
+(`lane = request_index % num_lanes`), unlike a periodic cycle. `bimodal` is
+implemented identically in all three drivers (Ray, native HPX, rayx), verified
+to emit byte-identical `service_ms_requested` sequences for the same seed.
+
+## 4. Per-Request JSONL Schema
+
+One JSON object per request, one per line. All `*_ns` fields are monotonic
+high-resolution timestamps; all `*_ms` fields are derived for readability.
+
+* `schema_version` — schema version string, e.g. `"1"`.
+* `run_id` — id grouping all requests of a single benchmark run.
+* `backend` — backend name, e.g. `"synthetic"`.
+* `boundary` — boundary label, e.g. `"ray-actor-process"`.
+* `workload` — workload name, e.g. `"sleep_5ms_c8"`.
+* `request_id` — request id (matches the request).
+* `actor_id` or `worker_id` — id of the actor/worker that served the request.
+* `status` — `"completed"` | `"failed"`.
+* `submit_ns` — monotonic time the request was submitted by the client.
+* `start_ns` — monotonic time the backend began servicing the request.
+* `end_ns` — monotonic time the backend finished the request.
+* `total_ms` — `(end_ns - submit_ns) / 1e6`; full client-observed latency.
+* `queue_wait_ms` — `(start_ns - submit_ns) / 1e6`; time spent waiting before
+  service began.
+* `service_ms_observed` — `(end_ns - start_ns) / 1e6`; measured service time.
+* `service_ms_requested` — the `service_ms` asked of the backend, recorded
+  per-request. Constant under `service_pattern=fixed`; varies row-to-row under
+  `bimodal` (see §3). Still a scalar; no schema change.
+* `chunks` — number of chunks produced (1 for now).
+* `chunk_delay_ms` — requested inter-chunk delay (0/unused for now).
+* `work_mode` — `"sleep"` for now.
+* `retire_mode` — client dispatch mode (metadata): `"one_by_one"` (windowed:
+  hold N in flight, retire oldest, submit one) or `"batch"` (bulk submit; see
+  note below).
+* `error` — error string if `status == "failed"`, else null/empty.
+
+Note: `start_ns`/`end_ns` are measured at the backend (server side); `submit_ns`
+is measured at the client. For the Ray process boundary these may sit in
+different clock domains — see §9.
+
+### Batch (bulk) submit semantics (`retire_mode="batch"`)
+
+The rayx Python frontend's `Engine.submit_batch()` enqueues all measured
+requests in a single Python→C++ crossing. Its outputs are tagged
+`retire_mode="batch"`. Schema stays version `"1"` — only this field's value set
+widens. Under batch:
+
+* All futures from one batch share **one** Python-side `submit_ns`.
+* `total_ms` is therefore **queue/bulk-drain shaped**: request *k* includes the
+  time to drain the *k* requests ahead of it on its lane.
+* **Throughput** is the meaningful metric for a batch run.
+* Batch `total_ms`/`queue_wait_ms` percentiles are **not** directly comparable
+  to windowed `one_by_one` latency percentiles.
+
+## 5. Aggregate Summary Schema
+
+One JSON object emitted by the analyzer per run.
+
+* `schema_version` — schema version string.
+* `run_id` — run id (matches the per-request records).
+* `backend` — backend name.
+* `boundary` — boundary label.
+* `workload` — workload name.
+* `num_requests` — total requests issued.
+* `completed` — count with `status == "completed"`.
+* `failed` — count with `status == "failed"`.
+* `throughput_req_s` — completed requests per wall-clock second of the run.
+* `total_ms_p50`, `total_ms_p90`, `total_ms_p99` — total-latency percentiles.
+* `queue_wait_ms_p50`, `queue_wait_ms_p90`, `queue_wait_ms_p99` — queue-wait
+  percentiles.
+* `service_ms_p50`, `service_ms_p90`, `service_ms_p99` — observed-service
+  percentiles.
+* `total_ms_min`, `total_ms_max` — min/max total latency.
+* `notes` — free-text caveats, including the boundary statement and whether the
+  workload was dispatch-dominated or service-dominated.
+
+## 6. Null-Overhead Microbenchmark
+
+* **Required first benchmark.** Run before any sleep workloads.
+* **Ray:** a no-op actor method with **no** synthetic service delay
+  (`service_ms = 0`, `work_mode = sleep` degenerate / no-op).
+* **Future HPX equivalent:** a no-op future/action/component call.
+* **Purpose:** establish each runtime's **dispatch / control-plane overhead
+  floor** — the minimum cost to send and complete a request with zero work.
+* **Report:** p50/p90/p99 round-trip latency and throughput. All later
+  service-time numbers are interpreted relative to this floor.
+
+## 7. Initial Workload Matrix
+
+Keep it small. Local laptop only.
+
+* Service times: `noop`, `sleep 1 ms`, `sleep 5 ms`, `sleep 20 ms`.
+* Concurrency (in-flight requests): `1`, `4`, `8`, `16`.
+* **One actor/worker first.**
+* **Local laptop only.**
+* **No streaming, no cancellation yet.**
+
+This is 4 service levels × 4 concurrency levels = 16 points, single worker,
+single machine. Expand only after the first smoke run is reviewed.
+
+## 8. Acceptance Criteria for First Ray Baseline
+
+* Ray **no-op** benchmark runs.
+* Ray **fixed-sleep** benchmark runs.
+* JSONL output **validates against the schema** in §4.
+* Analyzer prints an **aggregate summary** matching §5.
+* A **smoke command completes quickly** on a laptop.
+* The report **clearly states the measured boundary**.
+
+## 9. Fairness and Caveats
+
+* Do **not** compare Ray process-boundary actor calls to HPX in-process futures
+  as if they were equivalent. They cross different boundaries (§2).
+* Do **not** claim HPX is generally faster than Ray from local synthetic tests.
+* Interpret results **by workload size and boundary**, not as a single verdict.
+* For each workload, **document whether it is dispatch-dominated** (service time
+  near the null-overhead floor) **or service-dominated** (service time well
+  above the floor). Overhead only matters where it is a meaningful fraction of
+  total latency.
+* Clock domains: `submit_ns` (client) and `start_ns`/`end_ns` (server) may come
+  from different clocks across the Ray process boundary. Where this is a
+  concern, treat `total_ms` (single client clock, submit→result) as the
+  authoritative latency and treat the server-side split as approximate.
+
+## 10. Proposed Future CLI Shape
+
+Examples only — no implementation in this slice.
+
+```text
+# Ray no-op microbenchmark (null-overhead floor)
+ray_bench --backend synthetic --work-mode sleep --service-ms 0 \
+          --concurrency 8 --requests 2000 \
+          --workload noop_c8 --out results/ray_noop_c8.jsonl
+
+# Ray fixed-sleep benchmark
+ray_bench --backend synthetic --work-mode sleep --service-ms 5 \
+          --concurrency 8 --requests 2000 \
+          --workload sleep_5ms_c8 --out results/ray_sleep5_c8.jsonl
+
+# Analyzer: per-request JSONL -> aggregate summary
+analyze results/ray_sleep5_c8.jsonl --out results/ray_sleep5_c8.summary.json
+```
+
+## 11. Smoke / Contract Gates
+
+Small, fast checks that lock a contract's *shape* (not its numbers) so a later
+change can't silently break it. Run locally; not wired into CI.
+
+### `diag` contract gate — `bench/smoke_diag.py`
+
+* **What it guards:** the native HPX baseline's opt-in `--diag` mode.
+  `--diag` writes a *separate* `<out>.diag.json` (schema `diag-1`) and must not
+  perturb the normal per-request JSONL (schema `"1"`, §4).
+* **Asserts (shape only, no numeric values):**
+  * diag **off** → exit 0, normal JSONL parses, **no** `.diag.json` is written,
+    and no diag-only fields leak into the JSONL;
+  * diag **on** → exit 0, normal JSONL still schema `"1"`, and `<out>.diag.json`
+    is valid JSON with schema `diag-1` and the expected
+    `phases_ms` / `queue_depth_at_enqueue` / `lanes` / `config` fields.
+* **Command:**
+
+  ```text
+  python bench/smoke_diag.py          # uses hpx_impl/build/hpx_synthetic_baseline
+  python bench/smoke_diag.py --bin PATH   # override the binary
+  ```
+
+* **Pass condition:** exit code 0, prints `OK: --diag smoke passed`.
+* **Prerequisite:** the native baseline must be built first
+  (`cmake --build hpx_impl/build`). The script uses only a small synthetic
+  workload and a temp directory, so it leaves no result artifacts.
