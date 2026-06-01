@@ -27,8 +27,19 @@ jobs:
             bench/analyze_jsonl.py \
             bench/run_ray_baseline.py \
             bench/run_hpx_python_baseline.py \
+            bench/service_sequence.py \
             bench/smoke_diag.py \
+            bench/smoke_local.py \
+            bench/smoke_rayx.py \
+            bench/smoke_service_sequence.py \
+            examples/rayx_basic.py \
             experiments/06_diag_fifo_ceiling_analysis/run_diag_ceiling.py
+
+      - name: Golden service-sequence check
+        # Dependency-free (no Ray, no rayx): pins the shared deterministic
+        # service sequence against frozen golden values so the Python drivers
+        # and the native C++ service_for cannot drift silently.
+        run: python bench/smoke_service_sequence.py
 
       - name: Check README links point to existing local files
         run: |

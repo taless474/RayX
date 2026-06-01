@@ -33,10 +33,14 @@ import uuid
 # Quiet a benign Ray FutureWarning about accelerator env vars when num_gpus=0.
 os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
-# Make the repo root importable so "ray_impl" resolves regardless of CWD.
+# Make the repo root importable so "ray_impl" resolves regardless of CWD, and
+# the bench/ dir importable so the shared service-sequence helper resolves.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+_BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BENCH_DIR not in sys.path:
+    sys.path.insert(0, _BENCH_DIR)
 
 import ray  # noqa: E402
 
@@ -47,36 +51,15 @@ from ray_impl.ray_actor_baseline import (  # noqa: E402
     SyntheticServer,
     make_request,
 )
+# Canonical deterministic service sequence, shared with run_hpx_python_baseline
+# and mirrored by the native C++ service_for (keeps the cross-engine comparison
+# fair). See bench/service_sequence.py.
+from service_sequence import service_for as _service_for  # noqa: E402
 
 
 def _gen_run_id():
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     return f"ray-{stamp}-{uuid.uuid4().hex[:6]}"
-
-
-_MASK64 = (1 << 64) - 1
-
-
-def _service_for(idx, args):
-    """Per-request requested service time in ms (a pure function of idx).
-
-    IDENTICAL to bench/run_hpx_python_baseline.py::_service_for and the native
-    HPX executable's service_for, so the same (seed, request_index) yields the
-    same service_ms_requested sequence across Ray, native HPX, and rayx.
-
-    fixed   -> always args.service_ms.
-    bimodal -> deterministic splitmix64 draw keyed by (seed, idx): if the draw
-               in [0,1) is < service_p_high use service_high, else service_low.
-               No stateful RNG. Decorrelated from round-robin actor assignment.
-    """
-    if args.service_pattern == "fixed":
-        return args.service_ms
-    z = (args.seed + idx * 0x9E3779B97F4A7C15) & _MASK64
-    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
-    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
-    z = z ^ (z >> 31)
-    draw = z / 2 ** 64
-    return args.service_high if draw < args.service_p_high else args.service_low
 
 
 def _fmt_ms(service_ms):

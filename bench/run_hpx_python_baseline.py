@@ -46,11 +46,19 @@ import threading
 import time
 import uuid
 
-# Make the repo-local rayx package importable without requiring PYTHONPATH.
+# Make the repo-local rayx package importable without requiring PYTHONPATH, and
+# the bench/ dir importable so the shared service-sequence helper resolves.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _RAYX_SRC = os.path.join(_REPO_ROOT, "python", "src")
 if _RAYX_SRC not in sys.path:
     sys.path.insert(0, _RAYX_SRC)
+_BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
+if _BENCH_DIR not in sys.path:
+    sys.path.insert(0, _BENCH_DIR)
+
+# Canonical deterministic service sequence, shared with run_ray_baseline and
+# mirrored by the native C++ service_for. See bench/service_sequence.py.
+from service_sequence import service_for as _service_for  # noqa: E402
 
 try:
     from rayx import Engine, SyntheticActor  # noqa: E402
@@ -110,30 +118,6 @@ def _default_workload(args):
     if args.service_ms == 0:
         return f"noop_{suffix}"
     return f"{prefix}_{_fmt_ms(args.service_ms)}ms_{suffix}"
-
-
-_MASK64 = (1 << 64) - 1
-
-
-def _service_for(idx, args):
-    """Per-request requested service time in ms (a pure function of idx).
-
-    fixed   -> always args.service_ms (existing behavior).
-    bimodal -> deterministic splitmix64 draw keyed by (seed, idx): if the draw
-               in [0,1) is < service_p_high use service_high, else service_low.
-               No stateful RNG, so the same seed reproduces the same sequence
-               and (because the mix is portable integer arithmetic) the sequence
-               is engine-independent. Decorrelated from lane assignment
-               (lane = idx % num_lanes), unlike a periodic cycle.
-    """
-    if args.service_pattern == "fixed":
-        return args.service_ms
-    z = (args.seed + idx * 0x9E3779B97F4A7C15) & _MASK64
-    z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
-    z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
-    z = z ^ (z >> 31)
-    draw = z / 2 ** 64
-    return args.service_high if draw < args.service_p_high else args.service_low
 
 
 def _make_record(args, run_id, workload, req_id, row, retire_mode,
@@ -437,7 +421,9 @@ def parse_args(argv=None):
                         "--service-ms for every request. 'bimodal' draws "
                         "service_high with probability --service-p-high else "
                         "service_low, deterministically per request index (see "
-                        "--seed). bimodal is one_by_one-only (not batch).")
+                        "--seed); the same seed yields an identical sequence "
+                        "across Ray/HPX/rayx (shared bench/service_sequence.py). "
+                        "bimodal is one_by_one-only (not batch).")
     p.add_argument("--service-low", type=float, default=1.0,
                    help="bimodal: low service time in ms. Default 1.0.")
     p.add_argument("--service-high", type=float, default=20.0,
@@ -474,7 +460,9 @@ def parse_args(argv=None):
                         "--concurrency in flight, block until >=1 ready via "
                         "Engine.wait, retire up to --wait-batch ready with one "
                         "shared recv_ns, refill) -- the Python-frontend analog "
-                        "of the native batch_wait path. batch_wait is engine "
+                        "of the native batch_wait path: windowed as-completed "
+                        "retirement, NOT the bulk one-crossing dispatch of "
+                        "--api batch/submit_batch. batch_wait is engine "
                         "single-client only.")
     p.add_argument("--wait-batch", type=int, default=8,
                    help="batch_wait: max ready futures retired per wait sweep "

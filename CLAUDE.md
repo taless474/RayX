@@ -42,8 +42,10 @@ When preserving old measurements, mark superseded interpretations clearly instea
 * `readme.md`: short overview, Quickstart, headline result, and documentation map.
 * `docs/`: stable project framing and reference documentation.
 * `docs/reference/`: API/reference notes.
+* `bench/`: benchmark drivers, analyzers, smoke/contract checks, and shared helpers.
 * `benchmarks/NN_name/`: chronological benchmark write-ups and curated aggregate artifacts where applicable.
 * `experiments/NN_name/`: chronological investigative write-ups and curated artifacts where applicable.
+* `examples/`: small runnable API examples.
 * `results/`: raw scratch/generated outputs. These should remain ignored.
 
 ## Working style
@@ -51,10 +53,12 @@ When preserving old measurements, mark superseded interpretations clearly instea
 For design, API shape, benchmark design, diagnostics, or new files:
 
 1. Inspect the existing tree first.
-2. Give a short plan.
+2. Give a short plan when the design/API choice is risky or ambiguous.
 3. List exact files to create or edit.
 4. Explain the intended CLI and output schema when relevant.
-5. Stop for approval before editing.
+5. Stop for approval before editing only for risky API/design/benchmark choices or when explicitly asked.
+
+When the direction is already clear, prefer one coherent, reviewable work chunk that bundles implementation, docs/reference consistency, validation, and reporting. Avoid unnecessary tiny back-and-forth slices.
 
 For small documentation-only updates, editing may proceed if the requested change is clear.
 
@@ -62,7 +66,7 @@ For build, run, and test tasks, proceed without asking when the command is obvio
 
 ## Implementation rules
 
-Prefer small slices.
+Prefer coherent, reviewable slices.
 
 Keep dependencies minimal.
 
@@ -104,6 +108,12 @@ For native diagnostic output:
 * Keep normal JSONL schema and analyzer behavior unchanged when diagnostics are off.
 * Diagnostic summaries should be compact and separate from normal per-request JSONL.
 
+For deterministic synthetic workloads:
+
+* Keep Ray and `rayx` Python drivers on the shared `bench/service_sequence.py` helper.
+* Do not duplicate or silently drift the fixed/bimodal service-sequence logic.
+* If the deterministic sequence intentionally changes, update the golden smoke and any native golden check together.
+
 ## Documentation rules
 
 Use `readme.md` for the short project overview, Quickstart, headline result, and documentation map.
@@ -120,6 +130,7 @@ Use:
 * `docs/reference/` for API/reference material.
 * `benchmarks/` for benchmark write-ups.
 * `experiments/` for investigative write-ups and curated evidence packages.
+* `examples/` for small runnable API examples.
 
 Keep documentation concise and stable. Avoid one-time scratch notes in persistent docs.
 
@@ -154,6 +165,8 @@ Every slice should end with a clear report:
 * remaining caveats
 
 When a benchmark, diagnostic, or new CLI behavior is added, include a small smoke command or smoke test that can run quickly on a laptop.
+
+Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 
 ## Style
 

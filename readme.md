@@ -30,7 +30,6 @@ replacement.
   functions remotely.
 * Not benchmarking real model inference.
 
-
 ## Current status
 
 * Ray actor baseline, HPX-native synthetic baseline, and the `rayx` Python
@@ -40,10 +39,7 @@ replacement.
   service × concurrency matrix, multi-lane scaling, variable (bimodal) service,
   lane sweeps, a multi-client-thread driver (Python and native C++), and a
   CPU-bound `work_mode=spin` mode with a saturation-knee sweep.
-* Headline result: `rayx` tracks HPX-native on throughput and total latency and
-  stays far below Ray actor-process overhead for tiny/native work; Ray reaches
-  throughput parity only at high actor counts and retains a worse tail.
-* See the documentation map below for the per-experiment result notes.
+* Headline result below; per-experiment result notes in the documentation map.
 
 ## Quickstart / smoke run
 
@@ -61,17 +57,23 @@ python bench/analyze_jsonl.py results/ray_noop_c1.jsonl
 ```
 
 **HPX / rayx smoke** — this is *not* a one-line setup. The rayx Python frontend
-(and the HPX-native baseline) require HPX 1.11 built and installed from source,
-then the local pybind11 `_rayx` extension built against that install prefix. See
+(and the HPX-native baseline) require HPX v1.11.0 built and installed from
+source, then the local pybind11 `_rayx` extension built against that install
+prefix. See
 [docs/hpx_build_notes.md](docs/hpx_build_notes.md) for the full HPX build. Once
 HPX is installed:
 
 ```bash
 pip install -r requirements-python.txt   # pybind11
 
-# build the _rayx extension into python/src/rayx (no install step needed)
+# build the _rayx extension into python/src/rayx (no install step needed).
+# -DPYBIND11_FINDPYTHON=ON is required so pybind11 binds the active Python (run
+# this from your activated env) instead of a system one; the pybind11 cmakedir
+# must be on CMAKE_PREFIX_PATH so find_package(pybind11) resolves.
 cmake -S python -B python/build -G Ninja \
-    -DCMAKE_PREFIX_PATH=/path/to/hpx-install
+    -DCMAKE_BUILD_TYPE=Release \
+    -DPYBIND11_FINDPYTHON=ON \
+    -DCMAKE_PREFIX_PATH="/path/to/hpx-install;$(python -m pybind11 --cmakedir)"
 cmake --build python/build
 
 # rayx smoke (the driver adds python/src to sys.path automatically)
@@ -82,6 +84,17 @@ python bench/analyze_jsonl.py results/rayx_noop_c1.jsonl
 ```
 
 Per-request JSONL and an aggregate summary are written under `results/`.
+
+For a minimal walkthrough of the `rayx` Python API itself (`Engine` context
+manager, `submit`, `wait`, `as_completed`, once-only `result`, graceful-drain
+shutdown), see [examples/rayx_basic.py](examples/rayx_basic.py) — runnable once
+`_rayx` is built.
+
+To run the available local smoke/golden gates in one step, use the stdlib-only
+aggregator [bench/smoke_local.py](bench/smoke_local.py): `python
+bench/smoke_local.py` runs the checks that apply on your machine and skips any
+unavailable optional tier (no built `_rayx`, no native binary, no Ray). It is a
+validation helper, not a benchmark.
 
 The native HPX baseline also accepts an opt-in `--diag` flag that writes a
 separate `<out>.diag.json` (schema `diag-1`) decomposing per-request latency

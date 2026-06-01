@@ -60,9 +60,24 @@ with Engine(num_lanes=16, hpx_threads=4) as engine:
         rows = [f.result(recv_ns=recv_ns) for f in ready]
 ```
 
+An ergonomic generator wraps that wait loop — `Engine.as_completed` /
+`SyntheticActor.as_completed`:
+
+```python
+with Engine(num_lanes=16, hpx_threads=4) as engine:
+    inflight = [engine.submit(service_ms=5) for _ in range(32)]
+    for f in engine.as_completed(inflight):  # blocks in HPX between sweeps
+        row = f.result()                      # caller retires each future
+```
+
+A small runnable tour of these calls (context manager, `submit`, `wait`,
+`as_completed`, once-only `result`, graceful-drain shutdown) is in
+`examples/rayx_basic.py` — runnable after the `_rayx` extension is built.
+
 The complete small API surface is: `Engine.submit(...)`,
-`Engine.submit_batch(...)`, `Engine.wait(...)`, `SyntheticActor.remote(...)`,
-`SyntheticActor.remote_batch(...)`, `SyntheticActor.wait(...)`, plus
+`Engine.submit_batch(...)`, `Engine.wait(...)`, `Engine.as_completed(...)`,
+`SyntheticActor.remote(...)`, `SyntheticActor.remote_batch(...)`,
+`SyntheticActor.wait(...)`, `SyntheticActor.as_completed(...)`, plus
 `Future.ready()` / `Future.result(...)`.
 
 * **`Future.ready() -> bool`** — non-blocking readiness check (raises if the
@@ -70,22 +85,57 @@ The complete small API surface is: `Engine.submit(...)`,
   it in a Python loop in benchmarks (that holds the GIL and reintroduces a
   Python/GIL artifact) — use `Engine.wait` to block in HPX instead.
 * **`Future.result(recv_ns=None)`** — default behavior unchanged (captures its
-  own receive timestamp). The optional `recv_ns` (a `time.perf_counter_ns()`
+  own receive timestamp). Retiring **consumes** the Future: `result()` may be
+  called only once; a second call raises `RuntimeError` (and `ready()` likewise
+  raises after retire) rather than surfacing a raw HPX error. The optional
+  `recv_ns` (a `time.perf_counter_ns()`
   value) is for batch / as-completed retire paths: pass one shared `recv_ns` for
   every future retired in a single `Engine.wait` sweep, matching native
   `batch_wait`'s per-sweep receive timestamp. Only correct for an already-ready
   future. Returns a per-request timing dict (`actor_id`, `submit_ns`,
   `start_ns`, `end_ns`, `total_ms`, `queue_wait_ms`, `service_ms_observed`,
   `status`, `error`).
+* **`repr(future)`** — debug-friendly and non-blocking: shows `pending` /
+  `ready` for a live future and `retired` after a successful `result()`, plus
+  `submit_ns` (e.g. `<rayx.Future ready submit_ns=123>`). It never blocks or
+  consumes the future.
 * **`Engine.wait(futures, num_returns=1) -> (ready, not_ready)`** — a Ray-like
   wait primitive (`ray.wait`). It **blocks in C++/HPX with the GIL released**
   (`hpx::wait_some`, not a Python busy-poll) until at least `num_returns` futures
   are ready, then returns a partition of the **original** `Future` objects — so
   each keeps its Python-side `submit_ns`. `num_returns=1` is wait-any behavior.
-  `SyntheticActor.wait(...)` forwards to it.
+  Each `Future` may appear at most once in the input list; a duplicate raises
+  `ValueError`. `SyntheticActor.wait(...)` forwards to it.
+* **`Engine.as_completed(futures)`** — an ergonomic **generator** wrapping
+  `Engine.wait`. It copies the inputs into an internal in-flight list and
+  repeatedly calls `wait(inflight, num_returns=1)`, yielding each sweep's ready
+  Futures and continuing with the not-ready ones until all are exhausted. The
+  block therefore happens **inside C++/HPX with the GIL released** (`Engine.wait`
+  → `hpx::wait_some`), **not** a Python busy-poll. It yields the **original**
+  `Future` objects (each keeping its `submit_ns`), exactly once each; the
+  **caller** calls `.result()` on each yielded future. `SyntheticActor.as_completed(...)`
+  forwards to it. This is a convenience wrapper, **not** the benchmark
+  `batch_wait` retire path: it does not share one `recv_ns` across a ready
+  sweep, so drivers that need per-sweep shared-`recv_ns` fairness keep their
+  explicit `wait` loop (see `docs/reference/rayx_submit_batch.md` §2a).
 
 Both classes own one HPX runtime, so only one active `Engine` or
 `SyntheticActor` is allowed per process; both are context managers.
+
+### Lifecycle / shutdown
+
+`Engine.shutdown()` (also context-manager exit, `__del__`, and
+`SyntheticActor.shutdown()`, which forwards to it) is a **graceful drain**: it
+**blocks** until every queued and in-flight request submitted before shutdown
+completes and its `Future` is fulfilled, then stops the HPX runtime. It does
+**not** cancel or drop work, so shutdown latency can scale with the outstanding
+queued service time.
+
+Consequently, **Futures submitted before shutdown stay valid afterward** and are
+ready: `future.ready()` returns `True` and `future.result()` retires the row as
+usual, even after the owning engine has been shut down. New work after shutdown
+still raises (`Engine is shut down`): `submit`, `submit_batch`, `wait`, and
+`as_completed` (which goes through `wait`).
 
 ## 3. What it is
 

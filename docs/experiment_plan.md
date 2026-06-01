@@ -220,7 +220,9 @@ analyze results/ray_sleep5_c8.jsonl --out results/ray_sleep5_c8.summary.json
 ## 11. Smoke / Contract Gates
 
 Small, fast checks that lock a contract's *shape* (not its numbers) so a later
-change can't silently break it. Run locally; not wired into CI.
+change can't silently break it. Run locally, and wired into CI (the
+dependency-free checks run in `ci.yml`; the ones needing the built native
+binary or rayx extension run in `native-rayx-smoke.yml`).
 
 ### `diag` contract gate — `bench/smoke_diag.py`
 
@@ -244,3 +246,46 @@ change can't silently break it. Run locally; not wired into CI.
 * **Prerequisite:** the native baseline must be built first
   (`cmake --build hpx_impl/build`). The script uses only a small synthetic
   workload and a temp directory, so it leaves no result artifacts.
+
+### Service-sequence golden gate — `bench/smoke_service_sequence.py`
+
+* **What it guards:** the deterministic `fixed`/`bimodal` service selection (§3)
+  stays identical across engines. `bench/service_sequence.py` is the shared
+  Python source of truth, imported by both `run_ray_baseline.py` and
+  `run_hpx_python_baseline.py`; the native C++ `service_for` mirrors the same
+  splitmix64 logic.
+* **Asserts (golden values, no timing):** for the golden cell
+  `service-low=1, service-high=20, service-p-high=0.1, seed=0`, the first values
+  are `[20, 1, 1, 20, 1, 1, 1, 1]` (high at idx 0 and 3), with the full
+  golden table pinned in the script.
+* **Coverage:** `bench/smoke_service_sequence.py` is dependency-free (no Ray /
+  rayx) and runs in `ci.yml`; `native-rayx-smoke.yml` runs a tiny one-lane,
+  concurrency-1 bimodal seed=0 cell on the built native binary and checks the
+  emitted `service_ms_requested` JSONL against the same golden values, so the
+  C++ mirror cannot drift.
+* **Pass condition:** exit code 0, prints `OK: service-sequence golden check
+  passed`.
+
+### rayx contract + retire-mode gates — `bench/smoke_rayx.py`, driver smoke
+
+* **What they guard:** the rayx Python frontend's API/behavior shape and the two
+  client retire modes. `bench/smoke_rayx.py` locks the `Engine` / `Future` /
+  `SyntheticActor` surface, including `Engine.wait`'s contracts (empty list, bad
+  `num_returns`, retired Future, duplicate Future, post-shutdown). The driver
+  retire-mode smoke runs a tiny no-op cell through both `--retire-mode
+  one_by_one` and `--retire-mode batch_wait` and parses each output with the
+  analyzer, so both retire paths stay runnable end to end.
+* **Coverage:** both run in `native-rayx-smoke.yml` (they need the built `_rayx`
+  extension). `bench/smoke_rayx.py` prints `OK: rayx smoke passed`.
+
+### Local aggregator — `bench/smoke_local.py`
+
+* **What it is:** one stdlib-only entry point that runs the gates above in order
+  and prints a `PASS`/`FAIL`/`SKIP` line per check. A component that is
+  unavailable (no built `_rayx`, no native binary, no Ray) is **skipped**, not
+  failed, so the same command works on any machine. It adds no new checks and
+  asserts no timing — just a convenience wrapper for local validation; CI still
+  invokes the individual gates directly.
+* **Command:** `python bench/smoke_local.py` (scratch goes under the gitignored
+  `results/_smoke_local/` and is cleaned up on exit).
+* **Pass condition:** exit code 0 — every *available* component passed.

@@ -146,7 +146,6 @@ Batch mode is a throughput tool, not a steady-state latency mode.
 
 ## 9. Suggested next directions
 
-* `SyntheticActor.remote_batch()` façade, if we want API symmetry.
 * Variable service-time workload (instead of fixed sleep).
 * Streaming / cancellation workload.
 * A real native backend.

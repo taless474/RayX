@@ -77,14 +77,26 @@ cmake -S /tmp/hpxprobe -B /tmp/hpxprobe/build \
       -DCMAKE_PREFIX_PATH=/Users/unick/Desktop/Repos/hpx-install
 ```
 
-## Using the install from RayX (next slice)
+## Using the install from RayX
 
-The future `hpx_impl/CMakeLists.txt` will use:
+The native baseline `hpx_impl/CMakeLists.txt` consumes the prefix with:
 
 ```bash
 cmake -S hpx_impl -B hpx_impl/build -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH=/Users/unick/Desktop/Repos/hpx-install
+```
+
+The `rayx` Python frontend (`python/CMakeLists.txt`) additionally needs pybind11
+on the prefix path and `-DPYBIND11_FINDPYTHON=ON`, so it binds the active Python
+instead of a system one:
+
+```bash
+cmake -S python -B python/build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPYBIND11_FINDPYTHON=ON \
+  -DCMAKE_PREFIX_PATH="/Users/unick/Desktop/Repos/hpx-install;$(python -m pybind11 --cmakedir)"
+cmake --build python/build
 ```
 
 ## Benign warnings observed (not errors)

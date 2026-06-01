@@ -30,6 +30,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace py = pybind11;
@@ -52,6 +53,16 @@ public:
     // Block (GIL released) for the result; return C++-measured fields only.
     // The Python layer adds submit_ns/total_ms/queue_wait_ms (its own clock).
     py::dict result() {
+        // Retiring consumes the future: fut_.get() moves the value out and
+        // leaves the hpx::future invalid. Guard a second call with a clean
+        // RayX-level error BEFORE releasing the GIL / calling fut_.get() again,
+        // mirroring ready()'s guard (otherwise fut_.get() throws a raw HPX
+        // no_state error).
+        if (!fut_.valid()) {
+            throw std::runtime_error(
+                "Future is invalid (already retired via result()); cannot "
+                "call result() again");
+        }
         rayhpx::Result r;
         {
             py::gil_scoped_release release;
@@ -178,14 +189,30 @@ public:
     // given _Future objects are ready, then return the indices (into the input
     // list) of ALL currently-ready futures. The caller retires the ones it
     // wants and keeps the rest in flight -- this is the primitive behind the
-    // batch_wait retire loop and mirrors ray.wait(num_returns=k) / the native
-    // hpx::wait_some. num_returns=1 gives wait_any semantics.
+    // batch_wait retire loop and mirrors ray.wait(num_returns=k).
     //
-    // It does NOT consume any future: the underlying hpx::futures are moved
-    // into a temp vector for hpx::wait_some and moved back into the SAME
-    // _Future objects (Python keeps ownership; each Future's Python-side
-    // submit_ns is preserved). The move-back is exception-safe (RAII), and the
-    // wait blocks inside HPX -- never a busy-poll under the GIL.
+    // Why hpx::wait_some: it is the one HPX combinator that spans both
+    // num_returns==1 (wait_any) and num_returns>1 uniformly. hpx::wait_any only
+    // covers k==1; hpx::when_any returns a future<when_any_result> (a heavier
+    // composer that allocates a continuation and moves the inputs into its
+    // result) -- the wrong shape for this simple blocking partition.
+    //
+    // It does NOT consume any future. hpx::wait_some acquires each future's
+    // *shared state* and guarantees "all input futures are still valid after
+    // wait_some returns" (HPX 1.11 docs), so it never reads/invalidates a value.
+    // We still move the underlying hpx::futures into a temp vector and back into
+    // the SAME _Future objects only because hpx::future is move-only and we use
+    // the std::vector overload; the futures live in separate pybind objects, not
+    // contiguously. (An iterator overload could wait over references in place,
+    // but the explicit move-out + RAII restore is clearer and avoids a custom
+    // future-iterator adaptor.) Python keeps ownership; each Future's Python-side
+    // submit_ns is preserved.
+    //
+    // Threading: wait_some here blocks the *external Python caller OS thread*,
+    // not an HPX worker thread (the runtime was started via hpx::start on its
+    // own threads), so blocking it does not starve the HPX scheduler. The GIL is
+    // released around the blocking wait so other Python threads can run; it is
+    // never a busy-poll under the GIL.
     py::list wait(py::list futures, int num_returns) {
         if (!running_) throw std::runtime_error("Engine is shut down");
         const std::size_t n = futures.size();
@@ -197,33 +224,51 @@ public:
 
         // Borrow the C++ wrappers (Python retains the objects). A non-_Future
         // entry raises TypeError via pybind's cast; an already-retired future
-        // raises a clear error.
+        // raises a clear error. A duplicate (the same underlying _Future seen
+        // twice) is rejected here, BEFORE any take() below -- otherwise we would
+        // move the same hpx::future out twice and corrupt it.
         std::vector<EngineFuture*> efs;
         efs.reserve(n);
+        std::unordered_set<EngineFuture*> seen;
+        seen.reserve(n);
         for (py::handle h : futures) {
             EngineFuture* ef = h.cast<EngineFuture*>();
             if (!ef->valid_now()) {
                 throw std::runtime_error(
                     "wait() received a Future already retired via result()");
             }
+            if (!seen.insert(ef).second) {
+                throw std::invalid_argument(
+                    "wait() received the same Future more than once; each "
+                    "Future may appear at most once");
+            }
             efs.push_back(ef);
         }
 
-        // Move the futures out, and guarantee they are moved back even if
-        // wait_some throws, so the Python _Future objects stay intact.
+        // Move each underlying future out into `tmp`, guarded by a RAII Restore
+        // that moves them back into the SAME _Future objects on EVERY exit path
+        // (normal return or an exception out of wait_some). The guard is
+        // installed BEFORE the take loop and restores exactly as many as were
+        // taken (`tmp.size()`), so even a partial take is unwound cleanly and a
+        // Python _Future is never left moved-from. (In practice take() and the
+        // reserved push_back are noexcept, so the take loop itself does not
+        // throw; the guard's real job is the blocking wait_some below.)
         std::vector<hpx::future<rayhpx::Result>> tmp;
         tmp.reserve(n);
-        for (EngineFuture* ef : efs) tmp.push_back(ef->take());
         struct Restore {
             std::vector<EngineFuture*>& efs;
             std::vector<hpx::future<rayhpx::Result>>& tmp;
             ~Restore() {
-                for (std::size_t i = 0; i < efs.size(); ++i)
+                for (std::size_t i = 0; i < tmp.size(); ++i)
                     efs[i]->put(std::move(tmp[i]));
             }
         } restore{efs, tmp};
+        for (EngineFuture* ef : efs) tmp.push_back(ef->take());
 
         {
+            // Release the GIL ONLY around the blocking HPX wait. No Python
+            // objects are touched inside this scope (tmp holds C++ futures); the
+            // ready-list construction below runs with the GIL reacquired.
             py::gil_scoped_release release;
             hpx::wait_some(static_cast<std::size_t>(num_returns), tmp);
         }
@@ -306,7 +351,7 @@ py::dict hpx_smoke() {
 }  // namespace
 
 PYBIND11_MODULE(_rayx, m) {
-    m.doc() = "RayHPX rayx: minimal Python frontend over HPX service lanes";
+    m.doc() = "RayX rayx: minimal Python frontend over HPX service lanes";
 
     py::class_<EngineFuture>(m, "_Future")
         .def("result", &EngineFuture::result,
