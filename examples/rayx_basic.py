@@ -39,14 +39,17 @@ def main():
         # NOT a Python busy-poll) until >= num_returns are ready, returning a
         # (ready, not_ready) partition of the SAME Future objects.
         print("\n-- Engine.wait (windowed as-completed) --")
-        pending = [engine.submit(service_ms=2) for _ in range(4)]
+        # Optional client-side label: pure metadata echoed back in the row as
+        # row["label"] (it never crosses C++ and is not a payload), handy for
+        # mapping a retired row back to a user-level request id.
+        pending = [engine.submit(service_ms=2, label=f"req-{i}") for i in range(4)]
         while pending:
             ready, pending = engine.wait(pending, num_returns=1)
-            for fut in ready:
-                # (5) Retire each Future exactly once. result() consumes it; a
-                # second result()/ready() on the same Future would raise.
-                row = fut.result()
-                print(f"  wait  -> lane={row['actor_id']} "
+            # (5) Retire the ready Futures with engine.get (list -> rows in
+            # input order). get consumes each Future once, like result(); it
+            # returns RayX measurement rows, NOT a Ray object-store value.
+            for row in engine.get(ready):
+                print(f"  wait  -> label={row['label']} lane={row['actor_id']} "
                       f"status={row['status']} "
                       f"service_ms={row['service_ms_observed']:.3f}")
 
@@ -62,10 +65,64 @@ def main():
                   f"status={row['status']} "
                   f"service_ms={row['service_ms_observed']:.3f}")
 
+        # Engine.wait(..., timeout=0) is a NON-BLOCKING poll: it returns
+        # (ready_now, pending_now) right away and does NOT consume the futures
+        # (you still call result()/get() once to retire a ready one). timeout is
+        # in seconds -- None blocks, 0 polls; a finite >0 raises
+        # NotImplementedError (HPX 1.11 has no non-consuming timed multi-wait).
+        print("\n-- Engine.wait(timeout=0) (non-blocking readiness poll) --")
+        polled = [engine.submit(service_ms=5) for _ in range(4)]
+        ready_now, pending_now = engine.wait(polled, timeout=0)  # no block
+        print(f"  poll  -> {len(ready_now)} ready, {len(pending_now)} pending "
+              "(nothing consumed)")
+        # The poll left every future valid; block to drain the same objects.
+        for row in engine.get(engine.wait(polled, num_returns=len(polled))[0]):
+            print(f"  drain -> lane={row['actor_id']} status={row['status']} "
+                  f"service_ms={row['service_ms_observed']:.3f}")
+
+        # (8) work_mode picks the synthetic service-time shape. The default
+        # "sleep" parks the lane (blocking sleep); "spin" keeps it CPU-bound
+        # (busy on-core, no sleep) for the requested duration. Both are SYNTHETIC
+        # service-time shapes, not payload/function execution -- the row shape is
+        # identical (work_mode is an input, not echoed in the row); the effect
+        # shows up in service_ms_observed.
+        print("\n-- work_mode='spin' (CPU-bound synthetic service) --")
+        row = engine.submit(service_ms=2, work_mode="spin", label="spin-a").result()
+        print(f"  spin  -> label={row['label']} lane={row['actor_id']} "
+              f"status={row['status']} "
+              f"service_ms={row['service_ms_observed']:.3f}")
+
+        # (9) Variable service time: submit_batch accepts a LIST of per-request
+        # service times (one request per element, input order preserved, count
+        # inferred) so a single bulk submission can model a skewed/heterogeneous
+        # synthetic workload. Single-request submit() stays scalar-only; the row
+        # shape is unchanged (each row reports its own service_ms_observed).
+        print("\n-- variable service time (submit_batch with a list) --")
+        for i, fut in enumerate(
+                engine.submit_batch(service_ms=[1, 5, 2], work_mode="spin")):
+            row = fut.result()
+            print(f"  varied[{i}] -> lane={row['actor_id']} "
+                  f"status={row['status']} "
+                  f"service_ms={row['service_ms_observed']:.3f}")
+
+        # (10) Chunked synthetic service: a single request services in `chunks`
+        # equal active steps (total active = service_ms, split chunks ways), with
+        # an optional PARKED gap between chunks. It is synthetic timing only (not
+        # real token streaming) and still returns ONE future / ONE row that
+        # echoes chunks/chunk_delay_ms. With chunk_delay_ms>0, service_ms_observed
+        # is lane-occupancy time (active service + the parked gaps), not active-
+        # only. Chunking is single-request only (batch is unchunked).
+        print("\n-- chunked service (one request, multi-step lifecycle) --")
+        row = engine.submit(service_ms=6, chunks=3, chunk_delay_ms=2,
+                            work_mode="spin", label="chk").result()
+        print(f"  chunked -> label={row['label']} chunks={row['chunks']} "
+              f"chunk_delay_ms={row['chunk_delay_ms']} status={row['status']} "
+              f"service_ms={row['service_ms_observed']:.3f} (active~6 + gaps)")
+
     # (7) The context exit above called Engine.shutdown(), a graceful drain:
     # it blocks until all queued/in-flight submitted work completes and every
-    # Future is fulfilled, then stops the HPX runtime. Work is never cancelled
-    # or dropped; Futures submitted before shutdown stay valid afterward.
+    # Future is fulfilled, then stops the HPX runtime. Shutdown itself never
+    # cancels or drops work; Futures submitted before shutdown stay valid after.
     print("\nengine shut down (drained); done")
 
 

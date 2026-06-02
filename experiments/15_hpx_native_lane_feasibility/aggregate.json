@@ -1,0 +1,221 @@
+{
+  "experiment": "hpx_native_lane_feasibility",
+  "isolated_primitive_probe": true,
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "note": "ISOLATED HPX-native lane-PRIMITIVE probe. Measures only (1) sleep overshoot for std::this_thread::sleep_for vs hpx::this_thread::sleep_for at 1/5/20ms, and (2) no-op dispatch throughput for the current ServiceLane reference path (single serialized FIFO lane, service_ms=0) vs a plain hpx::async no-op path. NOT comparable to benchmark 06/10 or the serving-control corpus; NO benchmark JSONL schema, NO retire modes, NO Ray, NO rayx frontend. ServiceLane remains the stable actor-like anchor; hpx::async is scheduler territory, not a serving-lane result. spin is unrelated here -- it stays a CPU-bound diagnostic/calibration axis elsewhere. service_lane.hpp is used unmodified. Magnitudes are machine-specific; raw probe JSON is scratch under results/ (gitignored).",
+  "config": {
+    "hpx_threads": 4,
+    "ops": 50000,
+    "repeats": 5,
+    "sleep_samples": 200,
+    "sleep_targets_ms": [
+      1,
+      5,
+      20
+    ]
+  },
+  "probe": {
+    "probe": "hpx_native_lane_feasibility",
+    "schema": "lane-feasibility-1",
+    "isolated_primitive_probe": true,
+    "hpx_threads": 4,
+    "config": {
+      "ops": 50000,
+      "repeats": 5,
+      "sleep_samples": 200,
+      "sleep_targets_ms": [
+        1,
+        5,
+        20
+      ]
+    },
+    "sleep_overshoot": [
+      {
+        "primitive": "std::this_thread::sleep_for",
+        "target_ms": 1,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 1.2654375,
+          "p90": 1.2715,
+          "p99": 1.27724233,
+          "mean": 1.262833105
+        },
+        "overshoot_ms": {
+          "p50": 0.2654375,
+          "p90": 0.2715,
+          "p99": 0.27724233,
+          "mean": 0.262833105
+        },
+        "pct_overshoot": {
+          "p50": 26.54375,
+          "p90": 27.15,
+          "p99": 27.724233
+        }
+      },
+      {
+        "primitive": "std::this_thread::sleep_for",
+        "target_ms": 5,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 6.2656875,
+          "p90": 6.2763461,
+          "p99": 6.29439208,
+          "mean": 6.142647255
+        },
+        "overshoot_ms": {
+          "p50": 1.2656875,
+          "p90": 1.2763461,
+          "p99": 1.29439208,
+          "mean": 1.142647255
+        },
+        "pct_overshoot": {
+          "p50": 25.31375,
+          "p90": 25.526922,
+          "p99": 25.8878416
+        }
+      },
+      {
+        "primitive": "std::this_thread::sleep_for",
+        "target_ms": 20,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 25.0126875,
+          "p90": 25.0358078,
+          "p99": 25.06328666,
+          "mean": 23.89663251
+        },
+        "overshoot_ms": {
+          "p50": 5.0126875,
+          "p90": 5.0358078,
+          "p99": 5.06328666,
+          "mean": 3.89663251
+        },
+        "pct_overshoot": {
+          "p50": 25.0634375,
+          "p90": 25.179039,
+          "p99": 25.3164333
+        }
+      },
+      {
+        "primitive": "hpx::this_thread::sleep_for",
+        "target_ms": 1,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 1.1373955,
+          "p90": 1.1422911,
+          "p99": 1.14886717,
+          "mean": 1.13339689
+        },
+        "overshoot_ms": {
+          "p50": 0.1373955,
+          "p90": 0.1422911,
+          "p99": 0.14886717,
+          "mean": 0.13339689
+        },
+        "pct_overshoot": {
+          "p50": 13.73955,
+          "p90": 14.22911,
+          "p99": 14.886717
+        }
+      },
+      {
+        "primitive": "hpx::this_thread::sleep_for",
+        "target_ms": 5,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 5.6345,
+          "p90": 5.6735247,
+          "p99": 5.70482533,
+          "mean": 5.61253105
+        },
+        "overshoot_ms": {
+          "p50": 0.6345,
+          "p90": 0.6735247,
+          "p99": 0.70482533,
+          "mean": 0.61253105
+        },
+        "pct_overshoot": {
+          "p50": 12.69,
+          "p90": 13.470494,
+          "p99": 14.0965066
+        }
+      },
+      {
+        "primitive": "hpx::this_thread::sleep_for",
+        "target_ms": 20,
+        "samples": 200,
+        "observed_ms": {
+          "p50": 21.0321035,
+          "p90": 21.0607045,
+          "p99": 21.09125334,
+          "mean": 20.951024795
+        },
+        "overshoot_ms": {
+          "p50": 1.0321035,
+          "p90": 1.0607045,
+          "p99": 1.09125334,
+          "mean": 0.951024795
+        },
+        "pct_overshoot": {
+          "p50": 5.1605175,
+          "p90": 5.30352250000001,
+          "p99": 5.45626670000001
+        }
+      }
+    ],
+    "dispatch": [
+      {
+        "path": "service_lane",
+        "note": "current ServiceLane reference path (single serialized FIFO lane, service_ms=0); the actor-like anchor",
+        "ops": 50000,
+        "repeats": 5,
+        "throughput_ops_s": {
+          "per_repeat": [
+            4626630.8873878,
+            4673151.81752426,
+            5949399.8780849,
+            5145444.74291454,
+            4472071.91091633
+          ],
+          "median": 4673151.81752426
+        },
+        "ns_per_op": {
+          "per_repeat": [
+            216.14,
+            213.98834,
+            168.08418,
+            194.34666,
+            223.61
+          ],
+          "median": 213.98834
+        }
+      },
+      {
+        "path": "hpx_async",
+        "note": "plain hpx::async no-op (scheduler territory: trivial tasks across worker threads); NOT a serving-lane result",
+        "ops": 50000,
+        "repeats": 5,
+        "throughput_ops_s": {
+          "per_repeat": [
+            4083049.22115836,
+            4490513.92405086,
+            4228002.29597437,
+            4078774.84697864,
+            3810733.66302277
+          ],
+          "median": 4083049.22115836
+        },
+        "ns_per_op": {
+          "per_repeat": [
+            244.915,
+            222.69166,
+            236.51832,
+            245.17166,
+            262.41666
+          ],
+          "median": 244.915
+        }
+      }
+    ]
+  }
+}

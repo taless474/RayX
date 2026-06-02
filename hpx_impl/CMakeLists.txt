@@ -9,3 +9,9 @@ find_package(HPX REQUIRED)
 # our own flags pass through untouched.
 add_executable(hpx_synthetic_baseline hpx_synthetic_baseline.cpp)
 target_link_libraries(hpx_synthetic_baseline PRIVATE HPX::hpx HPX::wrap_main)
+
+# Isolated lane-primitive feasibility probe (experiments/15). Standalone: it
+# reuses service_lane.hpp unmodified to measure sleep overshoot and no-op
+# dispatch throughput, and is NOT part of the serving-control benchmark corpus.
+add_executable(hpx_lane_feasibility hpx_lane_feasibility.cpp)
+target_link_libraries(hpx_lane_feasibility PRIVATE HPX::hpx HPX::wrap_main)

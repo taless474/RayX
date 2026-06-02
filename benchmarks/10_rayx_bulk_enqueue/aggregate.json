@@ -1,0 +1,165 @@
+{
+  "benchmark": "rayx_bulk_enqueue",
+  "boundary": "hpx-python-frontend",
+  "method": "in-process A/B via internal diagnostics (_set_bulk_enqueue, _submit_batch_cost_probe) + submit_batch()+get() throughput; NOT the JSONL driver/analyzer (the bulk-vs-single difference is internal and not observable in the per-request JSONL)",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "note": "Per-lane BULK batch enqueue (one lock+notify per lane) vs original ONE-BY-ONE enqueue (one lock+notify per request), on no-op (service_ms=0) batches where enqueue overhead dominates. Bulk preserves input order, round-robin actor_id, shared Python submit_ns, scalar/varied forms, batch chunking rejection, batch non-cancellation, and result-row/JSONL schema v1 -- it only changes how requests are pushed onto the lanes. NOT an HPX #4703 scheduler result, NOT Ray, NOT inference, NOT a general workload speedup; magnitudes are machine-specific. enqueue/wrap ns are producer-side (cost probe); throughput is end-to-end submit_batch()+get(), median across repeats.",
+  "matrix": {
+    "service_ms": [
+      0,
+      5
+    ],
+    "lanes": [
+      1,
+      4,
+      8
+    ],
+    "count": [
+      1000,
+      10000
+    ],
+    "modes": [
+      "single",
+      "bulk"
+    ],
+    "probe_reps": 9,
+    "throughput_reps": 7,
+    "sanity_cell": "lanes=4, count=200, service_ms=5 (effect should vanish)"
+  },
+  "cells": [
+    {
+      "lanes": 1,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 876839.9,
+      "enqueue_ns_per_req": 150.25,
+      "pybind_wrap_ns_per_req": 79.62,
+      "producer_ns_per_req": 229.88
+    },
+    {
+      "lanes": 1,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 1020538.3,
+      "enqueue_ns_per_req": 43.21,
+      "pybind_wrap_ns_per_req": 78.58,
+      "producer_ns_per_req": 121.79
+    },
+    {
+      "lanes": 1,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 859774.3,
+      "enqueue_ns_per_req": 159.18,
+      "pybind_wrap_ns_per_req": 70.07,
+      "producer_ns_per_req": 229.25
+    },
+    {
+      "lanes": 1,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 968374.4,
+      "enqueue_ns_per_req": 39.2,
+      "pybind_wrap_ns_per_req": 71.72,
+      "producer_ns_per_req": 110.92
+    },
+    {
+      "lanes": 4,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 632011.4,
+      "enqueue_ns_per_req": 520.75,
+      "pybind_wrap_ns_per_req": 77.33,
+      "producer_ns_per_req": 598.08
+    },
+    {
+      "lanes": 4,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 937463.7,
+      "enqueue_ns_per_req": 67.75,
+      "pybind_wrap_ns_per_req": 74.79,
+      "producer_ns_per_req": 142.54
+    },
+    {
+      "lanes": 4,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 767909.1,
+      "enqueue_ns_per_req": 242.44,
+      "pybind_wrap_ns_per_req": 69.21,
+      "producer_ns_per_req": 311.65
+    },
+    {
+      "lanes": 4,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 809741.2,
+      "enqueue_ns_per_req": 57.34,
+      "pybind_wrap_ns_per_req": 74.31,
+      "producer_ns_per_req": 131.65
+    },
+    {
+      "lanes": 4,
+      "count": 200,
+      "service_ms": 5,
+      "mode": "single",
+      "throughput_req_s": 627.6
+    },
+    {
+      "lanes": 4,
+      "count": 200,
+      "service_ms": 5,
+      "mode": "bulk",
+      "throughput_req_s": 647.0
+    },
+    {
+      "lanes": 8,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 253989.8,
+      "enqueue_ns_per_req": 1355.54,
+      "pybind_wrap_ns_per_req": 82.92,
+      "producer_ns_per_req": 1438.46
+    },
+    {
+      "lanes": 8,
+      "count": 1000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 875560.9,
+      "enqueue_ns_per_req": 101.29,
+      "pybind_wrap_ns_per_req": 74.71,
+      "producer_ns_per_req": 176.0
+    },
+    {
+      "lanes": 8,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "single",
+      "throughput_req_s": 447083.1,
+      "enqueue_ns_per_req": 1245.18,
+      "pybind_wrap_ns_per_req": 70.85,
+      "producer_ns_per_req": 1316.04
+    },
+    {
+      "lanes": 8,
+      "count": 10000,
+      "service_ms": 0,
+      "mode": "bulk",
+      "throughput_req_s": 948654.1,
+      "enqueue_ns_per_req": 66.15,
+      "pybind_wrap_ns_per_req": 80.34,
+      "producer_ns_per_req": 146.49
+    }
+  ]
+}

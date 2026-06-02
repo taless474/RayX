@@ -97,8 +97,8 @@ def _make_record(args, run_id, workload, retire_mode, req_id, submit_ns,
         "queue_wait_ms": queue_wait_ms,
         "service_ms_observed": service_ms_observed,
         "service_ms_requested": service_ms_requested,
-        "chunks": 1,
-        "chunk_delay_ms": 0,
+        "chunks": args.chunks,
+        "chunk_delay_ms": args.chunk_delay_ms,
         "work_mode": args.work_mode,
         "retire_mode": retire_mode,
         "error": result["error"],
@@ -114,7 +114,8 @@ def _submit(actors, rr, args, idx, inflight):
     """
     req_id = f"req-{idx:06d}"
     svc = _service_for(idx, args)
-    req = make_request(req_id, svc, work_mode=args.work_mode)
+    req = make_request(req_id, svc, work_mode=args.work_mode,
+                       chunks=args.chunks, chunk_delay_ms=args.chunk_delay_ms)
     actor = actors[rr[0] % len(actors)]
     rr[0] += 1
     submit_ns = time.perf_counter_ns()
@@ -262,6 +263,16 @@ def parse_args(argv=None):
     p.add_argument("--service-ms", type=float, default=0,
                    help="Service time per request in ms (0 == no-op). Used by "
                         "--service-pattern fixed.")
+    p.add_argument("--chunks", type=int, default=1,
+                   help="Chunked synthetic service: split each request's TOTAL "
+                        "active service_ms into N equal active sleeps (default 1, "
+                        "unchunked). Mirrors the HPX chunk loop (active split + "
+                        "parked gaps); populates the JSONL 'chunks' field; schema "
+                        "stays 1. One row per request (no per-chunk events).")
+    p.add_argument("--chunk-delay-ms", type=float, default=0.0,
+                   help="Chunked synthetic service: parked inter-chunk gap in ms "
+                        "between the chunks-1 boundaries (default 0). With >0, "
+                        "service_ms_observed is lifecycle time (active + gaps).")
     p.add_argument("--service-pattern", default="fixed",
                    choices=["fixed", "bimodal"],
                    help="Per-request service-time model. 'fixed' uses "
@@ -303,6 +314,10 @@ def parse_args(argv=None):
     args = p.parse_args(argv)
     if args.num_actors < 1:
         p.error("--num-actors must be >= 1")
+    if args.chunks < 1:
+        p.error("--chunks must be >= 1")
+    if args.chunk_delay_ms < 0:
+        p.error("--chunk-delay-ms must be >= 0")
     if args.service_pattern == "bimodal":
         if args.service_low < 0 or args.service_high < 0:
             p.error("--service-low and --service-high must be >= 0")

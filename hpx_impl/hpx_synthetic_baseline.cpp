@@ -18,6 +18,7 @@
 #include <hpx/hpx_main.hpp>
 
 #include "service_lane.hpp"
+#include "hpx_lane.hpp"  // opt-in --lane-impl hpx: HPX cooperative lane (native-only)
 
 #include <algorithm>
 #include <atomic>
@@ -41,6 +42,7 @@
 // Reuse the shared service-lane core (now_ns, Request, Result, ServiceLane,
 // WORK_MODE_SLEEP) so this executable and the rayx Python extension run the
 // identical lane mechanism.
+using rayhpx::HpxLane;
 using rayhpx::now_ns;
 using rayhpx::Request;
 using rayhpx::Result;
@@ -53,6 +55,46 @@ namespace {
 constexpr char SCHEMA_VERSION[] = "1";
 constexpr char BACKEND[] = "synthetic";
 constexpr char BOUNDARY[] = "hpx-intra-locality";
+// Opt-in HPX cooperative lane (--lane-impl hpx) records a DISTINCT boundary, so
+// its rows never silently fold into the hpx-intra-locality corpus. Same JSONL
+// schema (boundary is a free-string field; no version change); see
+// experiments/16_hpx_lane_mechanism_probe/.
+constexpr char BOUNDARY_HPXLANE[] = "hpx-intra-locality-hpxlane";
+
+// Lane-impl selector values for --lane-impl.
+constexpr char LANE_IMPL_STD[] = "std";    // default: rayhpx::ServiceLane (anchor)
+constexpr char LANE_IMPL_HPX[] = "hpx";    // opt-in: rayhpx::HpxLane (cooperative)
+
+// ---- Lane abstraction (non-intrusive) -----------------------------------
+//
+// Tiny runtime-polymorphic wrapper so the dispatch loops below call lane.submit
+// /submit_bulk/actor_id regardless of the concrete lane impl, WITHOUT touching
+// service_lane.hpp or duplicating the four retire loops. ServiceLane (the
+// anchor) is wrapped unchanged -- its submit's optional CancelToken out-param
+// defaults to nullptr here, exactly as the native driver always called it.
+// HpxLane has no token param. The virtual is on submit only (not the lane's
+// inner loop), so the per-request overhead is a negligible indirect call.
+struct LaneIface {
+    virtual ~LaneIface() = default;
+    virtual hpx::future<Result> submit(Request req) = 0;
+    virtual std::vector<hpx::future<Result>> submit_bulk(
+        std::vector<Request> reqs) = 0;
+    virtual const std::string& actor_id() const = 0;
+};
+
+template <class L>
+struct LaneAdapter final : LaneIface {
+    L lane_;
+    explicit LaneAdapter(bool diag) : lane_(diag) {}
+    hpx::future<Result> submit(Request req) override {
+        return lane_.submit(std::move(req));
+    }
+    std::vector<hpx::future<Result>> submit_bulk(
+        std::vector<Request> reqs) override {
+        return lane_.submit_bulk(std::move(reqs));
+    }
+    const std::string& actor_id() const override { return lane_.actor_id(); }
+};
 
 // Client retire modes (mirror bench/run_ray_baseline.py).
 constexpr char RETIRE_ONE_BY_ONE[] = "one_by_one";
@@ -73,7 +115,18 @@ struct Options {
     int num_lanes = 1;
     int wait_batch = 8;
     int client_threads = 1;
+    // Chunked synthetic service: service_ms is split into `chunks` equal active
+    // steps with `chunk_delay_ms` parked gaps between them (chunks-1 gaps).
+    // Defaults (1 / 0) reproduce the unchunked single-step path byte-for-byte.
+    int chunks = 1;
+    double chunk_delay_ms = 0.0;
     std::string work_mode = WORK_MODE_SLEEP;
+    // Lane mechanism: "std" (default; rayhpx::ServiceLane, the stable anchor) or
+    // "hpx" (opt-in; rayhpx::HpxLane cooperative lane). Default keeps every
+    // existing invocation byte-identical. `boundary` is derived from this in
+    // main() (std -> hpx-intra-locality, hpx -> hpx-intra-locality-hpxlane).
+    std::string lane_impl = LANE_IMPL_STD;
+    std::string boundary;  // set in main() from lane_impl
     std::string retire_mode = RETIRE_ONE_BY_ONE;
     std::string service_pattern = PATTERN_FIXED;
     double service_low = 1.0;
@@ -207,6 +260,18 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
             const char* v = need_value(i);
             if (!v) { err = "missing value for --work-mode"; return false; }
             opt.work_mode = v;
+        } else if (a == "--lane-impl") {
+            const char* v = need_value(i);
+            if (!v) { err = "missing value for --lane-impl"; return false; }
+            opt.lane_impl = v;
+        } else if (a == "--chunks") {
+            const char* v = need_value(i);
+            if (!v) { err = "missing value for --chunks"; return false; }
+            opt.chunks = std::stoi(v);
+        } else if (a == "--chunk-delay-ms") {
+            const char* v = need_value(i);
+            if (!v) { err = "missing value for --chunk-delay-ms"; return false; }
+            opt.chunk_delay_ms = std::stod(v);
         } else if (a == "--service-pattern") {
             const char* v = need_value(i);
             if (!v) { err = "missing value for --service-pattern"; return false; }
@@ -260,6 +325,15 @@ bool parse_args(int argc, char** argv, Options& opt, std::string& err) {
     }
     if (opt.work_mode != WORK_MODE_SLEEP && opt.work_mode != WORK_MODE_SPIN) {
         err = "unsupported --work-mode: " + opt.work_mode + " (sleep | spin)";
+        return false;
+    }
+    if (opt.lane_impl != LANE_IMPL_STD && opt.lane_impl != LANE_IMPL_HPX) {
+        err = "unsupported --lane-impl: " + opt.lane_impl + " (std | hpx)";
+        return false;
+    }
+    if (opt.chunks < 1) { err = "--chunks must be >= 1"; return false; }
+    if (opt.chunk_delay_ms < 0.0) {
+        err = "--chunk-delay-ms must be >= 0";
         return false;
     }
     if (opt.retire_mode != RETIRE_ONE_BY_ONE &&
@@ -330,7 +404,7 @@ std::string record_to_json(const Options& opt, const std::string& run_id,
       << "\"schema_version\": \"" << SCHEMA_VERSION << "\", "
       << "\"run_id\": \"" << json_escape(run_id) << "\", "
       << "\"backend\": \"" << BACKEND << "\", "
-      << "\"boundary\": \"" << BOUNDARY << "\", "
+      << "\"boundary\": \"" << opt.boundary << "\", "
       << "\"workload\": \"" << json_escape(workload) << "\", "
       << "\"request_id\": \"" << json_escape(r.request_id) << "\", "
       << "\"actor_id\": \"" << json_escape(r.actor_id) << "\", "
@@ -343,8 +417,8 @@ std::string record_to_json(const Options& opt, const std::string& run_id,
       << "\"queue_wait_ms\": " << fmt_double(queue_wait_ms) << ", "
       << "\"service_ms_observed\": " << fmt_double(service_ms_observed) << ", "
       << "\"service_ms_requested\": " << fmt_double(service_ms_requested) << ", "
-      << "\"chunks\": 1, "
-      << "\"chunk_delay_ms\": 0, "
+      << "\"chunks\": " << opt.chunks << ", "
+      << "\"chunk_delay_ms\": " << fmt_double(opt.chunk_delay_ms) << ", "
       << "\"work_mode\": \"" << json_escape(opt.work_mode) << "\", "
       << "\"retire_mode\": \"" << json_escape(opt.retire_mode) << "\", "
       << "\"error\": ";
@@ -363,7 +437,7 @@ std::string record_to_json(const Options& opt, const std::string& run_id,
 // `rr` is advanced so submission order maps to lanes[k % N]; with one lane this
 // is lanes[0], reproducing the original single-lane behavior.
 hpx::future<Result> submit_idx(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int idx, int& rr) {
     Request req;
     char buf[32];
@@ -371,8 +445,10 @@ hpx::future<Result> submit_idx(
     req.request_id = buf;
     req.service_ms_requested = service_for(opt, idx);
     req.work_mode = opt.work_mode;
+    req.chunks = opt.chunks;
+    req.chunk_delay_ms = opt.chunk_delay_ms;
     req.submit_ns = now_ns();
-    ServiceLane& lane = *lanes[rr % lanes.size()];
+    LaneIface& lane = *lanes[rr % lanes.size()];
     ++rr;
     return lane.submit(std::move(req));
 }
@@ -380,7 +456,7 @@ hpx::future<Result> submit_idx(
 // one_by_one: hold --concurrency in flight, retire the oldest, submit one.
 // Behavior-preserving with the pre-refactor driver.
 std::vector<Result> dispatch_one_by_one(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int count, bool record) {
     std::vector<Result> results;
     if (record) results.reserve(count);
@@ -408,7 +484,7 @@ std::vector<Result> dispatch_one_by_one(
 // recv_ns (matching Ray's ray.wait(num_returns=k) + one perf_counter after
 // ray.get(done)), then refill. No busy-spin: hpx::wait_any blocks.
 std::vector<Result> dispatch_batch_wait(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int count, bool record) {
     std::vector<Result> results;
     if (record) results.reserve(count);
@@ -455,7 +531,7 @@ std::vector<Result> dispatch_batch_wait(
 // all with a single batch recv_ns. Latency percentiles here are queue/bulk
 // shaped; throughput is the meaningful metric.
 std::vector<Result> dispatch_submit_all(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int count, bool record) {
     std::vector<Result> results;
     if (record) results.reserve(count);
@@ -487,7 +563,7 @@ std::vector<Result> dispatch_submit_all(
 // submit() is already mutex-protected, so concurrent submits to the same lane
 // are safe with no change to service_lane.hpp.
 hpx::future<Result> submit_idx_atomic(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int idx, std::atomic<unsigned>& rr) {
     Request req;
     char buf[32];
@@ -495,9 +571,11 @@ hpx::future<Result> submit_idx_atomic(
     req.request_id = buf;
     req.service_ms_requested = service_for(opt, idx);
     req.work_mode = opt.work_mode;
+    req.chunks = opt.chunks;
+    req.chunk_delay_ms = opt.chunk_delay_ms;
     req.submit_ns = now_ns();
     const unsigned slot = rr.fetch_add(1, std::memory_order_relaxed);
-    ServiceLane& lane = *lanes[slot % lanes.size()];
+    LaneIface& lane = *lanes[slot % lanes.size()];
     return lane.submit(std::move(req));
 }
 
@@ -507,7 +585,7 @@ hpx::future<Result> submit_idx_atomic(
 // correct regardless of how the index space was partitioned across threads.
 // Mirrors _run_one_by_one in bench/run_hpx_python_baseline.py.
 std::vector<Result> client_loop_one_by_one(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int begin, int end, int window, std::atomic<unsigned>& rr, bool record) {
     std::vector<Result> results;
     std::deque<hpx::future<Result>> inflight;
@@ -538,7 +616,7 @@ std::vector<Result> client_loop_one_by_one(
 // sorts by request_id before writing. Mirrors _run_one_by_one_threaded in
 // bench/run_hpx_python_baseline.py.
 std::vector<Result> dispatch_one_by_one_threaded(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int count, bool record) {
     const int t = std::min(opt.client_threads, std::max(1, count));
     const int base = opt.concurrency / t;
@@ -575,7 +653,7 @@ std::vector<Result> dispatch_one_by_one_threaded(
 }
 
 std::vector<Result> dispatch(
-    std::vector<std::unique_ptr<ServiceLane>>& lanes, const Options& opt,
+    std::vector<std::unique_ptr<LaneIface>>& lanes, const Options& opt,
     int count, bool record) {
     if (count <= 0) return {};
     // Multi-client is one_by_one only (enforced in parse_args).
@@ -671,7 +749,7 @@ void write_diag(const Options& opt, const std::string& run_id,
     o << "  \"schema\": \"diag-1\",\n";
     o << "  \"run_id\": \"" << json_escape(run_id) << "\",\n";
     o << "  \"workload\": \"" << json_escape(workload) << "\",\n";
-    o << "  \"boundary\": \"" << BOUNDARY << "\",\n";
+    o << "  \"boundary\": \"" << opt.boundary << "\",\n";
     o << "  \"config\": {"
       << "\"lanes\": " << opt.num_lanes
       << ", \"client_threads\": " << opt.client_threads
@@ -772,13 +850,28 @@ int main(int argc, char** argv) {
             workload += "_l" + std::to_string(opt.num_lanes);
         }
     }
+    // Opt-in HPX cooperative lane: tag auto-derived workload names with
+    // "_hpxlane" so rows are self-documenting (user-supplied --workload is left
+    // untouched). The boundary field carries the same distinction independently.
+    const bool use_hpx_lane = (opt.lane_impl == LANE_IMPL_HPX);
+    if (use_hpx_lane && opt.workload.empty()) {
+        workload += "_hpxlane";
+    }
+    opt.boundary = use_hpx_lane ? BOUNDARY_HPXLANE : BOUNDARY;
     const std::string run_id = gen_run_id();
 
-    // N independent serialized lanes (each owns a std::thread), round-robined.
-    std::vector<std::unique_ptr<ServiceLane>> lanes;
+    // N independent serialized lanes, round-robined. lane_impl selects the
+    // mechanism: ServiceLane (std::thread, blocking sleep -- the anchor) or
+    // HpxLane (hpx::thread, cooperative sleep -- opt-in). Both are wrapped in a
+    // LaneAdapter behind the LaneIface so the dispatch loops are impl-agnostic.
+    std::vector<std::unique_ptr<LaneIface>> lanes;
     lanes.reserve(opt.num_lanes);
     for (int i = 0; i < opt.num_lanes; ++i) {
-        lanes.push_back(std::make_unique<ServiceLane>(opt.diag));
+        if (use_hpx_lane) {
+            lanes.push_back(std::make_unique<LaneAdapter<HpxLane>>(opt.diag));
+        } else {
+            lanes.push_back(std::make_unique<LaneAdapter<ServiceLane>>(opt.diag));
+        }
     }
 
     // Warmup: same path, discarded, excluded from wall time.
@@ -840,7 +933,8 @@ int main(int argc, char** argv) {
         "[hpx_synthetic_baseline] run_id=%s workload=%s boundary=%s "
         "retire_mode=%s warmup=%d num_lanes=%d client_threads=%d "
         "actor_ids=%s\n",
-        run_id.c_str(), workload.c_str(), BOUNDARY, opt.retire_mode.c_str(),
+        run_id.c_str(), workload.c_str(), opt.boundary.c_str(),
+        opt.retire_mode.c_str(),
         opt.warmup_requests, opt.num_lanes, opt.client_threads,
         lane_ids.c_str());
     std::printf(

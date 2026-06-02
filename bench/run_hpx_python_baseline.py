@@ -29,7 +29,10 @@ retire_mode="batch".
 Service pattern (--service-pattern): 'fixed' uses --service-ms for every
 request; 'bimodal' draws --service-high with probability --service-p-high else
 --service-low, deterministically per request index (--seed). Each row records
-its own service_ms_requested (schema unchanged). bimodal is one_by_one-only.
+its own service_ms_requested (schema unchanged). bimodal runs on both the
+one_by_one paths and the bulk batch path: for --api batch/actor_batch the
+generated per-request sequence is passed as a list to the true bulk-varied
+submit_batch(service_ms=[...]) (one crossing), not a Python loop over submit().
 
 Example:
   python bench/run_hpx_python_baseline.py --service-ms 5 --concurrency 8 \\
@@ -98,12 +101,17 @@ def _default_workload(args):
     # prefix differs ("noop" is the shared service_ms==0 degenerate case).
     prefix = "spin" if args.work_mode == "spin" else "sleep"
     # Variable (bimodal) service: encode the pattern, e.g. bimodal_lo1_hi20_p10_c8.
-    # Bimodal is one_by_one-only (engine/actor), so the c{concurrency} suffix
-    # always applies.
+    # one_by_one keeps the c{concurrency} suffix; batch makes --concurrency inert,
+    # so (like fixed batch) it drops c{concurrency} and tags the bulk dispatch.
     if args.service_pattern == "bimodal":
         p = int(round(args.service_p_high * 100))
         base = (f"bimodal_lo{_fmt_ms(args.service_low)}"
                 f"_hi{_fmt_ms(args.service_high)}_p{p}")
+        if args.api in ("batch", "actor_batch"):
+            name = f"{base}_batch"
+            if args.num_lanes > 1:
+                name = f"{name}_l{args.num_lanes}"
+            return name
         return f"{base}_{suffix}"
     # Fixed service. Batch submits all requests in one call: --concurrency is
     # inert, so the name drops the c{concurrency} token and tags the bulk
@@ -142,8 +150,8 @@ def _make_record(args, run_id, workload, req_id, row, retire_mode,
         "queue_wait_ms": row["queue_wait_ms"],
         "service_ms_observed": row["service_ms_observed"],
         "service_ms_requested": service_ms_requested,
-        "chunks": 1,
-        "chunk_delay_ms": 0,
+        "chunks": args.chunks,
+        "chunk_delay_ms": args.chunk_delay_ms,
         "work_mode": args.work_mode,
         "retire_mode": retire_mode,
         "error": row["error"],
@@ -172,7 +180,8 @@ def _run_one_by_one(submit_fn, args, indices, run_id, workload, retire_mode,
     def submit(idx):
         req_id = f"req-{idx:06d}"
         svc = _service_for(idx, args)
-        fut = submit_fn(service_ms=svc, work_mode=args.work_mode)
+        fut = submit_fn(service_ms=svc, work_mode=args.work_mode,
+                        chunks=args.chunks, chunk_delay_ms=args.chunk_delay_ms)
         inflight.append((req_id, fut, svc))
 
     while next_i < n and len(inflight) < window:
@@ -243,26 +252,36 @@ def _run_batch(batch_fn, args, n, run_id, workload, retire_mode, record):
     """Bulk dispatch: submit all n requests in ONE batch crossing.
 
     `batch_fn` is the API-agnostic batch callable (Engine.submit_batch or
-    SyntheticActor.remote_batch); both take (service_ms, count, work_mode) and
-    return a list of Futures. A single Python->C++ call enqueues all n requests
-    (same round-robin lane routing as Engine.submit), so --concurrency is inert
-    here -- there is no in-flight window. Every returned Future shares one Python
-    submit_ns, so total_ms is queue-shaped (request k includes draining the k
-    requests ahead of it on its lane); throughput is the meaningful batch metric,
-    not the total_ms percentiles. Futures are drained in submission order.
+    SyntheticActor.remote_batch). A single Python->C++ call enqueues all n
+    requests (same round-robin lane routing as Engine.submit), so --concurrency
+    is inert here -- there is no in-flight window. Every returned Future shares
+    one Python submit_ns, so total_ms is queue-shaped (request k includes
+    draining the k requests ahead of it on its lane); throughput is the
+    meaningful batch metric, not the total_ms percentiles. Futures are drained in
+    submission order.
+
+    Service pattern: 'fixed' passes one scalar service_ms for the whole batch
+    (unchanged). 'bimodal' builds the per-request service sequence with the SAME
+    deterministic service_for used by the one_by_one path and passes the list to
+    batch_fn(service_ms=[...]) -- a TRUE single bulk-varied crossing (the C++
+    submit_batch_varied path), NOT a Python loop over scalar submit(). Each row
+    records its own service_ms_requested (per-row field; schema unchanged).
     """
     records = []
-    # Batch uses a single scalar service_ms for all requests (the C++ batch API
-    # takes one value), so variable-service patterns are not supported here --
-    # parse_args rejects bimodal + batch. service_ms_requested is the constant.
-    futures = batch_fn(service_ms=args.service_ms, count=n,
-                       work_mode=args.work_mode)
+    if args.service_pattern == "bimodal":
+        svc_list = [_service_for(i, args) for i in range(n)]
+        futures = batch_fn(service_ms=svc_list, work_mode=args.work_mode)
+    else:
+        svc_list = None
+        futures = batch_fn(service_ms=args.service_ms, count=n,
+                           work_mode=args.work_mode)
     for idx, fut in enumerate(futures):
         req_id = f"req-{idx:06d}"
         row = fut.result()
         if record:
+            svc_req = svc_list[idx] if svc_list is not None else args.service_ms
             records.append(_make_record(args, run_id, workload, req_id, row,
-                                         retire_mode, args.service_ms))
+                                         retire_mode, svc_req))
     return records
 
 
@@ -289,7 +308,8 @@ def _run_batch_wait(engine, args, indices, run_id, workload, retire_mode,
     def submit(idx):
         req_id = f"req-{idx:06d}"
         svc = _service_for(idx, args)
-        fut = engine.submit(service_ms=svc, work_mode=args.work_mode)
+        fut = engine.submit(service_ms=svc, work_mode=args.work_mode,
+                            chunks=args.chunks, chunk_delay_ms=args.chunk_delay_ms)
         inflight.append((req_id, fut, svc))
 
     while next_i < n and len(inflight) < window:
@@ -415,6 +435,19 @@ def parse_args(argv=None):
     p.add_argument("--service-ms", type=float, default=0,
                    help="Service time per request in ms (0 == no-op). Used by "
                         "--service-pattern fixed.")
+    p.add_argument("--chunks", type=int, default=1,
+                   help="Chunked synthetic service: split each request's TOTAL "
+                        "active service_ms into N equal active steps (default 1, "
+                        "unchunked). Single-submit modes only (--api engine/actor "
+                        "with one_by_one/batch_wait); rejected for --api "
+                        "batch/actor_batch. Populates the JSONL 'chunks' field; "
+                        "schema stays 1.")
+    p.add_argument("--chunk-delay-ms", type=float, default=0.0,
+                   help="Chunked synthetic service: parked inter-chunk gap in ms "
+                        "(blocking sleep, both work modes) between the chunks-1 "
+                        "boundaries (default 0). With >0, service_ms_observed is "
+                        "lifecycle/lane-occupancy time (active + parked gaps), "
+                        "not active-only.")
     p.add_argument("--service-pattern", default="fixed",
                    choices=["fixed", "bimodal"],
                    help="Per-request service-time model. 'fixed' uses "
@@ -423,7 +456,9 @@ def parse_args(argv=None):
                         "service_low, deterministically per request index (see "
                         "--seed); the same seed yields an identical sequence "
                         "across Ray/HPX/rayx (shared bench/service_sequence.py). "
-                        "bimodal is one_by_one-only (not batch).")
+                        "bimodal works with one_by_one AND --api batch/actor_batch "
+                        "(the sequence is passed as a list to the true bulk-varied "
+                        "submit_batch); batch bimodal needs low/high > 0.")
     p.add_argument("--service-low", type=float, default=1.0,
                    help="bimodal: low service time in ms. Default 1.0.")
     p.add_argument("--service-high", type=float, default=20.0,
@@ -492,6 +527,15 @@ def parse_args(argv=None):
         p.error("--client-threads must be >= 1")
     if args.wait_batch < 1:
         p.error("--wait-batch must be >= 1")
+    if args.chunks < 1:
+        p.error("--chunks must be >= 1")
+    if args.chunk_delay_ms < 0:
+        p.error("--chunk-delay-ms must be >= 0")
+    if args.api in ("batch", "actor_batch") and (
+            args.chunks > 1 or args.chunk_delay_ms > 0):
+        p.error("chunked service (--chunks > 1 / --chunk-delay-ms > 0) is not "
+                "supported with --api batch/actor_batch (batch submit is "
+                "unchunked, matching the facade); use --api engine or actor.")
     if args.client_threads > 1 and args.api in ("batch", "actor_batch"):
         p.error("--client-threads > 1 is not supported with --api "
                 "batch/actor_batch (batch is a single bulk crossing); use "
@@ -504,14 +548,21 @@ def parse_args(argv=None):
             p.error("--retire-mode batch_wait is single-client only; use "
                     "--client-threads 1.")
     if args.service_pattern == "bimodal":
-        if args.api in ("batch", "actor_batch"):
-            p.error("--service-pattern bimodal is not supported with --api "
-                    "batch/actor_batch (the batch API takes one service_ms for "
-                    "the whole batch); use --api engine or actor.")
         if args.service_low < 0 or args.service_high < 0:
             p.error("--service-low and --service-high must be >= 0")
         if not 0.0 <= args.service_p_high <= 1.0:
             p.error("--service-p-high must be in [0, 1]")
+        # bimodal now runs on batch too (the per-request sequence is passed as a
+        # list to the true bulk-varied submit_batch). The varied batch form
+        # requires each duration to be strictly positive, so batch bimodal cannot
+        # use a zero service component -- the no-op stays the scalar
+        # service_ms=0 form; use --api engine/actor for a zero component.
+        if args.api in ("batch", "actor_batch") and (
+                args.service_low <= 0 or args.service_high <= 0):
+            p.error("--service-pattern bimodal with --api batch/actor_batch "
+                    "requires --service-low > 0 and --service-high > 0 (the "
+                    "varied batch form rejects zero/negative service times); "
+                    "use --api engine/actor for a zero component.")
     return args
 
 

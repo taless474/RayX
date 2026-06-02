@@ -86,6 +86,12 @@ def summarize(rows):
     first = rows[0]
     completed_rows = [r for r in rows if r.get("status") == "completed"]
     failed = sum(1 for r in rows if r.get("status") == "failed")
+    # Cancelled requests (status="cancelled") are bucketed separately and kept
+    # OUT of the latency/throughput stats below, which summarize serviced work
+    # only. Additive: when no request was cancelled this is 0 and every other
+    # field is unchanged. The benchmark drivers do not cancel, so normal runs
+    # report cancelled=0.
+    cancelled = sum(1 for r in rows if r.get("status") == "cancelled")
 
     total_ms = [r["total_ms"] for r in completed_rows]
     queue_wait_ms = [r["queue_wait_ms"] for r in completed_rows]
@@ -114,6 +120,7 @@ def summarize(rows):
         "num_requests": len(rows),
         "completed": len(completed_rows),
         "failed": failed,
+        "cancelled": cancelled,
         "throughput_req_s": throughput,
         "total_ms_p50": total_p["p50"],
         "total_ms_p90": total_p["p90"],

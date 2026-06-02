@@ -1,0 +1,1555 @@
+{
+  "experiment": "chunk_boundary_cancellation",
+  "boundary": "hpx-python-frontend",
+  "submit": "facade Engine.submit single-request chunked; Engine.cancel (queued skip / running stop-at-next-chunk-boundary)",
+  "retire": "as-completed Engine.wait, per-sweep recv_ns",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "note": "Running cancellation is an early stop BETWEEN synthetic chunks: an in-progress active chunk and parked inter-chunk gap are never interrupted. cancel()==True for a running request means 'guaranteed to stop at the next boundary', not 'ready now'. chunks_completed is lane-determined (==chunks completed, 0 queued, 1..chunks-1 running). NOT real token streaming, NOT Ray task/object cancellation, no per-chunk events. Timings are synthetic and machine-specific; the 'late' policy is deliberately racy (True or False both valid). Raw per-run JSONL is experiment-local scratch under results/ (gitignored), NOT the v1 benchmark schema (benchmark JSONL stays version 1, unchunked, no cancellation).",
+  "policies": {
+    "baseline": "no cancel; every request completes (chunks_completed==chunks)",
+    "queued": "cancel the tail half of a long backlog immediately (still queued -> True, chunks_completed==0)",
+    "running": "wave of num_lanes requests, cancel ~40% into the active span (boundary ahead -> True, 1<=chunks_completed<chunks)",
+    "late": "wave, cancel ~90% to the nominal final-chunk boundary (racy: True with chunks_completed==chunks-1, or False -> completed)"
+  },
+  "matrix": {
+    "work_mode": [
+      "sleep",
+      "spin"
+    ],
+    "num_lanes": [
+      1,
+      4
+    ],
+    "chunks": [
+      2,
+      4,
+      8
+    ],
+    "chunk_delay_ms": [
+      0.0,
+      2.0
+    ],
+    "service_ms": 40.0,
+    "requests": 24,
+    "wave_repeats": 4,
+    "hpx_threads": 4
+  },
+  "cells": [
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 2,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 2,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 4,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 2.0,
+            "max": 2,
+            "n": 4
+          },
+          "active_requests_saved": 2.25
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 4
+          },
+          "active_requests_saved": 1.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 4,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 3.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 4
+          },
+          "active_requests_saved": 1.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 8,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.5,
+            "max": 3,
+            "n": 4
+          },
+          "active_requests_saved": 2.75
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 6,
+            "median": 6.0,
+            "max": 6,
+            "n": 4
+          },
+          "active_requests_saved": 1.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 1,
+      "chunks": 8,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 4
+          },
+          "active_requests_saved": 3.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 6,
+            "median": 6.0,
+            "max": 6,
+            "n": 4
+          },
+          "active_requests_saved": 1.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 2,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 2,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 4,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.5,
+            "max": 2,
+            "n": 16
+          },
+          "active_requests_saved": 10.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 16
+          },
+          "active_requests_saved": 4.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 4,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 12.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 16
+          },
+          "active_requests_saved": 4.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 8,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 3.0,
+            "max": 3,
+            "n": 16
+          },
+          "active_requests_saved": 10.125
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 6,
+            "median": 6.5,
+            "max": 7,
+            "n": 16
+          },
+          "active_requests_saved": 3.0
+        }
+      }
+    },
+    {
+      "work_mode": "sleep",
+      "lanes": 4,
+      "chunks": 8,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 16
+          },
+          "active_requests_saved": 12.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 6,
+            "median": 6.0,
+            "max": 7,
+            "n": 16
+          },
+          "active_requests_saved": 3.875
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 2,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 4,
+          "cancelled": 0,
+          "cancel_attempts": 4,
+          "cancel_true": 0,
+          "cancel_false": 4,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 2,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 4,
+          "cancelled": 0,
+          "cancel_attempts": 4,
+          "cancel_true": 0,
+          "cancel_false": 4,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 4,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 3,
+          "cancelled": 1,
+          "cancel_attempts": 4,
+          "cancel_true": 1,
+          "cancel_false": 3,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3,
+            "max": 3,
+            "n": 1
+          },
+          "active_requests_saved": 0.25
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 4,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 1,
+          "cancelled": 3,
+          "cancel_attempts": 4,
+          "cancel_true": 3,
+          "cancel_false": 1,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3,
+            "max": 3,
+            "n": 3
+          },
+          "active_requests_saved": 0.75
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 8,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 4
+          },
+          "active_requests_saved": 2.5
+        },
+        "late": {
+          "rows": 4,
+          "completed": 3,
+          "cancelled": 1,
+          "cancel_attempts": 4,
+          "cancel_true": 1,
+          "cancel_false": 3,
+          "chunks_completed_cancelled": {
+            "min": 7,
+            "median": 7,
+            "max": 7,
+            "n": 1
+          },
+          "active_requests_saved": 0.125
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 1,
+      "chunks": 8,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 4
+          },
+          "active_requests_saved": 3.0
+        },
+        "late": {
+          "rows": 4,
+          "completed": 0,
+          "cancelled": 4,
+          "cancel_attempts": 4,
+          "cancel_true": 4,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 7,
+            "median": 7.0,
+            "max": 7,
+            "n": 4
+          },
+          "active_requests_saved": 0.5
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 2,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 12,
+          "cancelled": 4,
+          "cancel_attempts": 16,
+          "cancel_true": 4,
+          "cancel_false": 12,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 4
+          },
+          "active_requests_saved": 2.0
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 2,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 16,
+          "cancelled": 0,
+          "cancel_attempts": 16,
+          "cancel_true": 0,
+          "cancel_false": 16,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 4,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 16
+          },
+          "active_requests_saved": 8.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 16,
+          "cancelled": 0,
+          "cancel_attempts": 16,
+          "cancel_true": 0,
+          "cancel_false": 16,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 4,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 1,
+            "median": 2.0,
+            "max": 2,
+            "n": 16
+          },
+          "active_requests_saved": 9.5
+        },
+        "late": {
+          "rows": 16,
+          "completed": 5,
+          "cancelled": 11,
+          "cancel_attempts": 16,
+          "cancel_true": 11,
+          "cancel_false": 5,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3,
+            "max": 3,
+            "n": 11
+          },
+          "active_requests_saved": 2.75
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 8,
+      "chunk_delay_ms": 0.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 3,
+            "median": 3.0,
+            "max": 3,
+            "n": 16
+          },
+          "active_requests_saved": 10.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 12,
+          "cancelled": 4,
+          "cancel_attempts": 16,
+          "cancel_true": 4,
+          "cancel_false": 12,
+          "chunks_completed_cancelled": {
+            "min": 7,
+            "median": 7.0,
+            "max": 7,
+            "n": 4
+          },
+          "active_requests_saved": 0.5
+        }
+      }
+    },
+    {
+      "work_mode": "spin",
+      "lanes": 4,
+      "chunks": 8,
+      "chunk_delay_ms": 2.0,
+      "service_ms": 40.0,
+      "policies": {
+        "baseline": {
+          "rows": 24,
+          "completed": 24,
+          "cancelled": 0,
+          "cancel_attempts": 0,
+          "cancel_true": 0,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": null,
+          "active_requests_saved": 0
+        },
+        "queued": {
+          "rows": 24,
+          "completed": 12,
+          "cancelled": 12,
+          "cancel_attempts": 12,
+          "cancel_true": 12,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "n": 12
+          },
+          "active_requests_saved": 12.0
+        },
+        "running": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 2,
+            "median": 2.0,
+            "max": 2,
+            "n": 16
+          },
+          "active_requests_saved": 12.0
+        },
+        "late": {
+          "rows": 16,
+          "completed": 0,
+          "cancelled": 16,
+          "cancel_attempts": 16,
+          "cancel_true": 16,
+          "cancel_false": 0,
+          "chunks_completed_cancelled": {
+            "min": 6,
+            "median": 7.0,
+            "max": 7,
+            "n": 16
+          },
+          "active_requests_saved": 2.25
+        }
+      }
+    }
+  ]
+}

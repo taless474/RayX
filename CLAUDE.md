@@ -1,52 +1,81 @@
 # RayX Working Rules
 
-## Project
+## Project identity
 
-This repository investigates whether HPX can serve as a C++/HPC-native execution substrate for ML serving-control workloads, comparable to Ray Core's actor/task model.
+RayX is a narrow Ray-vs-HPX comparison harness for synthetic ML serving-control workloads.
 
-RayX is a narrow comparison harness. It is not a Ray replacement, not Ray Serve, not real model inference, and not a general claim that HPX is better than Ray.
+The project compares:
 
-The repository currently includes:
+* Ray actor baselines using public Ray APIs
+* HPX-native synthetic baselines
+* `rayx`, a thin Python frontend over HPX service lanes
 
-* Ray actor baseline using public Ray APIs
-* HPX-native synthetic baseline
-* `rayx` Python frontend over HPX service lanes
-* Synthetic serving workloads
-* JSONL benchmark output and analyzer
-* Chronological benchmark and experiment write-ups
-* Curated aggregate/diagnostic artifacts for selected results
+RayX is not a Ray replacement, not Ray Serve, not Ray Train, not a Ray object-store project, and not real model inference.
 
 Do not clone, modify, or vendor Ray internals unless explicitly requested.
 
-## Read first
+## Session startup
 
 At the beginning of each session, read `handoff.md`.
 
-Do not update or rewrite `handoff.md` unless explicitly asked for a handoff.
+Do not update or rewrite `handoff.md` unless explicitly asked.
 
-## Current technical interpretation
+Do not stage, commit, amend, or push unless explicitly asked.
 
-Keep these guardrails in mind:
+Do not suggest staging, committing, amending, or pushing unless explicitly asked.
 
-* Python/GIL is not the high-lane bottleneck.
-* The sleep-mode bimodal high-lane behavior is refined to closed-loop FIFO-retire / client-driver behavior.
-* The spin-mode CPU-bound behavior is hardware/core-boundary / oversubscription behavior.
-* Avoid unqualified “coordination ceiling” wording.
-* Do not claim `rayx` is generally faster than native HPX.
-* Do not claim HPX generally beats Ray.
+## Technical guardrails
 
-When preserving old measurements, mark superseded interpretations clearly instead of deleting useful provenance.
+Keep RayX synthetic and honest.
+
+Do not imply:
+
+* Ray replacement semantics
+* Ray object-store or task-result semantics
+* arbitrary remote Python execution
+* real model inference
+* Ray Serve behavior
+* a general claim that HPX beats Ray
+* a general claim that `rayx` is faster than HPX-native
+
+When comparing Ray, HPX-native, and `rayx`, distinguish between:
+
+* Python-first ecosystem value
+* distributed execution model
+* actor/task boundary overhead
+* native C++ runtime integration
+* fine-grained async execution
+* serving-control behavior
+* benchmark-driver artifacts
+
+Keep benchmark claims tied to measured evidence. Separate measured facts from interpretation.
+
+Avoid unqualified “coordination ceiling” wording. When preserving old measurements, mark superseded interpretations clearly instead of deleting useful provenance.
+
+## Current interpretation guardrails
+
+Use these as durable interpretation constraints unless new evidence changes them:
+
+* Python/GIL is not the high-lane bottleneck in the current rayx measurements.
+* Sleep-mode bimodal high-lane behavior is refined to closed-loop FIFO-retire / client-driver behavior.
+* `work_mode="spin"` is a synthetic CPU-bound diagnostic/calibration mode, not an HPX runtime mode and not the serving design.
+* Sleep-mode, spin-mode, and HPX cooperative-lane results should not be conflated.
+* The std::thread `ServiceLane` remains the stable actor-like comparison anchor unless an experiment explicitly opts into another lane mechanism.
+* Opt-in HPX-thread/cooperative-lane probes are mechanism experiments, not replacements for the main corpus.
+* Synthetic service timing should not be described as real inference work.
 
 ## Repository structure
 
-* `readme.md`: short overview, Quickstart, headline result, and documentation map.
+* `readme.md`: project overview, `rayx` frontend at-a-glance, Quickstart, headline benchmark result, and documentation map.
 * `docs/`: stable project framing and reference documentation.
-* `docs/reference/`: API/reference notes.
+* `docs/reference/`: API and design reference notes.
 * `bench/`: benchmark drivers, analyzers, smoke/contract checks, and shared helpers.
-* `benchmarks/NN_name/`: chronological benchmark write-ups and curated aggregate artifacts where applicable.
-* `experiments/NN_name/`: chronological investigative write-ups and curated artifacts where applicable.
+* `ray_impl/`: Ray baseline implementation code.
+* `hpx_impl/`: HPX-native baseline implementation code.
+* `benchmarks/NN_name/`: chronological benchmark write-ups and curated evidence.
+* `experiments/NN_name/`: investigative write-ups and curated evidence.
 * `examples/`: small runnable API examples.
-* `results/`: raw scratch/generated outputs. These should remain ignored.
+* `results/`: raw scratch/generated outputs; these should remain ignored.
 
 ## Working style
 
@@ -58,11 +87,13 @@ For design, API shape, benchmark design, diagnostics, or new files:
 4. Explain the intended CLI and output schema when relevant.
 5. Stop for approval before editing only for risky API/design/benchmark choices or when explicitly asked.
 
-When the direction is already clear, prefer one coherent, reviewable work chunk that bundles implementation, docs/reference consistency, validation, and reporting. Avoid unnecessary tiny back-and-forth slices.
+When the direction is already clear, prefer one coherent, reviewable work chunk that bundles implementation, docs/reference consistency, validation, and reporting.
 
 For small documentation-only updates, editing may proceed if the requested change is clear.
 
 For build, run, and test tasks, proceed without asking when the command is obvious and local-only. Report exact commands and results.
+
+Do not mix unrelated changes in one slice.
 
 ## Implementation rules
 
@@ -76,17 +107,17 @@ Keep benchmark and diagnostic code simple and readable.
 
 Do not hide important timing assumptions.
 
-Do not mix unrelated changes in one slice.
-
 Do not introduce real model backends such as llama.cpp, vLLM, SGLang, TensorRT-LLM, or OpenVINO unless explicitly requested.
+
+Do not add payload execution, object-store behavior, or arbitrary task execution unless the project direction is explicitly changed.
 
 Do not create large generated files.
 
-## Metrics discipline
+## Benchmark and metrics discipline
 
-Benchmark outputs should be machine-readable, preferably JSONL.
+Benchmark outputs should be machine-readable, usually JSONL.
 
-Each request result should include enough timing information to compute:
+Each request row should include enough timing information to compute:
 
 * queue wait time
 * service time
@@ -102,71 +133,96 @@ Use monotonic high-resolution timing.
 
 Keep raw timestamps where useful, but also provide derived millisecond fields for readability.
 
+Avoid benchmark schema changes unless explicitly justified. If a schema change is necessary, document the reason and update analyzer/smoke coverage together.
+
 For native diagnostic output:
 
 * Keep `--diag` opt-in.
 * Keep normal JSONL schema and analyzer behavior unchanged when diagnostics are off.
-* Diagnostic summaries should be compact and separate from normal per-request JSONL.
+* Keep diagnostic summaries compact and separate from normal per-request JSONL.
 
 For deterministic synthetic workloads:
 
-* Keep Ray and `rayx` Python drivers on the shared `bench/service_sequence.py` helper.
-* Do not duplicate or silently drift the fixed/bimodal service-sequence logic.
+* Keep Ray and `rayx` Python drivers on shared service-sequence helpers where applicable.
+* Do not duplicate or silently drift fixed/bimodal service-sequence logic.
 * If the deterministic sequence intentionally changes, update the golden smoke and any native golden check together.
 
 ## Documentation rules
 
-Use `readme.md` for the short project overview, Quickstart, headline result, and documentation map.
+Use `readme.md` for the project overview, `rayx` frontend at-a-glance, Quickstart, headline benchmark result, and documentation map.
 
 Avoid future-looking roadmap, TODO, or “next step” language in `readme.md` unless explicitly requested.
 
-The README documentation map should let a reader understand the project arc. Each benchmark or experiment bullet should include one concise “what we learned” sentence.
+The README documentation map should let a reader understand the project arc. Each benchmark or experiment bullet should include a clear “what we learned” sentence.
 
 Use:
 
 * `docs/project_proposal.md` for longer motivation, hypothesis, scope, and phases.
-* `docs/experiment_plan.md` for benchmark shapes, metrics, commands, and acceptance gates.
+* `docs/experiment_plan.md` for benchmark shapes, metrics, commands, schemas, and acceptance gates.
 * `docs/ray_hpx_mapping.md` for conceptual mapping between Ray and HPX.
-* `docs/reference/` for API/reference material.
+* `docs/reference/` for API and design reference material.
 * `benchmarks/` for benchmark write-ups.
 * `experiments/` for investigative write-ups and curated evidence packages.
 * `examples/` for small runnable API examples.
 
-Keep documentation concise and stable. Avoid one-time scratch notes in persistent docs.
+Keep persistent docs stable. Do not put one-time prompts, branch minutiae, current git status, raw run paths, temporary implementation notes, or current slice summaries into long-lived docs.
 
 ## Artifact rules
 
-Do not include raw generated artifacts in commits:
+Do not track raw generated artifacts:
 
 * `.jsonl`
 * `.summary.json`
 * logs
+* broad raw `results/` contents
 * build outputs
 * `_rayx*.so`
-* scratch result directories
-* broad raw `results/` contents
+* `.pyc`
+* `__pycache__`
+* `.o`, `.dylib`, or other build products
 
-Curated `aggregate.json` files beside benchmark or experiment docs are allowed.
+Curated `aggregate.json` files beside benchmark or experiment reports are allowed.
 
-Small curated `diag/*.diag.json` evidence packages are allowed only when intentionally part of an experiment package, such as `experiments/06_diag_fifo_ceiling_analysis/`.
+Small curated diagnostic evidence packages are allowed only when intentionally part of an experiment package.
 
 Raw JSONL and scratch outputs should stay under `results/` and remain ignored.
 
-## Acceptance mindset
+## CI and validation rules
+
+CI should protect deterministic repository integrity. It should not reproduce benchmark evidence.
+
+Good CI checks include:
+
+* Python syntax checks for scripts and runners
+* local markdown link checks
+* local HTML image source checks
+* artifact hygiene checks
+* curated aggregate ignore/trackability checks
+* schema/golden contract checks when deterministic and cheap
+
+Do not add full benchmark or experiment matrices to normal CI.
+
+Do not add machine-sensitive performance checks to normal CI.
+
+Do not require an HPX source build in normal CI unless explicitly requested.
+
+Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
+
+## Reporting expectations
 
 Every slice should end with a clear report:
 
 * files changed
+* concise diff summary
 * commands run
 * pass/fail result
 * output files, if any
 * current known facts
 * validation performed
 * remaining caveats
+* final `git status --short`
 
 When a benchmark, diagnostic, or new CLI behavior is added, include a small smoke command or smoke test that can run quickly on a laptop.
-
-Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 
 ## Style
 

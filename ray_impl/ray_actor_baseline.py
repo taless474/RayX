@@ -6,7 +6,10 @@ it. It does not drive load or write output -- see bench/run_ray_baseline.py.
 Scope (per docs/experiment_plan.md):
   * Ray public APIs only, one actor.
   * work_mode "sleep" only; service_ms == 0 is the no-op / null-dispatch case.
-  * No streaming, no cancellation.
+  * Chunked synthetic service: service_ms may be split into `chunks` active
+    sleeps with `chunks-1` parked `chunk_delay_ms` inter-chunk gaps (default
+    1 / 0 == unchunked). One request still returns one row; no per-chunk
+    events, no streaming, no cancellation.
 
 Timing note: start_ns / end_ns are measured inside the actor process. They are
 NOT cross-process-comparable with the client's submit_ns (different processes,
@@ -31,7 +34,8 @@ class SyntheticServer:
     """A single long-lived actor that simulates an opaque inference backend.
 
     The actor performs no real work: for work_mode "sleep" it sleeps for the
-    requested service_ms (0 == no-op). It returns server-side timing so the
+    requested service_ms (0 == no-op), optionally split into `chunks` active
+    sleeps with parked inter-chunk gaps. It returns server-side timing so the
     driver can record service time separately from round-trip latency.
     """
 
@@ -56,9 +60,24 @@ class SyntheticServer:
         try:
             if work_mode != WORK_MODE_SLEEP:
                 raise ValueError(f"unsupported work_mode: {work_mode!r}")
-            # service_ms == 0 is the degenerate no-op (null dispatch).
-            if service_ms_requested and service_ms_requested > 0:
-                time.sleep(service_ms_requested / 1000.0)
+            # Chunked synthetic service: split the TOTAL active service into
+            # `chunks` equal active sleeps separated by `chunks-1` parked
+            # inter-chunk gaps of chunk_delay_ms. This mirrors the HPX
+            # service_lane sleep-mode chunk loop exactly (active split + parked
+            # gaps), so the chunked SHAPE matches across Ray/HPX/rayx (the
+            # absolute sleep overshoot still differs by backend -- Ray ~5% vs
+            # HPX ~25%, per experiment 01). chunks=1 / chunk_delay_ms=0
+            # reproduces the single sleep; service_ms == 0 is the no-op.
+            n = request.get("chunks", 1) or 1
+            if n < 1:
+                n = 1
+            chunk_delay_ms = request.get("chunk_delay_ms", 0) or 0
+            per_chunk_ms = service_ms_requested / n
+            for c in range(n):
+                if per_chunk_ms > 0:
+                    time.sleep(per_chunk_ms / 1000.0)
+                if c + 1 < n and chunk_delay_ms > 0:
+                    time.sleep(chunk_delay_ms / 1000.0)
         except Exception as exc:  # noqa: BLE001 - record any backend failure
             status = "failed"
             error = repr(exc)

@@ -36,17 +36,37 @@ with SyntheticActor(num_lanes=2, hpx_threads=4) as actor:
     row = f.result()
 ```
 
-Bulk submit (one Python→C++ crossing for all requests) is available on both:
+Optional Ray-like **method-style** sugar mirrors `worker.method.remote(...)` for
+the **one** fixed synthetic operation, `serve` (forwards to `remote` /
+`remote_batch`, returns the same `Future` / `list[Future]`):
+
+```python
+with SyntheticActor(num_lanes=2, hpx_threads=4) as actor:
+    f = actor.serve.remote(service_ms=5)               # -> Future
+    futures = actor.serve.remote_batch(service_ms=5, count=100)  # -> list[Future]
+    # actor.anything_else.remote(...) raises AttributeError: there is only `serve`.
+```
+
+Bulk submit (one Python→C++ crossing for all requests) is available on both,
+in a **scalar** form (one `service_ms` for `count` requests) and a **varied**
+form (a list/tuple of per-request service times, one request per element):
 
 ```python
 with Engine(num_lanes=2, hpx_threads=4) as engine:
-    futures = engine.submit_batch(service_ms=5, count=100)
+    futures = engine.submit_batch(service_ms=5, count=100)          # scalar
+    varied  = engine.submit_batch(service_ms=[1, 5, 1, 10])         # varied
     rows = [f.result() for f in futures]
 
 with SyntheticActor(num_lanes=2, hpx_threads=4) as actor:
-    futures = actor.remote_batch(service_ms=5, count=100)
+    futures = actor.remote_batch(service_ms=5, count=100)           # scalar
+    varied  = actor.serve.remote_batch(service_ms=[1, 5, 1, 10])    # varied
     rows = [f.result() for f in futures]
 ```
+
+The varied form models a heterogeneous / skewed synthetic service workload in a
+single bulk submission; `count` is inferred from the list length (and, if also
+passed, must equal it). Single-request `submit(...)` / `remote(...)` stay
+scalar-only.
 
 Windowed **as-completed** retirement (block until ready, retire the ready ones,
 keep the rest in flight) is available via `Engine.wait` / `SyntheticActor.wait`:
@@ -76,9 +96,12 @@ A small runnable tour of these calls (context manager, `submit`, `wait`,
 
 The complete small API surface is: `Engine.submit(...)`,
 `Engine.submit_batch(...)`, `Engine.wait(...)`, `Engine.as_completed(...)`,
-`SyntheticActor.remote(...)`, `SyntheticActor.remote_batch(...)`,
-`SyntheticActor.wait(...)`, `SyntheticActor.as_completed(...)`, plus
-`Future.ready()` / `Future.result(...)`.
+`Engine.get(...)`, `Engine.cancel(...)`, `SyntheticActor.remote(...)`,
+`SyntheticActor.remote_batch(...)`, `SyntheticActor.wait(...)`,
+`SyntheticActor.as_completed(...)`, `SyntheticActor.get(...)`,
+`SyntheticActor.cancel(...)`,
+`SyntheticActor.serve.remote(...)` / `SyntheticActor.serve.remote_batch(...)`,
+plus `Future.ready()` / `Future.cancelled()` / `Future.result(...)`.
 
 * **`Future.ready() -> bool`** — non-blocking readiness check (raises if the
   future was already retired). A building block / test hook; **do not** spin on
@@ -94,18 +117,108 @@ The complete small API surface is: `Engine.submit(...)`,
   `batch_wait`'s per-sweep receive timestamp. Only correct for an already-ready
   future. Returns a per-request timing dict (`actor_id`, `submit_ns`,
   `start_ns`, `end_ns`, `total_ms`, `queue_wait_ms`, `service_ms_observed`,
-  `status`, `error`).
+  `status`, `error`, `label`, `chunks`, `chunk_delay_ms`, `chunks_completed`).
+* **`label` (optional client-side request annotation)** — the single-request
+  submit paths (`Engine.submit(..., label=...)`, `SyntheticActor.remote(...,
+  label=...)`, `actor.serve.remote(..., label=...)`) accept an optional
+  `label: str | None` (a non-`str`, non-`None` value raises `TypeError`).
+  `Future.result()` echoes it back as `row["label"]` — the supplied string, or
+  `None` when omitted — so a retired row can be mapped back to a user-level
+  request id. It is **client-side metadata only**: it never crosses into C++,
+  never influences execution, is not a payload and is not stored, and is **not**
+  part of the benchmark JSONL (the driver assigns its own `request_id`; see
+  `docs/experiment_plan.md`). The **batch** paths (`submit_batch` /
+  `remote_batch` / `serve.remote_batch`) do **not** accept `label` in v1.
+* **`work_mode` (synthetic service-time shape, `"sleep"` | `"spin"`)** — every
+  submit path (`Engine.submit` / `submit_batch`, `SyntheticActor.remote` /
+  `remote_batch`, `actor.serve.remote` / `serve.remote_batch`) takes
+  `work_mode`, defaulting to `"sleep"`. `"sleep"` models **parked/waiting**
+  service time (the lane blocks in `sleep_for` for `service_ms`); `"spin"` models
+  **CPU-bound active** service time (the lane stays busy on-core for `service_ms`
+  in a no-yield loop, no sleep). Both are **synthetic service-time shapes, not
+  payload/function execution** — `service_ms` sets the target duration in either
+  mode, and the effect appears in `service_ms_observed`. It is validated at the
+  Python boundary: an unrecognized mode raises `ValueError` and a non-`str`
+  raises `TypeError` (so a typo fails fast instead of returning a
+  `status="failed"` row). `work_mode` **crosses into C++** (it selects the lane's
+  service path) but is **not** echoed in the result row — the row schema is
+  **unchanged**. (The CPU-bound regime is explored in
+  `experiments/05_spin_work_mode_knee_sweep/`.)
+* **Variable service time (batch only)** — the batch paths (`submit_batch` /
+  `remote_batch` / `serve.remote_batch`) accept `service_ms` as either a scalar
+  (one duration for `count` requests, unchanged) **or** a `list`/`tuple` of
+  per-request service times (one request per element, **input order
+  preserved**). The varied form is dispatched to the native `submit_batch_varied`
+  path — **one** Python→C++ crossing, **not** a Python loop over `submit` — so
+  the bulk property holds (all returned futures share one `submit_ns`). Elements
+  are validated at the Python boundary: the list must be **non-empty** with
+  **finite, strictly-positive** real numbers (no `bool`, `NaN`, `inf`, zero, or
+  negative) — a non-numeric/`bool` element raises `TypeError`, the others raise
+  `ValueError`; the zero no-op is only the scalar `service_ms=0` form. If `count`
+  is also passed with a list it must equal `len(service_ms)`. Single-request
+  `submit(...)` / `remote(...)` stay **scalar-only**, and the result-row schema
+  is **unchanged** (each row already reports its own `service_ms_observed`).
+* **Chunked synthetic service (single-request only)** — the single-request paths
+  (`Engine.submit`, `SyntheticActor.remote`, `actor.serve.remote`) accept
+  `chunks` (an `int` >= 1, default `1`) and `chunk_delay_ms` (finite >= 0,
+  default `0`). `chunks` splits the **total** active `service_ms` into that many
+  equal active steps of `service_ms / chunks` (using `work_mode`);
+  `chunk_delay_ms` is a **parked** gap (blocking sleep, both modes) between
+  consecutive chunks (`chunks-1` gaps), modelling token-like cadence. This is
+  **synthetic timing only** — **not** real token streaming, not payload
+  execution, no per-chunk rows/events: the request still returns **one**
+  `Future` and **one** final row, which **echoes `chunks` / `chunk_delay_ms`**.
+  Because the lane is occupied for the whole lifecycle, with `chunk_delay_ms > 0`
+  the row's `service_ms_observed` is **lifecycle/lane-occupancy time** (active
+  service **plus** the parked gaps), **not** active-only service. `chunks=1,
+  chunk_delay_ms=0` reproduces the unchunked single-step path exactly. Inputs are
+  validated at the Python boundary (`chunks` int >= 1 non-`bool`;
+  `chunk_delay_ms` finite >= 0 non-`bool`). The **batch** paths (`submit_batch` /
+  `remote_batch` / `serve.remote_batch`) are **unchunked** in v1 and **reject**
+  `chunks` / `chunk_delay_ms` (unexpected keyword → `TypeError`). Cancellation
+  applies in both modes (a *queued* chunked request cancels whole; a *running*
+  chunked request stops at its next chunk boundary, `1 <= chunks_completed <
+  chunks`; an active chunk / parked gap is never interrupted mid-flight). See
+  `docs/reference/rayx_frontend_design.md` §7–§8.
+* **`chunks_completed` (result-row field)** — lane-determined count of active
+  chunks that **actually ran**: `== chunks` on a normal finish, `0` on a queued
+  cancel, `1 <= chunks_completed < chunks` on a running (chunk-boundary) cancel.
+  Unlike `chunks` / `chunk_delay_ms` (echoed from the submit-side copy), the
+  client cannot know where an early stop landed, so it comes from the C++
+  `Result`. Facade-row only — the benchmark JSONL schema is unchanged.
 * **`repr(future)`** — debug-friendly and non-blocking: shows `pending` /
   `ready` for a live future and `retired` after a successful `result()`, plus
   `submit_ns` (e.g. `<rayx.Future ready submit_ns=123>`). It never blocks or
   consumes the future.
-* **`Engine.wait(futures, num_returns=1) -> (ready, not_ready)`** — a Ray-like
-  wait primitive (`ray.wait`). It **blocks in C++/HPX with the GIL released**
-  (`hpx::wait_some`, not a Python busy-poll) until at least `num_returns` futures
-  are ready, then returns a partition of the **original** `Future` objects — so
-  each keeps its Python-side `submit_ns`. `num_returns=1` is wait-any behavior.
-  Each `Future` may appear at most once in the input list; a duplicate raises
-  `ValueError`. `SyntheticActor.wait(...)` forwards to it.
+* **`Engine.wait(futures, num_returns=1, timeout=None) -> (ready, not_ready)`** —
+  a Ray-like wait primitive (`ray.wait`). It partitions the **original** `Future`
+  objects (each keeps its Python-side `submit_ns`) and is **non-consuming**:
+  readiness/retirement coordination, *not* result consumption — you still call
+  `result()` / `get()` once to retire a ready future. Each `Future` may appear at
+  most once; a duplicate raises `ValueError`. `timeout` is in **seconds** (Ray/
+  Python convention) and selects the mode:
+  * **`timeout=None`** (default) — **blocks in C++/HPX with the GIL released**
+    (`hpx::wait_some`, not a Python busy-poll) until at least `num_returns`
+    futures are ready. `num_returns=1` is wait-any behavior.
+  * **`timeout=0`** — a **non-blocking poll**: returns `(ready_now, pending_now)`
+    immediately by probing each future's non-consuming readiness. `ready` holds
+    **all** currently-ready futures (a true readiness partition — it may hold
+    fewer or more than `num_returns`), while `num_returns` is still range-checked
+    (`1 ≤ num_returns ≤ len`). A **cancelled** future is ready only once its row
+    exists: a *queued* cancel is ready immediately, but a *running* chunk-boundary
+    cancel stays **pending** until the lane reaches the boundary and retires the
+    cancelled row.
+  * **`timeout > 0`** (finite) — raises `NotImplementedError`. A bounded
+    finite-timeout wait needs a non-consuming *timed multi-future* wait, which HPX
+    v1.11.0 does not provide; it is intentionally deferred (see
+    `docs/reference/rayx_frontend_design.md` §9). Use `timeout=0` to poll or
+    `timeout=None` to block.
+
+  A negative / `NaN` / `inf` / `bool` / non-numeric `timeout` raises `TypeError`
+  or `ValueError` before any future is inspected. `SyntheticActor.wait(...)`
+  forwards `timeout` unchanged. There is deliberately **no** `Future.done()`
+  alias — `ready()` is the single non-blocking readiness predicate, and on a
+  retired future the honest answer is "raise", not a quiet boolean.
 * **`Engine.as_completed(futures)`** — an ergonomic **generator** wrapping
   `Engine.wait`. It copies the inputs into an internal in-flight list and
   repeatedly calls `wait(inflight, num_returns=1)`, yielding each sweep's ready
@@ -117,7 +230,63 @@ The complete small API surface is: `Engine.submit(...)`,
   forwards to it. This is a convenience wrapper, **not** the benchmark
   `batch_wait` retire path: it does not share one `recv_ns` across a ready
   sweep, so drivers that need per-sweep shared-`recv_ns` fairness keep their
-  explicit `wait` loop (see `docs/reference/rayx_submit_batch.md` §2a).
+  explicit `wait` loop (see `docs/reference/rayx_submit_batch.md` §2a, and
+  `docs/reference/rayx_frontend_design.md` for the full design rationale behind
+  Future ownership, `wait`/`as_completed`, and the `hpx::wait_some` choice).
+* **`Engine.get(futures, recv_ns=None)`** — ergonomic retire/collect sugar over
+  `Future.result`. A single `Future` returns one row dict; a list returns a list
+  of row dicts **in input order**. It is **not** Ray's `ray.get`: RayX has no
+  object store and no computed user value, so `get` returns RayX **measurement
+  rows** (the per-request timing dict), not a function result. Like `result`, it
+  **consumes** each Future once — a second `get(...)` / `result()` on the same
+  Future raises (the once-only guard). The optional `recv_ns` (a
+  `time.perf_counter_ns()` value) is forwarded to each `result(recv_ns=...)` and,
+  as there, is only correct for an already-ready Future. It is a convenience
+  helper, **not** the benchmark `batch_wait` retire path: it does not coordinate
+  one shared `recv_ns` across a wait sweep, so drivers that need per-sweep
+  shared-`recv_ns` fairness keep their explicit `wait` loop.
+  `SyntheticActor.get(...)` forwards to it.
+* **`Engine.cancel(future) -> bool`** (and `SyntheticActor.cancel(...)`, which
+  forwards to it) — **honest two-mode** cancellation: a *queued skip* or a
+  *running stop at a chunk boundary*. Returns `True` when this call **settles** a
+  cancellation: the request was still **queued** (lane skips it, **no service
+  time spent**, `status="cancelled"`, `chunks_completed == 0`), **or** it is a
+  **running chunked** request with a chunk boundary still ahead (the lane stops
+  at that next boundary — `True` means *guaranteed-to-stop, not ready-now* — and
+  fulfills `status="cancelled"` with `1 <= chunks_completed < chunks`). Returns
+  `False` when nothing can be settled: already **completed**, stop **already
+  requested**, a started **single-chunk** (`chunks=1`) request, or already on its
+  **final** chunk. Active work is **never** interrupted (no check inside
+  `sleep_for` / `spin_for`, none inside a parked gap — only *between* chunks). It
+  **raises** for an already-retired Future, after engine `shutdown()`, and for a
+  **non-cancelable** Future — only single-request `submit` / `remote` /
+  `serve.remote` futures are cancelable; **batch-submitted futures are not** (no
+  batch-cancel in this slice). `cancel()` is **not** a retire: a cancelled
+  Future still becomes ready and must still be consumed once via `result()` /
+  `get()`, which returns a `status="cancelled"` row that **preserves the
+  `label`** — so cancelled futures flow through `wait` / `as_completed` / `get`
+  like any other. This is **not** Ray task/object cancellation (no task graph,
+  no object-store value, no interrupt of an in-progress active chunk); see §4 and
+  `docs/reference/rayx_frontend_design.md` §7 for the state machine and race
+  semantics.
+* **`Future.cancelled() -> bool`** — non-blocking, non-consuming: `True` once a
+  cancellation is **settled** — a queued cancel **or** a requested running
+  stop-at-boundary — which can occur *before* the cancelled row is ready; else
+  `False` (including for a request that completed normally and for a
+  non-cancelable batch future). Unlike `ready()` / `result()`, it does **not**
+  raise after retire and does **not** consume the Future.
+* **`SyntheticActor.serve.remote(service_ms, work_mode)` /
+  `SyntheticActor.serve.remote_batch(service_ms, count, work_mode)`** — optional
+  Ray-like **method-style** sugar. `actor.serve.remote(...)` mirrors Ray's
+  `worker.method.remote(...)` shape, forwarding to `actor.remote(...)` /
+  `actor.remote_batch(...)` and returning the **same** `Future` / `list[Future]`
+  (so `wait` / `as_completed` / `get` / `result` and graceful-drain shutdown all
+  behave identically; consume-once is inherited). It is **one fixed synthetic
+  operation** named `serve`, **not** Ray's general actor-method dispatch — RayX
+  has no arbitrary actor methods, so any other dotted access (`actor.predict`,
+  `actor.foo`) raises `AttributeError`. `actor.remote(...)` remains the primary
+  API; `serve` is sugar only, and the benchmark driver uses `remote`/`submit`,
+  not this façade.
 
 Both classes own one HPX runtime, so only one active `Engine` or
 `SyntheticActor` is allowed per process; both are context managers.
@@ -134,8 +303,8 @@ queued service time.
 Consequently, **Futures submitted before shutdown stay valid afterward** and are
 ready: `future.ready()` returns `True` and `future.result()` retires the row as
 usual, even after the owning engine has been shut down. New work after shutdown
-still raises (`Engine is shut down`): `submit`, `submit_batch`, `wait`, and
-`as_completed` (which goes through `wait`).
+still raises (`Engine is shut down`): `submit`, `submit_batch`, `cancel`,
+`wait`, and `as_completed` (which goes through `wait`).
 
 ## 3. What it is
 
@@ -158,8 +327,22 @@ still raises (`Engine is shut down`): `submit`, `submit_batch`, `wait`, and
 * Not a general Ray actor (single fixed synthetic operation, not arbitrary
   named methods). `remote_batch()` is likewise **not** a general Ray actor batch
   API — it bulk-dispatches the one fixed synthetic operation, not arbitrary
-  Python functions.
+  Python functions. The `actor.serve.remote(...)` method-style sugar exposes that
+  one operation in Ray's `.method.remote` shape; it does **not** add method
+  dispatch — `serve` is the only method, and any other dotted access raises
+  `AttributeError`.
 * Not arbitrary remote Python function execution (native C++ work only).
+* **Not real token streaming / not Ray streaming.** `chunks` / `chunk_delay_ms`
+  model a multi-step synthetic service lifecycle as **timing only** — there are
+  no tokens, no payloads, no per-chunk events/callbacks, and no streamed values;
+  one request still returns one `Future` and one row (see §2 and
+  `docs/reference/rayx_frontend_design.md` §8).
+* **Not Ray task/object cancellation.** `Engine.cancel(future)` either skips a
+  **queued** synthetic request or stops a **running chunked** one at its next
+  chunk boundary; it does not cancel a task graph, drop an object-store value, or
+  interrupt an **in-progress active chunk / parked gap** (those always run to the
+  boundary — see §2 and `docs/reference/rayx_frontend_design.md` §7). It is not
+  real token-stream cancellation either.
 * No object store.
 * No distributed scheduler.
 * No fault tolerance / autoscaling.
@@ -219,7 +402,70 @@ not a general Ray actor replacement. This supports the project direction:
 expose HPX-backed native work through a small Python API while keeping the scope
 honest.
 
-## 8. Caveats / next directions
+## 8. Mapping Ray actor-pool code to RayX
+
+A common Ray idiom is an explicit pool of actor workers with client-side
+round-robin placement:
+
+```python
+workers = [Worker.remote() for _ in range(4)]
+refs = [workers[i % 4].work.remote(i) for i in range(20)]
+results = ray.get(refs)
+```
+
+RayX expresses the same request-routing **shape** with one `Engine` over `N`
+internal service lanes — not `N` independent actors. There is no pool object;
+`Engine(num_lanes=N)` already round-robins submissions across the lanes, and
+each retired row reports the lane that served it:
+
+```python
+with Engine(num_lanes=4, hpx_threads=4) as engine:
+    futures = [
+        engine.submit(service_ms=5, label=f"req-{i}")
+        for i in range(20)
+    ]
+    rows = engine.get(futures)
+
+for row in rows:
+    print(row["label"], row["actor_id"])
+```
+
+### What maps cleanly
+
+* **Per-request Futures.** Each `engine.submit(...)` returns one `Future`,
+  like each `worker.work.remote(i)` returns one `ObjectRef`.
+* **Round-robin over `N` lanes.** `Engine` distributes submissions across its
+  `num_lanes` lanes internally — the same distribution Ray's `workers[i % 4]`
+  expresses by hand, without the client doing the modulo.
+* **`Engine.wait` / `Engine.as_completed`.** The as-they-complete retire shapes
+  map to `ray.wait(...)` and the as-completed idiom (see §2).
+* **`Engine.get`.** Retiring a list of Futures in input order maps to
+  `ray.get(refs)` (with the difference noted below).
+* **`label` for user request identity.** The optional client-side `label` echoes
+  back as `row["label"]`, so a retired row maps to a user-level request id — the
+  role `i` plays in the Ray loop.
+* **`actor_id` for lane identity.** Each lane has a stable `actor_id`, reported
+  on every row, so `row["actor_id"]` tells you which lane served the request
+  after the fact — analogous to knowing which worker handled a `ref`.
+
+### What does not map
+
+* **Ray's `N` handles are `N` independent actor workers (processes).** RayX
+  `num_lanes=N` is `N` internal HPX service lanes inside **one** `Engine` and one
+  HPX runtime; only one active `Engine` (or `SyntheticActor`) exists per process.
+* **No user-controlled placement.** There is no `workers[i]` equivalent: lane
+  choice is internal round-robin, not client-selected. `actor_id` reports the
+  serving lane after the fact; it is not a handle you submit to.
+* **No arbitrary Python actor methods.** RayX runs one fixed native C++
+  synthetic operation, not user-defined methods like `Worker.work` (see §4).
+* **`get` returns measurement rows and consumes once.** `Engine.get` returns
+  RayX per-request timing rows, not object-store values, and retires each Future
+  exactly once — unlike Ray's idempotent `ray.get` over a value store (see §2).
+
+For the conceptual actor ↔ HPX-component mapping behind this, see
+`docs/ray_hpx_mapping.md`; for the full API contract, see §2 above.
+
+## 9. Caveats / next directions
 
 Caveats:
 
@@ -231,8 +477,10 @@ Caveats:
 
 Possible future directions:
 
-* `actor.serve.remote(...)` method-style façade (closer to Ray's
-  `actor.method.remote()`).
-* Variable service time.
-* Cancellation / streaming serving-control workloads.
+* Chunked synthetic service (§2) and **chunk-boundary running cancellation** now
+  exist: `Engine.cancel` settles both a queued skip and a stop-at-next-boundary
+  for a running chunked request (`1 <= chunks_completed < chunks`), without
+  interrupting an in-progress active chunk or parked gap — see
+  `docs/reference/rayx_frontend_design.md` §7. A deeper streaming model (per-chunk
+  events / partial-value delivery) remains out of scope.
 * A real native backend behind the lane (once the synthetic contract is stable).

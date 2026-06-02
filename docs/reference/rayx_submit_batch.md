@@ -21,7 +21,20 @@ not arbitrary Python remote execution.
 
 * API: `Engine.submit_batch(service_ms=0.0, count=1, work_mode="sleep")`.
 * One Python→C++ crossing enqueues `count` requests.
-* Same round-robin lane routing as `Engine.submit()`.
+* Same round-robin lane routing as `Engine.submit()` (`lane_i = (rr_start + i) %
+  num_lanes`).
+* **Per-lane bulk enqueue:** requests are grouped by lane and pushed under **one
+  lane lock + one notify per lane** (internal `ServiceLane::submit_bulk`), instead
+  of one lock+notify per request, then the futures are restored to input order.
+  This is purely an enqueue-cost optimization — input order, round-robin
+  `actor_id`, the shared Python `submit_ns`, scalar/varied forms, batch chunking
+  rejection, batch cancellation non-support, and the result-row/JSONL schema are
+  all unchanged. The single-`submit()` path and the native baseline are untouched.
+  The win is multi-lane no-op batches (where per-request lock/notify dominated);
+  single-lane is unchanged-to-slightly-better. Measured A/B (bulk vs the original
+  one-by-one enqueue), and its non-claims, are in
+  [benchmarks/10_rayx_bulk_enqueue/rayx_bulk_enqueue.md](../../benchmarks/10_rayx_bulk_enqueue/rayx_bulk_enqueue.md)
+  — the current source for batch-path enqueue behavior.
 * Returns one `Future` per request.
 * All returned futures share **one** Python-side submit timestamp.
 * `SyntheticActor.remote_batch(service_ms, count, work_mode)` now exists as an
@@ -80,6 +93,14 @@ results/rayx_submit_batch_20260529T214957Z/
 * `warmup_requests`: `20`.
 
 ## 5. Results
+
+> **Historical (pre-bulk-enqueue).** These `num_lanes=1` numbers are from the
+> original `submit_batch` run (`20260529`), **before** the per-lane bulk enqueue
+> (§2). They remain valid as the *first* `submit_batch` characterization — and the
+> single-lane / service-dominated conclusions below are unchanged by bulk enqueue
+> (bulk helps **multi-lane no-op** enqueue, not single-lane or service-bound work).
+> For the bulk-vs-one-by-one A/B across lanes 1/4/8, see
+> [benchmarks/10_rayx_bulk_enqueue/rayx_bulk_enqueue.md](../../benchmarks/10_rayx_bulk_enqueue/rayx_bulk_enqueue.md).
 
 Median across 5 repeats, `num_lanes=1`. `tot`/`svc`/`qw` are `total_ms`,
 `service_ms_observed`, `queue_wait_ms`.
@@ -146,6 +167,40 @@ Batch mode is a throughput tool, not a steady-state latency mode.
 
 ## 9. Suggested next directions
 
-* Variable service-time workload (instead of fixed sleep).
-* Streaming / cancellation workload.
 * A real native backend.
+
+**Chunked service is single-request only — batch paths intentionally stay
+unchunked.** The single-request paths (`Engine.submit` / `SyntheticActor.remote`
+/ `actor.serve.remote`) accept `chunks` / `chunk_delay_ms` (a multi-step service
+lifecycle, synthetic timing only — see `docs/reference/rayx_actor_api.md` §2 and
+`docs/reference/rayx_frontend_design.md` §8). The **batch** paths (`submit_batch`
+/ `remote_batch` / `serve.remote_batch`) **reject** `chunks` / `chunk_delay_ms`.
+This is a **deliberate design boundary, not an unimplemented feature**: chunking
+is a single-request **lifecycle / serving-control / cancellation** probe, whereas
+batch is a bulk **submission / throughput** probe. Combining them would blur the
+interpretation — a chunked-batch `total_ms` would mix **bulk queue drain** with
+**chunk-lifecycle lane occupancy** — and, because **batch futures are
+non-cancelable** (no cancel token), chunk boundaries would lose their main
+serving-control purpose (the chunk-boundary running stop; see "Cancellation"
+below and experiment 13). Bulk per-request **service-time heterogeneity** is
+already covered by **true varied batch** (below: `submit_batch(service_ms=[...])`,
+one crossing) — a different axis from a chunked lifecycle within one request.
+
+Cancellation now covers both a **queued skip** and a **chunk-boundary running
+stop** for a chunked request, but it is **per-future, not a batch-cancel**:
+`Engine.cancel(future)` / `SyntheticActor.cancel(future)` settle a single
+**`submit`/`remote`** request (queued → `True`, `chunks_completed == 0`; running
+chunked w/ a boundary ahead → `True`, stops at the next boundary with
+`1 <= chunks_completed < chunks`). **Batch-submitted futures are not cancelable**
+— they carry no cancel token, so there is **no batch-cancel** and no way to cancel
+an individual request within a `submit_batch` (calling `cancel()` on a batch
+future raises). Batch is also unchunked, so the running-stop mode never applies to
+it. See `docs/reference/rayx_actor_api.md` §2 and
+`docs/reference/rayx_frontend_design.md` §7.
+
+Variable service-time workloads are now supported: `submit_batch` accepts a
+list/tuple of per-request service times (`submit_batch(service_ms=[1, 5, 1, 10])`,
+a true single bulk-varied crossing — see `docs/reference/rayx_actor_api.md`), and
+`bench/run_hpx_python_baseline.py --api batch --service-pattern bimodal` routes
+the generated per-request sequence through it (still synthetic service-time
+control, no payload/object-store/task-execution semantics).

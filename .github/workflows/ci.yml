@@ -22,18 +22,12 @@ jobs:
         run: python --version
 
       - name: Compile Python scripts
-        run: |
-          python -m py_compile \
-            bench/analyze_jsonl.py \
-            bench/run_ray_baseline.py \
-            bench/run_hpx_python_baseline.py \
-            bench/service_sequence.py \
-            bench/smoke_diag.py \
-            bench/smoke_local.py \
-            bench/smoke_rayx.py \
-            bench/smoke_service_sequence.py \
-            examples/rayx_basic.py \
-            experiments/06_diag_fifo_ceiling_analysis/run_diag_ceiling.py
+        # Syntax-only: py_compile never imports, so this is safe without Ray, the
+        # _rayx extension, or HPX. Globs auto-cover new bench helpers and every
+        # experiment runner (experiments/NN_name/run_*.py) so the list cannot
+        # drift. Experiment runners are COMPILED here but NEVER run in CI -- they
+        # need _rayx + HPX and some are timing-sensitive (run them locally).
+        run: python -m py_compile bench/*.py examples/*.py ray_impl/*.py experiments/*/run_*.py benchmarks/*/run_*.py
 
       - name: Golden service-sequence check
         # Dependency-free (no Ray, no rayx): pins the shared deterministic
@@ -41,28 +35,81 @@ jobs:
         # and the native C++ service_for cannot drift silently.
         run: python bench/smoke_service_sequence.py
 
-      - name: Check README links point to existing local files
+      - name: Check local markdown links and image sources resolve
+        # Repo-integrity only: every relative ](path) markdown link AND every
+        # local HTML <img src="path"> (e.g. the README logo) in README, CLAUDE.md,
+        # and all docs/benchmarks/experiments markdown must point at an existing
+        # file, resolved RELATIVE TO THE LINKING FILE. Skips http(s)/mailto and
+        # pure #anchors. Fetches nothing.
         run: |
           python - <<'PY'
           import pathlib
           import re
           import sys
 
-          root = pathlib.Path(".")
-          readme = pathlib.Path("readme.md")
-          text = readme.read_text()
+          roots = [pathlib.Path("readme.md"), pathlib.Path("CLAUDE.md")]
+          for d in ("docs", "benchmarks", "experiments"):
+              roots += sorted(pathlib.Path(d).rglob("*.md"))
+
+          link_re = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+          img_re = re.compile(r"""<img\b[^>]*?\bsrc=["']([^"']+)["']""", re.IGNORECASE)
 
           ok = True
-          for target in re.findall(r"\[[^\]]+\]\(([^)]+)\)", text):
-              if target.startswith(("http://", "https://", "#", "mailto:")):
+          checked = 0
+          for md in roots:
+              if not md.exists():
                   continue
-              path = pathlib.Path(target.split("#", 1)[0])
-              if not path.exists():
-                  print(f"Broken README link: {target}")
-                  ok = False
+              base = md.parent
+              text = md.read_text()
+              targets = ([("link", t) for t in link_re.findall(text)]
+                         + [("image", t) for t in img_re.findall(text)])
+              for kind, target in targets:
+                  if target.startswith(("http://", "https://", "#", "mailto:")):
+                      continue
+                  rel = target.split("#", 1)[0]
+                  if not rel:
+                      continue
+                  checked += 1
+                  if not (base / rel).exists():
+                      print(f"Broken {kind} in {md}: {target}")
+                      ok = False
 
           if not ok:
               sys.exit(1)
+          print(f"OK: {checked} local markdown links/images resolve")
+          PY
+
+      - name: Curated aggregate.json must stay tracked-eligible
+        # .gitignore ignores aggregate.json globally but re-includes the curated
+        # ones under benchmarks/** and experiments/** via ! exceptions. Assert
+        # those curated files are NOT ignored, so the exception can't silently
+        # break and drop curated evidence from future commits.
+        run: |
+          python - <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          files = sorted(
+              str(p)
+              for d in ("benchmarks", "experiments")
+              for p in pathlib.Path(d).rglob("aggregate.json")
+          )
+          if not files:
+              print("No curated aggregate.json found to check")
+              sys.exit(0)
+
+          ignored = subprocess.run(
+              ["git", "check-ignore", *files],
+              capture_output=True, text=True
+          ).stdout.split()
+
+          if ignored:
+              print("Curated aggregate.json wrongly ignored by .gitignore:")
+              for f in ignored:
+                  print("  " + f)
+              sys.exit(1)
+          print(f"OK: {len(files)} curated aggregate.json tracked-eligible")
           PY
 
       - name: Check no raw artifacts are tracked
@@ -80,11 +127,16 @@ jobs:
               ".summary.json",
               ".log",
               ".so",
+              ".dylib",
+              ".o",
+              ".pyc",
           )
 
           bad = []
           for path in tracked:
               if path.startswith("results/"):
+                  bad.append(path)
+              if "__pycache__/" in path or path.endswith("__pycache__"):
                   bad.append(path)
               if path.endswith(forbidden_suffixes):
                   bad.append(path)

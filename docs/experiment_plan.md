@@ -41,9 +41,12 @@ Request fields:
 
 * `request_id` — unique id for the request.
 * `service_ms` — total time the backend should spend servicing the request.
-* `chunks` — number of output chunks the backend will produce (1 = single
-  response; >1 reserved for future streaming).
-* `chunk_delay_ms` — delay between chunks (reserved for future streaming).
+* `chunks` — number of active service chunks the backend splits the TOTAL active
+  `service_ms` into (default `1` = single step). Exposed by the benchmark drivers
+  via `--chunks` (single-submit modes); `>1` runs chunked synthetic service — see
+  the status note above.
+* `chunk_delay_ms` — parked inter-chunk gap in ms inserted between the `chunks-1`
+  boundaries (default `0`). Exposed via `--chunk-delay-ms`.
 * `work_mode` — how the backend consumes `service_ms`.
 
 Rules for the first implementation:
@@ -51,12 +54,38 @@ Rules for the first implementation:
 * First supported `work_mode` is **`sleep`**.
 * `sleep` models **I/O-bound or GPU-offloaded** serving, where the control
   plane is waiting for external work rather than burning a CPU core.
-* Compute-bound **busy-spin** is a **future separate axis** (`work_mode`
-  `spin`) and must **not** be mixed into the first results — it changes
-  scheduling behavior on both runtimes.
-* First implementation uses **no streaming** (`chunks = 1`) and **no
-  cancellation**. `chunks`/`chunk_delay_ms` are carried in the schema now so it
-  stays stable when streaming is added.
+* Compute-bound **busy-spin** is a **separate axis** (`work_mode="spin"`, now
+  implemented in the drivers) and must **not** be mixed into a single `sleep`
+  result set — it changes scheduling behavior on both runtimes. Each run records
+  its `work_mode`.
+* The first implementation used **no streaming** (`chunks = 1`) and **no
+  cancellation**; `chunks`/`chunk_delay_ms` were reserved in the schema. Chunked
+  synthetic service has since graduated into the drivers (`--chunks` /
+  `--chunk-delay-ms`, single-submit modes) — still **not** streaming (one row per
+  request, no per-chunk events) and still no benchmark-driver cancellation.
+
+> **Status note — what has graduated into the drivers vs facade-only.** Since
+> this contract was locked, several axes have been implemented. Three are now
+> **first-class benchmark-driver workloads** that populate the reserved JSONL
+> fields without any schema bump (still `"1"`):
+>
+> * `work_mode` — `--work-mode sleep | spin` (all three drivers; Ray is
+>   `sleep`-only).
+> * **varied batch** service — `submit_batch(service_ms=[...])` on the rayx
+>   driver (`--api batch` / bimodal), one true bulk crossing.
+> * **chunked synthetic service** — `--chunks` / `--chunk-delay-ms` on **all
+>   three** drivers (Ray, HPX-native, rayx), single-submit modes only; the total
+>   active `service_ms` is split into `chunks` active steps with `chunks-1` parked
+>   `chunk_delay_ms` gaps. One row per request, **not** real token streaming, no
+>   per-chunk events; batch submit stays unchunked (matching the facade). The
+>   chunked *shape* matches across engines; absolute sleep overshoot still differs
+>   by backend (Ray ~5% vs HPX ~25%, per experiment 01).
+>
+> The rest remain **facade-only** (exercised through the `rayx` API and
+> experiment-local runners — see `docs/reference/` and `experiments/08`–`13`) and
+> do **not** appear in the benchmark JSONL: queued + chunk-boundary running
+> **cancellation**, the `chunks_completed` result-row field, and the client-side
+> `label`. This document remains the benchmark-driver measurement contract.
 
 ### Service-time patterns
 
@@ -102,9 +131,12 @@ high-resolution timestamps; all `*_ms` fields are derived for readability.
 * `service_ms_requested` — the `service_ms` asked of the backend, recorded
   per-request. Constant under `service_pattern=fixed`; varies row-to-row under
   `bimodal` (see §3). Still a scalar; no schema change.
-* `chunks` — number of chunks produced (1 for now).
-* `chunk_delay_ms` — requested inter-chunk delay (0/unused for now).
-* `work_mode` — `"sleep"` for now.
+* `chunks` — number of active service chunks the request was split into
+  (default `1`; set by the driver `--chunks`, single-submit modes).
+* `chunk_delay_ms` — parked inter-chunk delay in ms (default `0`; set by
+  `--chunk-delay-ms`).
+* `work_mode` — `"sleep"` or `"spin"` (the drivers support both; each run records
+  which it used).
 * `retire_mode` — client dispatch mode (metadata): `"one_by_one"` (windowed:
   hold N in flight, retire oldest, submit one) or `"batch"` (bulk submit; see
   note below).
@@ -140,6 +172,9 @@ One JSON object emitted by the analyzer per run.
 * `num_requests` — total requests issued.
 * `completed` — count with `status == "completed"`.
 * `failed` — count with `status == "failed"`.
+* `cancelled` — count with `status == "cancelled"` (additive; `0` for normal
+  benchmark runs, which never cancel — non-zero only when the analyzer is run over
+  experiment-local rows that used facade cancellation).
 * `throughput_req_s` — completed requests per wall-clock second of the run.
 * `total_ms_p50`, `total_ms_p90`, `total_ms_p99` — total-latency percentiles.
 * `queue_wait_ms_p50`, `queue_wait_ms_p90`, `queue_wait_ms_p99` — queue-wait
@@ -169,7 +204,10 @@ Keep it small. Local laptop only.
 * Concurrency (in-flight requests): `1`, `4`, `8`, `16`.
 * **One actor/worker first.**
 * **Local laptop only.**
-* **No streaming, no cancellation yet.**
+* **No streaming and no cancellation in the benchmark matrix.** Chunked service
+  (`--chunks` / `--chunk-delay-ms`) is available in the drivers but is **not**
+  streaming (one row per request, no per-chunk events); cancellation stays a rayx
+  facade feature — see the §3 status note.
 
 This is 4 service levels × 4 concurrency levels = 16 points, single worker,
 single machine. Expand only after the first smoke run is reviewed.
