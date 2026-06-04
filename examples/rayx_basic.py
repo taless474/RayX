@@ -119,6 +119,18 @@ def main():
               f"chunk_delay_ms={row['chunk_delay_ms']} status={row['status']} "
               f"service_ms={row['service_ms_observed']:.3f} (active~6 + gaps)")
 
+        # (11) lane_stats() is an observability SNAPSHOT for debugging: one
+        # {actor_id, queue_depth, active} row per lane, in stable lane order.
+        # queue_depth is queued-but-not-started; active means the lane is in a
+        # request's service lifecycle. It can race (snapshot), never consumes a
+        # future, and is NOT scheduler state / placement control / JSONL schema.
+        print("\n-- lane_stats() (observability snapshot) --")
+        backlog = [engine.submit(service_ms=5, work_mode="spin") for _ in range(6)]
+        for st in engine.lane_stats():
+            print(f"  lane {st['actor_id']} queue_depth={st['queue_depth']} "
+                  f"active={st['active']}")
+        engine.get(backlog)  # drain the snapshot's backlog before shutdown
+
     # (7) The context exit above called Engine.shutdown(), a graceful drain:
     # it blocks until all queued/in-flight submitted work completes and every
     # Future is fulfilled, then stops the HPX runtime. Shutdown itself never

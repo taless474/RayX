@@ -29,11 +29,15 @@ is one serialized FIFO lane whose timer/suspension primitives are HPX-native.
 
 The **only** deliberate differences are the consumer thread type, the queue
 suspension primitive, and the parked-sleep timer. `service_lane.hpp` is
-unchanged; `HpxLane` reuses `rayhpx::Request` / `rayhpx::Result`. The HPX
-cooperative lane does **not** implement cancellation tokens (the rayx engine is
-the only token creator and is intentionally not wired to `HpxLane`; the native
-driver never cancels), so cancellation is "not applicable" here — the chunked
-service body is otherwise the same shape, minus the token-boundary checks.
+unchanged; `HpxLane` reuses `rayhpx::Request` / `rayhpx::Result`. In **this
+native single-lane probe** the `HpxLane` worker is driven only through its
+token-less native `submit` path: the native driver never cancels, so cancellation
+is "not applicable" here and the chunked service body is the same shape minus the
+token-boundary checks. (Cancellation is **not** intrinsically absent from
+`HpxLane`: the rayx backend `lane_impl="hpx"` does wire the shared
+`rayhpx::CancelToken` into `HpxLane` — queued and chunk-boundary running
+cancellation — exercised in exp21 (parity) and exp22 (load divergence). That
+rayx-backend path is simply out of scope for this native mechanism probe.)
 
 ## 2. How to run
 

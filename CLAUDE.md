@@ -59,9 +59,12 @@ Use these as durable interpretation constraints unless new evidence changes them
 * Python/GIL is not the high-lane bottleneck in the current rayx measurements.
 * Sleep-mode bimodal high-lane behavior is refined to closed-loop FIFO-retire / client-driver behavior.
 * `work_mode="spin"` is a synthetic CPU-bound diagnostic/calibration mode, not an HPX runtime mode and not the serving design.
-* Sleep-mode, spin-mode, and HPX cooperative-lane results should not be conflated.
+* Sleep-mode, spin-mode, HPX cooperative-lane, and task/dataflow-pool results should not be conflated.
 * The std::thread `ServiceLane` remains the stable actor-like comparison anchor unless an experiment explicitly opts into another lane mechanism.
 * Opt-in HPX-thread/cooperative-lane probes are mechanism experiments, not replacements for the main corpus.
+* `lane_impl` selects the rayx lane backend: `"std"` / `ServiceLane` is the default stable comparison anchor; `"hpx"` / `HpxLane` is an opt-in cooperative HPX-thread lane behind the *same* RayX contract (FIFO, `actor_id`, `lane_stats()` queue_depth/active, bounded admission/`QueueFullError`, queued + chunk-boundary running cancellation, get/wait/as_completed). Backend choice is visible only via the `actor_id` prefix (`act-hpx-` vs `act-hpxl-`); no HPX internals are exposed to Python and the v1 JSONL schema is unchanged.
+* The HpxLane evidence arc is exp16 (native single-lane feasibility/timer behavior) → exp20 (task/dataflow pools are *not* drop-in RayX lane backends) → exp21 (RayX backend contract parity) → exp22 (load-divergence mechanism, observation-only) → exp23 (adapter-hop cost, observation-only). See `docs/reference/hpxlane_backend_arc.md` for the consolidated reading guide.
+* exp22/exp23 timings (and the spin divergence) are observation-only and machine-specific: do not use them as performance claims, and do not state an "HpxLane is faster/slower than ServiceLane" verdict.
 * Synthetic service timing should not be described as real inference work.
 
 ## Repository structure
@@ -112,6 +115,27 @@ Do not introduce real model backends such as llama.cpp, vLLM, SGLang, TensorRT-L
 Do not add payload execution, object-store behavior, or arbitrary task execution unless the project direction is explicitly changed.
 
 Do not create large generated files.
+
+## HPX-native design discipline
+
+When proposing new RayX features, examples, or experiments, always consider whether there is a more HPX-native design before extending a Ray-shaped pattern.
+
+Keep these stories separate:
+
+* Ray-facing mapping: useful for showing how common Ray actor/future control patterns map onto RayX.
+* HPX-facing design: should consider HPX futures, `hpx::async`, continuations, `hpx::dataflow`, executors, resource partitioning, cooperative scheduling, and HPX-thread lane mechanisms where appropriate.
+* RayX harness design: remains a synthetic comparison harness with explicit, narrow semantics.
+
+Do not present a Ray actor-pool pattern as HPX best-practice guidance. If an example mirrors Ray actor-pool code, label it as a Ray-pattern mapping only.
+
+Before adding Ray-shaped API surface or examples, ask:
+
+* Is this needed for the Ray-vs-HPX comparison story?
+* Is there a clearer HPX-native mechanism or experiment?
+* Would this blur RayX into a fake Ray clone?
+* Does this preserve the honest boundaries: no object store, no arbitrary remote Python execution, no Ray Serve, no real inference?
+
+Prefer HPX-native mechanism probes or reference notes when the goal is to explain HPX design, and Ray-pattern examples only when the goal is to help Ray users understand the mapping.
 
 ## Benchmark and metrics discipline
 

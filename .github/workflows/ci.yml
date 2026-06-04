@@ -26,8 +26,11 @@ jobs:
         # _rayx extension, or HPX. Globs auto-cover new bench helpers and every
         # experiment runner (experiments/NN_name/run_*.py) so the list cannot
         # drift. Experiment runners are COMPILED here but NEVER run in CI -- they
-        # need _rayx + HPX and some are timing-sensitive (run them locally).
-        run: python -m py_compile bench/*.py examples/*.py ray_impl/*.py experiments/*/run_*.py benchmarks/*/run_*.py
+        # need _rayx + HPX and some are timing-sensitive (run them locally). The
+        # rayx Python facade (python/src/rayx/*.py) is included too; py_compile
+        # parses it without importing, so the _rayx/HPX-only import path is never
+        # triggered.
+        run: python -m py_compile bench/*.py examples/*.py ray_impl/*.py experiments/*/run_*.py benchmarks/*/run_*.py python/src/rayx/*.py
 
       - name: Golden service-sequence check
         # Dependency-free (no Ray, no rayx): pins the shared deterministic
@@ -129,6 +132,7 @@ jobs:
               ".so",
               ".dylib",
               ".o",
+              ".a",
               ".pyc",
           )
 
@@ -137,6 +141,8 @@ jobs:
               if path.startswith("results/"):
                   bad.append(path)
               if "__pycache__/" in path or path.endswith("__pycache__"):
+                  bad.append(path)
+              if ".dSYM/" in path or path.endswith(".dSYM"):
                   bad.append(path)
               if path.endswith(forbidden_suffixes):
                   bad.append(path)

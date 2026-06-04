@@ -1,0 +1,552 @@
+{
+  "experiment": "rayx_hpxlane_load_divergence",
+  "schema": "rayx-hpxlane-load-divergence-1",
+  "schema_note": "experiment-local; NOT the v1 benchmark JSONL schema",
+  "boundary": "hpx-python-frontend",
+  "goal": "where rayx lane_impl='std' (std::thread ServiceLane) and lane_impl='hpx' (cooperative HpxLane) STRUCTURALLY DIVERGE under load, after exp21 proved contract parity. Mechanism/structure evidence; the divergence is observed, never gated.",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "backends": [
+    "std",
+    "hpx"
+  ],
+  "expected_prefix": {
+    "std": "act-hpx-",
+    "hpx": "act-hpxl-"
+  },
+  "matrix": {
+    "hpx_threads": [
+      1,
+      2,
+      4
+    ],
+    "num_lanes_full": [
+      2,
+      4,
+      8
+    ],
+    "num_lanes_quick": [
+      2,
+      4
+    ],
+    "workloads": [
+      "sleep",
+      "spin"
+    ],
+    "reqs_per_lane": 2,
+    "repeats_full": 3,
+    "repeats_quick": 1,
+    "sleep_ms": {
+      "full": 120.0,
+      "quick": 80.0
+    },
+    "spin_ms": {
+      "full": 40.0,
+      "quick": 30.0
+    },
+    "subprocess_axis": "one process per (backend, hpx_threads) because the HPX runtime is process-fixed"
+  },
+  "firm_gates": {
+    "G1": "completion: rows == offered, one row per request",
+    "G2": "per-lane FIFO: end_ns monotonic in submit order (inversions==0)",
+    "G3": "lane_stats sanity: active + queue_depth under a controlled sleep load, idle after drain",
+    "G4": "actor_id prefix: act-hpx- (std) / act-hpxl- (hpx)",
+    "G5": "cross-backend completion parity per matching cell"
+  },
+  "note": "Structural gates only; the spin scheduling-bound divergence is OBSERVATION-ONLY, never gated -- lane_stats().active is valid RayX observability but not a perfect proof of true HPX worker-level concurrency, and under spin the stats call itself can be delayed by saturated workers. No speedup claim, no 'HPX beats Ray' claim. work_mode='spin' is a synthetic CPU-bound diagnostic/calibration mode, NOT the serving design. rayx-only opt-in HpxLane backend (lane_impl='hpx'); NOT the exp16 native single-lane probe and NOT the exp20 hpx::async/hpx::dataflow task-pool probe. Not Ray Serve, not a Ray object store, not real inference. No analyzer / benchmark-JSONL-schema / driver / CI / Future-ownership change; no HPX internals exposed. Raw per-worker JSON is experiment-local scratch under results/ (gitignored).",
+  "all_structural_gates_passed": true,
+  "gate_failures": [],
+  "g3_lane_stats_sanity": {
+    "hpx_ht1": true,
+    "hpx_ht2": true,
+    "hpx_ht4": true,
+    "std_ht1": true,
+    "std_ht2": true,
+    "std_ht4": true
+  },
+  "observations_non_gating": {
+    "cells": [
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 242.0735,
+        "overlap_ratio_p50": 1.9829,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 121.0147
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 242.0781,
+        "overlap_ratio_p50": 3.9657,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 121.0089
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 242.1033,
+        "overlap_ratio_p50": 7.9305,
+        "max_active_lanes": 8,
+        "max_total_queue": 8,
+        "service_ms_observed_p50": 121.0054
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 160.0986,
+        "overlap_ratio_p50": 0.9994,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0006
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 320.1816,
+        "overlap_ratio_p50": 0.9994,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0006
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 640.2914,
+        "overlap_ratio_p50": 0.9995,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0005
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 242.0788,
+        "overlap_ratio_p50": 1.9828,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 121.0157
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 242.0883,
+        "overlap_ratio_p50": 3.9655,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 121.0143
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 242.1167,
+        "overlap_ratio_p50": 7.9301,
+        "max_active_lanes": 8,
+        "max_total_queue": 8,
+        "service_ms_observed_p50": 121.0139
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 80.101,
+        "overlap_ratio_p50": 1.9975,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0003
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 160.2073,
+        "overlap_ratio_p50": 1.9974,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0003
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 2,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 320.4213,
+        "overlap_ratio_p50": 1.9974,
+        "max_active_lanes": 0,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0003
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 242.0983,
+        "overlap_ratio_p50": 1.9827,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 121.0118
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 242.1902,
+        "overlap_ratio_p50": 3.9638,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 121.0216
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 242.1095,
+        "overlap_ratio_p50": 7.9303,
+        "max_active_lanes": 8,
+        "max_total_queue": 8,
+        "service_ms_observed_p50": 120.9683
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 80.2354,
+        "overlap_ratio_p50": 1.9941,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 40.0001
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 85.2352,
+        "overlap_ratio_p50": 3.7543,
+        "max_active_lanes": 1,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0002
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 168.3491,
+        "overlap_ratio_p50": 3.8016,
+        "max_active_lanes": 2,
+        "max_total_queue": 0,
+        "service_ms_observed_p50": 40.0001
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 250.0693,
+        "overlap_ratio_p50": 1.9195,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 125.0102
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 250.0595,
+        "overlap_ratio_p50": 3.8391,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 125.0077
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 248.6421,
+        "overlap_ratio_p50": 7.7219,
+        "max_active_lanes": 8,
+        "max_total_queue": 10,
+        "service_ms_observed_p50": 124.1734
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 80.0343,
+        "overlap_ratio_p50": 1.9991,
+        "max_active_lanes": 2,
+        "max_total_queue": 3,
+        "service_ms_observed_p50": 40.0001
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 80.0553,
+        "overlap_ratio_p50": 3.9972,
+        "max_active_lanes": 4,
+        "max_total_queue": 7,
+        "service_ms_observed_p50": 40.0001
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 80.3898,
+        "overlap_ratio_p50": 7.9612,
+        "max_active_lanes": 8,
+        "max_total_queue": 10,
+        "service_ms_observed_p50": 40.0002
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 250.0565,
+        "overlap_ratio_p50": 1.9196,
+        "max_active_lanes": 2,
+        "max_total_queue": 3,
+        "service_ms_observed_p50": 125.0089
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 250.06,
+        "overlap_ratio_p50": 3.8391,
+        "max_active_lanes": 4,
+        "max_total_queue": 5,
+        "service_ms_observed_p50": 125.002
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 249.9064,
+        "overlap_ratio_p50": 7.6829,
+        "max_active_lanes": 8,
+        "max_total_queue": 8,
+        "service_ms_observed_p50": 123.2665
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 80.0575,
+        "overlap_ratio_p50": 1.9986,
+        "max_active_lanes": 2,
+        "max_total_queue": 3,
+        "service_ms_observed_p50": 40.0005
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 80.0525,
+        "overlap_ratio_p50": 3.9974,
+        "max_active_lanes": 4,
+        "max_total_queue": 6,
+        "service_ms_observed_p50": 40.0002
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 2,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 82.8406,
+        "overlap_ratio_p50": 7.7257,
+        "max_active_lanes": 8,
+        "max_total_queue": 11,
+        "service_ms_observed_p50": 40.0002
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 2,
+        "workload": "sleep",
+        "offered": 4,
+        "drain_wall_ms_p50": 246.757,
+        "overlap_ratio_p50": 1.9452,
+        "max_active_lanes": 2,
+        "max_total_queue": 2,
+        "service_ms_observed_p50": 123.344
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 4,
+        "workload": "sleep",
+        "offered": 8,
+        "drain_wall_ms_p50": 250.0712,
+        "overlap_ratio_p50": 3.8389,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 125.009
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 8,
+        "workload": "sleep",
+        "offered": 16,
+        "drain_wall_ms_p50": 250.0955,
+        "overlap_ratio_p50": 7.6771,
+        "max_active_lanes": 8,
+        "max_total_queue": 8,
+        "service_ms_observed_p50": 125.0064
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 2,
+        "workload": "spin",
+        "offered": 4,
+        "drain_wall_ms_p50": 80.0421,
+        "overlap_ratio_p50": 1.9989,
+        "max_active_lanes": 2,
+        "max_total_queue": 3,
+        "service_ms_observed_p50": 40.0003
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 4,
+        "workload": "spin",
+        "offered": 8,
+        "drain_wall_ms_p50": 80.0552,
+        "overlap_ratio_p50": 3.9972,
+        "max_active_lanes": 4,
+        "max_total_queue": 4,
+        "service_ms_observed_p50": 40.0001
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "num_lanes": 8,
+        "workload": "spin",
+        "offered": 16,
+        "drain_wall_ms_p50": 84.4526,
+        "overlap_ratio_p50": 7.5782,
+        "max_active_lanes": 8,
+        "max_total_queue": 14,
+        "service_ms_observed_p50": 40.0002
+      }
+    ],
+    "inferred_pattern_at_max_lanes": [
+      {
+        "hpx_threads": 1,
+        "num_lanes": 8,
+        "sleep": {
+          "std_overlap_ratio": 7.7219,
+          "hpx_overlap_ratio": 7.9305,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 8
+        },
+        "spin": {
+          "std_overlap_ratio": 7.9612,
+          "hpx_overlap_ratio": 0.9995,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 0
+        }
+      },
+      {
+        "hpx_threads": 2,
+        "num_lanes": 8,
+        "sleep": {
+          "std_overlap_ratio": 7.6829,
+          "hpx_overlap_ratio": 7.9301,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 8
+        },
+        "spin": {
+          "std_overlap_ratio": 7.7257,
+          "hpx_overlap_ratio": 1.9974,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 0
+        }
+      },
+      {
+        "hpx_threads": 4,
+        "num_lanes": 8,
+        "sleep": {
+          "std_overlap_ratio": 7.6771,
+          "hpx_overlap_ratio": 7.9303,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 8
+        },
+        "spin": {
+          "std_overlap_ratio": 7.5782,
+          "hpx_overlap_ratio": 3.8016,
+          "std_max_active_lanes": 8,
+          "hpx_max_active_lanes": 2
+        }
+      }
+    ]
+  }
+}

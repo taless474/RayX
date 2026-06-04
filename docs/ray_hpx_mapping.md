@@ -53,6 +53,38 @@ Net: the win condition for HPX comes from cheap intra-locality execution and
 fine-grained scheduling; the cost comes from weaker isolation, object-store,
 and fault-tolerance support.
 
+## Three Stories to Keep Separate
+
+These are easy to conflate, so the project keeps them distinct:
+
+1. **Ray actor-pool control shape.** An explicit pool of actor/worker handles,
+   client-side round-robin placement, and as-completed / input-order collection
+   via `ray.wait` / `ray.get`. This is the Ray idiom that
+   `examples/rayx_actor_pool.py` and `docs/reference/rayx_actor_api.md` §8 *map*.
+2. **HPX-native task/future/dataflow style.** The idiomatic HPX path: `hpx::async`
+   to launch lightweight tasks (the scheduler multiplexes them over a fixed
+   worker set), `future::then` continuations, `hpx::when_all` / `when_any` joins,
+   and `hpx::dataflow` firing work as input futures resolve — a dependency-driven
+   graph, **not** a queue the user drains — with placement/isolation via executors
+   and resource partitioning. RayX does **not** expose this as a serving pattern;
+   it appears only conceptually here and as the `hpx::async` dispatch-floor number
+   in `experiments/15_hpx_native_lane_feasibility/`.
+3. **RayX synthetic serialized-lane harness.** The `ServiceLane` / `HpxLane` /
+   `rayx` lanes: a single-consumer, one-request-at-a-time, FIFO **actor-like
+   anchor** with a stable `actor_id`. It is chosen to make Ray actor-pool control
+   paths measurable against an HPX backend — it is **not** a recommendation that
+   HPX code be written as a hand-managed pool of FIFO lanes. (`HpxLane` is the one
+   place a lane primitive is swapped toward HPX-native cooperative suspension
+   while keeping the FIFO contract; it is still story 3, not story 2.)
+
+RayX implements the serialized-lane harness to compare against Ray actor-style
+control paths; it is intentionally **not** a showcase of idiomatic HPX
+task/dataflow programming.
+
+For how the `HpxLane` backend's evidence is built across experiments (and why the
+native single-lane probe, the task/dataflow probe, and the rayx backend stay
+distinct), see the reading guide `docs/reference/hpxlane_backend_arc.md`.
+
 ## Project Direction
 
 * **Primary path — C: standalone HPX serving-control runtime.** Build an

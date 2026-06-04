@@ -1,0 +1,309 @@
+{
+  "experiment": "rayx_hpxlane_adapter_hop_cost",
+  "schema": "rayx-adapter-hop-cost-1",
+  "schema_note": "experiment-local; NOT the v1 benchmark JSONL schema",
+  "boundary": "hpx-python-frontend",
+  "goal": "uncontended per-call Python-boundary cost of the RayxLaneAdapter<HpxLane> hpx::run_as_hpx_thread hop (lane_impl='hpx') vs the no-hop ServiceLane path (lane_impl='std'). Observation only; the delta is the closest observable approximation of the hop-dominated boundary cost, NOT a perfect subtraction.",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "backends": [
+    "std",
+    "hpx"
+  ],
+  "expected_prefix": {
+    "std": "act-hpx-",
+    "hpx": "act-hpxl-"
+  },
+  "config": {
+    "hpx_threads": [
+      1,
+      4
+    ],
+    "num_lanes": 1,
+    "ops": [
+      "lane_stats",
+      "submit_get",
+      "submit_batch"
+    ],
+    "op_descriptions": {
+      "lane_stats": "e.lane_stats() at num_lanes=1 -- cleanest available public-API isolator of the hop-dominated boundary cost (no worker dispatch, no future, no service)",
+      "submit_get": "f=e.submit(service_ms=0); f.result() -- end-to-end no-op op cost (submit-path + lane-worker dispatch + future retrieval), NOT a pure hop measurement",
+      "submit_batch": "fs=e.submit_batch(service_ms=0, count=K); e.get(fs) -- one-hop-amortized bulk path; per-request figure is derived"
+    },
+    "iters_full": 20000,
+    "warmup_full": 1000,
+    "iters_quick": 2000,
+    "warmup_quick": 200,
+    "batch_iters_full": 2000,
+    "batch_iters_quick": 200,
+    "batch_size": 64,
+    "repeats": 1,
+    "service_ms": 0.0,
+    "work_mode": "sleep (no-op); spin NOT used",
+    "subprocess_axis": "one process per (backend, hpx_threads) because the HPX runtime is process-fixed",
+    "timing_method": "time.perf_counter_ns around each call; Engine construction/shutdown OUTSIDE the timed loop; warmup discarded"
+  },
+  "firm_gates": {
+    "G1": "operations complete (lane_stats shape; submit_get/submit_batch all rows status=='completed')",
+    "G2": "actor_id prefix matches backend (act-hpx- / act-hpxl-)",
+    "G3": "expected sample count recorded per op (n_recorded == n_expected)",
+    "G4": "no exceptions (worker reports ran_ok; a crash fails the run)",
+    "G5": "both backends ran the same op set and sample counts"
+  },
+  "note": "Uncontended boundary-crossing / adapter-hop cost OBSERVATION only. NOT a serving-throughput benchmark, NOT a speedup claim, NOT an 'HPX beats Ray' claim, NOT an 'HpxLane faster/slower' verdict. The std-vs-hpx delta is the closest observable approximation of the hop-dominated boundary cost, not a perfect subtraction -- it still includes Python/pybind11 call overhead, HPX scheduling/dispatch overhead, and machine-specific jitter; lane_stats() at num_lanes=1 is the cleanest available public-API isolator, while submit_get/submit_batch are end-to-end no-op op cost (they add lane-worker dispatch + future retrieval). std has no hop only because it uses std primitives; the delta is a structural cost of the chosen off-HPX-thread seam, not a backend-quality judgement. Uncontended only -- under load the hop competes for the worker pool (see exp22). rayx-only, no-op sleep-path; work_mode='spin' NOT used. Separate from exp21 (parity) and exp22 (load divergence). No analyzer / benchmark-JSONL-schema / driver / CI / Future-ownership change; no HPX internals exposed. Not Ray Serve, not a Ray object store, not real inference. Raw per-call arrays are experiment-local scratch under results/ (gitignored); this file keeps summary percentiles only.",
+  "all_structural_gates_passed": true,
+  "gate_failures": [],
+  "observations_non_gating": {
+    "per_op": [
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "op": "lane_stats",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 1.667,
+          "p50_us": 1.875,
+          "p90_us": 2.084,
+          "p99_us": 4.416,
+          "max_us": 36.625,
+          "mean_us": 1.9849,
+          "iters_per_s": 503813.9
+        }
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "op": "submit_get",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 3.0,
+          "p50_us": 3.667,
+          "p90_us": 4.292,
+          "p99_us": 6.792,
+          "max_us": 147.166,
+          "mean_us": 3.8278,
+          "iters_per_s": 261243.9
+        }
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 1,
+        "op": "submit_batch",
+        "latency_us": {
+          "n": 2000,
+          "min_us": 59.75,
+          "p50_us": 73.6665,
+          "p90_us": 78.8381,
+          "p99_us": 86.4193,
+          "max_us": 116.917,
+          "mean_us": 73.1936,
+          "iters_per_s": 13662.4
+        },
+        "batch_size": 64,
+        "per_request_p50_us": 1.151
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "op": "lane_stats",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 3.0,
+          "p50_us": 5.667,
+          "p90_us": 6.75,
+          "p99_us": 13.167,
+          "max_us": 88.792,
+          "mean_us": 6.1631,
+          "iters_per_s": 162255.6
+        }
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "op": "submit_get",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 4.417,
+          "p50_us": 10.5,
+          "p90_us": 16.0,
+          "p99_us": 20.209,
+          "max_us": 47.125,
+          "mean_us": 11.6353,
+          "iters_per_s": 85945.3
+        }
+      },
+      {
+        "backend": "hpx",
+        "hpx_threads": 4,
+        "op": "submit_batch",
+        "latency_us": {
+          "n": 2000,
+          "min_us": 70.584,
+          "p50_us": 158.208,
+          "p90_us": 173.8833,
+          "p99_us": 196.7517,
+          "max_us": 421.833,
+          "mean_us": 158.6946,
+          "iters_per_s": 6301.4
+        },
+        "batch_size": 64,
+        "per_request_p50_us": 2.472
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "op": "lane_stats",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 0.125,
+          "p50_us": 0.167,
+          "p90_us": 0.209,
+          "p99_us": 0.25,
+          "max_us": 7.708,
+          "mean_us": 0.1886,
+          "iters_per_s": 5302027.3
+        }
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "op": "submit_get",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 3.416,
+          "p50_us": 6.416,
+          "p90_us": 7.583,
+          "p99_us": 9.542,
+          "max_us": 61.0,
+          "mean_us": 6.3334,
+          "iters_per_s": 157893.9
+        }
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 1,
+        "op": "submit_batch",
+        "latency_us": {
+          "n": 2000,
+          "min_us": 61.0,
+          "p50_us": 68.458,
+          "p90_us": 74.1661,
+          "p99_us": 79.5834,
+          "max_us": 107.959,
+          "mean_us": 68.7348,
+          "iters_per_s": 14548.7
+        },
+        "batch_size": 64,
+        "per_request_p50_us": 1.0697
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "op": "lane_stats",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 0.166,
+          "p50_us": 0.208,
+          "p90_us": 0.25,
+          "p99_us": 0.625,
+          "max_us": 18.625,
+          "mean_us": 0.2404,
+          "iters_per_s": 4160161.2
+        }
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "op": "submit_get",
+        "latency_us": {
+          "n": 20000,
+          "min_us": 3.333,
+          "p50_us": 6.0,
+          "p90_us": 7.6291,
+          "p99_us": 14.458,
+          "max_us": 54.25,
+          "mean_us": 6.3813,
+          "iters_per_s": 156706.7
+        }
+      },
+      {
+        "backend": "std",
+        "hpx_threads": 4,
+        "op": "submit_batch",
+        "latency_us": {
+          "n": 2000,
+          "min_us": 61.792,
+          "p50_us": 69.125,
+          "p90_us": 74.5872,
+          "p99_us": 95.0046,
+          "max_us": 279.458,
+          "mean_us": 70.4832,
+          "iters_per_s": 14187.8
+        },
+        "batch_size": 64,
+        "per_request_p50_us": 1.0801
+      }
+    ],
+    "derived_deltas_non_gating": [
+      {
+        "hpx_threads": 1,
+        "op": "lane_stats",
+        "std_p50_us": 0.167,
+        "hpx_p50_us": 1.875,
+        "delta_p50_us": 1.708,
+        "delta_p90_us": 1.875,
+        "delta_p99_us": 4.166,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      },
+      {
+        "hpx_threads": 1,
+        "op": "submit_get",
+        "std_p50_us": 6.416,
+        "hpx_p50_us": 3.667,
+        "delta_p50_us": -2.749,
+        "delta_p90_us": -3.291,
+        "delta_p99_us": -2.75,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      },
+      {
+        "hpx_threads": 1,
+        "op": "submit_batch",
+        "std_p50_us": 68.458,
+        "hpx_p50_us": 73.6665,
+        "delta_p50_us": 5.2085,
+        "delta_p90_us": 4.672,
+        "delta_p99_us": 6.8359,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      },
+      {
+        "hpx_threads": 4,
+        "op": "lane_stats",
+        "std_p50_us": 0.208,
+        "hpx_p50_us": 5.667,
+        "delta_p50_us": 5.459,
+        "delta_p90_us": 6.5,
+        "delta_p99_us": 12.542,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      },
+      {
+        "hpx_threads": 4,
+        "op": "submit_get",
+        "std_p50_us": 6.0,
+        "hpx_p50_us": 10.5,
+        "delta_p50_us": 4.5,
+        "delta_p90_us": 8.3709,
+        "delta_p99_us": 5.751,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      },
+      {
+        "hpx_threads": 4,
+        "op": "submit_batch",
+        "std_p50_us": 69.125,
+        "hpx_p50_us": 158.208,
+        "delta_p50_us": 89.083,
+        "delta_p90_us": 99.2961,
+        "delta_p99_us": 101.7471,
+        "_label": "observation-only; closest observable approximation of the hop-dominated boundary cost (includes Python/pybind + HPX scheduling overhead + machine jitter); NOT gated, NOT a speedup or faster/slower verdict"
+      }
+    ]
+  }
+}

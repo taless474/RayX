@@ -1050,6 +1050,278 @@ def check_bounded_wait():
           "negative/NaN/inf/bool/non-numeric rejected; actor forwards) -> ok")
 
 
+def _check_stat_rows(rows, where, expected_lanes):
+    # Shape/type checks for a lane_stats() snapshot: a list with one well-typed
+    # row per lane (actor_id str, queue_depth int >= 0, active bool).
+    if not isinstance(rows, list):
+        _fail(f"{where}: lane_stats returned {type(rows).__name__}, expected list")
+    if len(rows) != expected_lanes:
+        _fail(f"{where}: lane_stats returned {len(rows)} rows, expected "
+              f"{expected_lanes}")
+    for i, r in enumerate(rows):
+        if not isinstance(r, dict):
+            _fail(f"{where}[{i}]: stat row is {type(r).__name__}, expected dict")
+        for field in ("actor_id", "queue_depth", "active"):
+            if field not in r:
+                _fail(f"{where}[{i}]: stat row missing {field!r} (got {sorted(r)})")
+        if not isinstance(r["actor_id"], str) or not r["actor_id"]:
+            _fail(f"{where}[{i}]: actor_id not a non-empty str: {r['actor_id']!r}")
+        # bool is an int subclass; queue_depth must be a real int, not a bool.
+        if isinstance(r["queue_depth"], bool) or not isinstance(r["queue_depth"], int):
+            _fail(f"{where}[{i}]: queue_depth not int: {r['queue_depth']!r}")
+        if r["queue_depth"] < 0:
+            _fail(f"{where}[{i}]: queue_depth negative: {r['queue_depth']}")
+        if not isinstance(r["active"], bool):
+            _fail(f"{where}[{i}]: active not bool: {r['active']!r}")
+
+
+def check_lane_stats():
+    # lane_stats() is an observability snapshot (debugging only): one row per
+    # ServiceLane in stable lane order, {actor_id, queue_depth, active}. It is
+    # non-consuming, can race (snapshot), and is NOT scheduler state / placement
+    # control / JSONL schema. Structural only -- bounded polling, never a timing
+    # assertion (the occupier uses a long spin so it definitely holds the lane).
+    from rayx import Engine, SyntheticActor
+    OCC = 120  # occupier service_ms (spin): >> the microseconds to snapshot
+
+    # (1)+(2) Fresh engine: one well-typed row per lane; idle (queue 0, inactive).
+    with Engine(num_lanes=2, hpx_threads=2) as engine:
+        rows = engine.lane_stats()
+        _check_stat_rows(rows, "fresh engine", expected_lanes=2)
+        if any(r["active"] for r in rows) or any(r["queue_depth"] for r in rows):
+            _fail(f"fresh engine lanes not idle: {rows}")
+        # actor_ids are the stable lane identities reported on result rows.
+        if len({r["actor_id"] for r in rows}) != 2:
+            _fail(f"fresh engine lane actor_ids not distinct: {rows}")
+
+    # (3) One long occupier + queued work behind it on a single lane: at least one
+    # lane reports active and total queue depth > 0. Poll (bounded) until the lane
+    # has picked up the occupier (active True) -- never a sleep/timing assert.
+    with Engine(num_lanes=1, hpx_threads=2) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")   # holds the lane
+        victims = [engine.submit(service_ms=5, work_mode="spin", label=f"q{i}")
+                   for i in range(3)]                            # queued behind it
+        snap = None
+        for _ in range(200000):
+            snap = engine.lane_stats()
+            _check_stat_rows(snap, "occupied engine", expected_lanes=1)
+            if snap[0]["active"]:
+                break
+        if not (snap and snap[0]["active"]):
+            _fail("occupier never observed active in lane_stats()")
+        total_queue = sum(r["queue_depth"] for r in snap)
+        if total_queue <= 0:
+            _fail(f"expected queued work behind the occupier, got queue_depth "
+                  f"{total_queue} ({snap})")
+
+        # (4) Drain: cancel the queued victims, retire them, drain the occupier,
+        # then (bounded poll) the lane returns to idle -- all queue_depth == 0 and
+        # active == False.
+        for v in victims:
+            engine.cancel(v)            # queued -> skipped
+            v.result()                  # retire the cancelled row
+        occ.result()                    # drain the occupier
+        idle = None
+        for _ in range(200000):
+            idle = engine.lane_stats()
+            if not idle[0]["active"] and idle[0]["queue_depth"] == 0:
+                break
+        _check_stat_rows(idle, "drained engine", expected_lanes=1)
+        if idle[0]["active"] or idle[0]["queue_depth"] != 0:
+            _fail(f"lane did not return to idle after draining: {idle}")
+
+    # (5) Actor facade forwards lane_stats to the Engine.
+    with SyntheticActor(num_lanes=2, hpx_threads=2) as actor:
+        _check_stat_rows(actor.lane_stats(), "actor.lane_stats", expected_lanes=2)
+
+    # (6) Post-shutdown: lanes are destroyed, so lane_stats() raises like the
+    # other coordination/new-work APIs (own engine + explicit shutdown).
+    engine2 = Engine(num_lanes=1, hpx_threads=2)
+    engine2.shutdown()
+    _expect_raise(lambda: engine2.lane_stats(), "lane_stats after shutdown")
+
+    print("PASS: lane_stats (one well-typed row per lane; fresh idle; occupier "
+          "active + queued depth>0; idle after drain; actor forwards; "
+          "post-shutdown raises) -> ok")
+
+
+def _expect_exc(fn, exc_type, where, *, not_subtype=None):
+    # Assert fn() raises exactly exc_type (isinstance). Optionally assert the
+    # raised exception is NOT an instance of not_subtype (e.g. a plain
+    # RuntimeError that must not be a QueueFullError). Returns the exception.
+    try:
+        fn()
+    except exc_type as ex:
+        if not_subtype is not None and isinstance(ex, not_subtype):
+            _fail(f"{where}: raised {type(ex).__name__}, must not be "
+                  f"{not_subtype.__name__}")
+        return ex
+    except Exception as ex:  # noqa: BLE001
+        _fail(f"{where}: raised {type(ex).__name__}, expected {exc_type.__name__}")
+    _fail(f"{where}: expected {exc_type.__name__}, none raised")
+
+
+def _poll_until(fn, where, tries=200000):
+    # Bounded poll (no sleep/timing assert) until fn() is truthy; returns its
+    # last value. Used to observe lane state transitions structurally.
+    val = None
+    for _ in range(tries):
+        val = fn()
+        if val:
+            return val
+    _fail(f"{where}: condition never became true within {tries} polls")
+    return val
+
+
+def check_admission_control():
+    # Bounded admission (max_queue_depth_per_lane): each lane admits at most N
+    # queued-but-not-started requests; submit() raises QueueFullError when the
+    # round-robin target lane is full. Structural only -- a long-spin occupier
+    # holds the lane's active slot so queued work cannot be popped mid-check, and
+    # state transitions are observed by BOUNDED POLLING lane_stats(), never by a
+    # timing assertion. Runs after the lane_stats Engine context has exited
+    # (HPX runtime is a process singleton; one active engine at a time).
+    from rayx import Engine, SyntheticActor, QueueFullError
+    OCC = 120  # occupier service_ms (spin): >> the microseconds to fill+probe
+
+    # (8) Constructor validation: None and positive int accepted; 0 / negative ->
+    # ValueError, bool / float / str -> TypeError. Rejections raise inside
+    # __init__ BEFORE the HPX runtime starts, so they leave no active engine.
+    with Engine(num_lanes=1, hpx_threads=1, max_queue_depth_per_lane=None):
+        pass
+    with Engine(num_lanes=1, hpx_threads=1, max_queue_depth_per_lane=3):
+        pass
+    for bad in (0, -1):
+        _expect_exc(lambda b=bad: Engine(num_lanes=1, max_queue_depth_per_lane=b),
+                    ValueError, f"ctor cap={bad!r}")
+    for bad in (True, 1.5, "x"):
+        _expect_exc(lambda b=bad: Engine(num_lanes=1, max_queue_depth_per_lane=b),
+                    TypeError, f"ctor cap={bad!r}")
+
+    # (1) Default None unchanged: a deep backlog is fully accepted (no cap means
+    # no admission check; submit never raises under load).
+    with Engine(num_lanes=1, hpx_threads=2) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "default occ active")
+        backlog = [engine.submit(service_ms=5, work_mode="spin") for _ in range(20)]
+        if engine.lane_stats()[0]["queue_depth"] != 20:
+            _fail(f"default None: expected queue_depth 20, got "
+                  f"{engine.lane_stats()[0]['queue_depth']}")
+        engine.get([occ, *backlog])
+
+    # (2) Cap enforced on a single lane: occupier active, fill the queue to the
+    # cap, the next submit raises QueueFullError (a RuntimeError subtype).
+    with Engine(num_lanes=1, hpx_threads=2, max_queue_depth_per_lane=2) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "cap occ active")
+        a = engine.submit(service_ms=5, work_mode="spin")   # queued depth 1
+        b = engine.submit(service_ms=5, work_mode="spin")   # queued depth 2 (full)
+        if engine.lane_stats()[0]["queue_depth"] != 2:
+            _fail(f"cap: expected queue_depth 2 before reject, got "
+                  f"{engine.lane_stats()[0]['queue_depth']}")
+        ex = _expect_exc(lambda: engine.submit(service_ms=5, work_mode="spin"),
+                         QueueFullError, "cap full submit")
+        if not isinstance(ex, RuntimeError):
+            _fail("QueueFullError must subclass RuntimeError")
+        # The rejected submit created no Future: queue depth is still exactly 2.
+        if engine.lane_stats()[0]["queue_depth"] != 2:
+            _fail("rejected submit changed queue_depth (should be a no-op)")
+        engine.get([occ, a, b])
+
+    # (3) Per-lane, not global: with 2 lanes and cap 1, a full lane 0 does NOT
+    # block admission to lane 1 (rr_ advances on every call, so the rotation is
+    # not stalled by one full lane).
+    with Engine(num_lanes=2, hpx_threads=3, max_queue_depth_per_lane=1) as engine:
+        occ0 = engine.submit(service_ms=OCC, work_mode="spin")  # lane 0 active
+        occ1 = engine.submit(service_ms=OCC, work_mode="spin")  # lane 1 active
+        _poll_until(lambda: all(r["active"] for r in engine.lane_stats()),
+                    "both lanes active")
+        s0 = engine.submit(service_ms=5, work_mode="spin")   # -> lane 0, fills it
+        if engine.lane_stats()[0]["queue_depth"] != 1:
+            _fail("per-lane: lane 0 not full after its queued submit")
+        s1 = engine.submit(service_ms=5, work_mode="spin")   # -> lane 1, accepted
+        if engine.lane_stats()[1]["queue_depth"] != 1:
+            _fail("per-lane: lane 1 did not accept while lane 0 was full")
+        _expect_exc(lambda: engine.submit(service_ms=5, work_mode="spin"),
+                    QueueFullError, "per-lane: lane 0 full again")
+        engine.get([occ0, occ1, s0, s1])
+
+    # (4) Draining reopens admission: once the lane pops the queued request (its
+    # slot frees), a new submit is admitted again.
+    with Engine(num_lanes=1, hpx_threads=2, max_queue_depth_per_lane=1) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "drain occ active")
+        a = engine.submit(service_ms=5, work_mode="spin")    # queued (full)
+        _expect_exc(lambda: engine.submit(service_ms=5, work_mode="spin"),
+                    QueueFullError, "drain: full before drain")
+        occ.result()                                          # lane pops `a` next
+        _poll_until(lambda: engine.lane_stats()[0]["queue_depth"] == 0,
+                    "drain: queue emptied after pop")
+        c = engine.submit(service_ms=5, work_mode="spin")    # admitted again
+        engine.get([a, c])
+
+    # (5) Cancel does NOT free a slot until the lane pops it. A queued cancel
+    # settles the future but leaves the item in the deque (experiment 17), so the
+    # cap is still saturated and a further submit still rejects.
+    with Engine(num_lanes=1, hpx_threads=2, max_queue_depth_per_lane=1) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "cancel occ active")
+        a = engine.submit(service_ms=5, work_mode="spin")    # queued (full)
+        if engine.cancel(a) is not True:
+            _fail("cancel: expected queued cancel to win (True)")
+        if not a.cancelled():
+            _fail("cancel: future not marked cancelled")
+        # cancel did not dequeue: depth still 1, so admission still rejects.
+        if engine.lane_stats()[0]["queue_depth"] != 1:
+            _fail("cancel: queue_depth dropped on cancel (should count until pop)")
+        _expect_exc(lambda: engine.submit(service_ms=5, work_mode="spin"),
+                    QueueFullError, "cancel: still full after cancel (not popped)")
+        occ.result()                                          # lane pops + skips a
+        a.result()                                            # retire cancelled row
+
+    # (6) Batch under a cap refuses loudly with a plain RuntimeError (NOT a
+    # QueueFullError -- no lane is "full"; the op is unsupported under a cap).
+    with Engine(num_lanes=1, hpx_threads=2, max_queue_depth_per_lane=2) as engine:
+        _expect_exc(lambda: engine.submit_batch(service_ms=5, count=3),
+                    RuntimeError, "batch under cap", not_subtype=QueueFullError)
+        _expect_exc(lambda: engine.submit_batch(service_ms=[1, 2, 3]),
+                    RuntimeError, "varied batch under cap",
+                    not_subtype=QueueFullError)
+    # Batch WITHOUT a cap is unchanged: returns one Future per request.
+    with Engine(num_lanes=2, hpx_threads=2) as engine:
+        rows = engine.get(engine.submit_batch(service_ms=1, count=6))
+        if len(rows) != 6:
+            _fail(f"uncapped batch returned {len(rows)} rows, expected 6")
+
+    # (7) Actor facade forwards the cap: remote() raises QueueFullError when full;
+    # remote_batch() refuses under the cap.
+    with SyntheticActor(num_lanes=1, hpx_threads=2,
+                        max_queue_depth_per_lane=1) as actor:
+        occ = actor.remote(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: actor.lane_stats()[0]["active"], "actor occ active")
+        a = actor.remote(service_ms=5, work_mode="spin")     # queued (full)
+        _expect_exc(lambda: actor.remote(service_ms=5, work_mode="spin"),
+                    QueueFullError, "actor.remote full")
+        _expect_exc(lambda: actor.remote_batch(service_ms=5, count=3),
+                    RuntimeError, "actor.remote_batch under cap",
+                    not_subtype=QueueFullError)
+        actor.get([occ, a])
+
+    # (9) Shutdown precedence: after shutdown the running-engine guard fires
+    # first, so submit raises the "shut down" RuntimeError, NOT QueueFullError.
+    engine2 = Engine(num_lanes=1, hpx_threads=2, max_queue_depth_per_lane=1)
+    engine2.shutdown()
+    ex = _expect_exc(lambda: engine2.submit(service_ms=5), RuntimeError,
+                     "submit after shutdown (capped)", not_subtype=QueueFullError)
+    if "shut down" not in str(ex):
+        _fail(f"post-shutdown submit message unexpected: {ex!r}")
+
+    print("PASS: admission control (ctor validation; default None unchanged; cap "
+          "enforced -> QueueFullError; per-lane not global; drain reopens; cancel "
+          "does not free a slot until popped; batch refuses under cap; actor "
+          "forwards; shutdown precedence) -> ok")
+
+
 def check_synthetic_actor():
     # Runs only after the Engine context above has exited (HPX runtime is a
     # process singleton; one active Engine/SyntheticActor at a time).
@@ -1150,6 +1422,207 @@ def check_synthetic_actor():
           "post-shutdown retire -> well-formed results")
 
 
+# ---- lane_impl backend selection + hpx-backend parity -------------------
+#
+# lane_impl="std" (default) is the std::thread ServiceLane stable comparison
+# anchor; lane_impl="hpx" is the opt-in cooperative HpxLane. Both honor the
+# IDENTICAL lane contract and result-row schema -- the only visible difference is
+# the lane actor_id prefix (act-hpx- vs act-hpxl-). The checks below are
+# semantic/parity only (no timing thresholds): the selection check compares
+# prefixes + validation across both backends; the hpx-backend check re-runs the
+# core lane semantics (basic, wait/as_completed, chunked, queued + running
+# cancel, bounded admission, lane_stats) on lane_impl="hpx", reusing the same
+# _check_row / _check_cancelled_row / _expect_exc / _poll_until contract helpers
+# as the std checks. The existing std checks above are unchanged.
+
+# Lane actor_id prefixes. act-hpxl- does NOT start with "act-hpx-" (the trailing
+# dash makes the two prefixes unambiguous), so a startswith test cleanly
+# distinguishes the backends.
+_STD_PREFIX = "act-hpx-"
+_HPX_PREFIX = "act-hpxl-"
+
+
+def _check_prefix(actor_id, prefix, where):
+    if not isinstance(actor_id, str) or not actor_id.startswith(prefix):
+        _fail(f"{where}: actor_id {actor_id!r} does not start with {prefix!r}")
+
+
+def check_lane_impl_selection():
+    # Backend selection + validation, shared across std and hpx. Default and
+    # explicit "std" -> act-hpx-; "hpx" -> act-hpxl-; SyntheticActor forwards the
+    # selector; invalid values raise BEFORE the HPX runtime starts (non-str ->
+    # TypeError, unknown str -> ValueError) on both Engine and SyntheticActor.
+    from rayx import Engine, SyntheticActor
+
+    # (1) Default Engine == std behavior (act-hpx- prefix).
+    with Engine(num_lanes=1, hpx_threads=2) as engine:
+        row = engine.submit(service_ms=0).result()
+        _check_row(row, "default Engine (implicit std)")
+        _check_prefix(row["actor_id"], _STD_PREFIX, "default Engine prefix")
+
+    # (2) Explicit lane_impl="std" matches the default.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="std") as engine:
+        row = engine.submit(service_ms=0).result()
+        _check_row(row, "explicit std Engine")
+        _check_prefix(row["actor_id"], _STD_PREFIX, "explicit std prefix")
+
+    # (3) Explicit lane_impl="hpx" -> HpxLane backend (act-hpxl- prefix).
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        row = engine.submit(service_ms=0).result()
+        _check_row(row, "explicit hpx Engine")
+        _check_prefix(row["actor_id"], _HPX_PREFIX, "explicit hpx prefix")
+
+    # (4) SyntheticActor forwards lane_impl to its Engine (hpx -> act-hpxl-).
+    with SyntheticActor(num_lanes=1, hpx_threads=2, lane_impl="hpx") as actor:
+        row = actor.remote(service_ms=0).result()
+        _check_row(row, "actor hpx remote")
+        _check_prefix(row["actor_id"], _HPX_PREFIX, "actor hpx prefix")
+
+    # (5) Invalid lane_impl rejected up front on Engine AND the forwarding
+    # SyntheticActor: non-string -> TypeError, unknown string -> ValueError.
+    _expect_exc(lambda: Engine(lane_impl=123), TypeError, "Engine lane_impl int")
+    _expect_exc(lambda: Engine(lane_impl="fake"), ValueError,
+                "Engine lane_impl unknown")
+    _expect_exc(lambda: SyntheticActor(lane_impl=3.5), TypeError,
+                "SyntheticActor lane_impl float")
+    _expect_exc(lambda: SyntheticActor(lane_impl="nope"), ValueError,
+                "SyntheticActor lane_impl unknown")
+
+    print("PASS: lane_impl selection (default/explicit std -> act-hpx-; hpx -> "
+          "act-hpxl-; actor forwards; non-str -> TypeError, unknown -> "
+          "ValueError) -> ok")
+
+
+def check_hpx_backend():
+    # Re-run the core lane semantics on lane_impl="hpx" to confirm the HpxLane
+    # backend honors the same contract as ServiceLane (and that every op is
+    # correctly entered from an HPX thread by the adapter). Parity/semantics only,
+    # no timing thresholds; every row also carries the act-hpxl- prefix.
+    import time
+    from rayx import Engine, QueueFullError
+    OCC = 120  # occupier service_ms (spin): >> microseconds to fill/probe/cancel
+
+    # (1) Basic submit + get, multi-lane, with the hpx prefix on every row.
+    with Engine(num_lanes=2, hpx_threads=2, lane_impl="hpx") as engine:
+        if engine.num_lanes() != 2:
+            _fail(f"hpx num_lanes() is {engine.num_lanes()}, expected 2")
+        row = engine.get(engine.submit(service_ms=0))
+        _check_row(row, "hpx submit/get noop")
+        _check_prefix(row["actor_id"], _HPX_PREFIX, "hpx submit/get prefix")
+        for i, fut in enumerate(engine.submit(service_ms=1) for _ in range(4)):
+            r = fut.result()
+            _check_row(r, f"hpx submit multi[{i}]")
+            _check_prefix(r["actor_id"], _HPX_PREFIX, f"hpx multi prefix[{i}]")
+
+    # (2) wait + as_completed over hpx futures (non-consuming wait; each future
+    # yielded once by as_completed).
+    with Engine(num_lanes=2, hpx_threads=2, lane_impl="hpx") as engine:
+        futs = [engine.submit(service_ms=1) for _ in range(4)]
+        ready, _nr = engine.wait(futs, num_returns=1)
+        if not ready:
+            _fail("hpx wait returned no ready futures")
+        seen = 0
+        for fut in engine.as_completed(futs):
+            _check_row(fut.result(), f"hpx as_completed[{seen}]")
+            seen += 1
+        if seen != len(futs):
+            _fail(f"hpx as_completed yielded {seen}, expected {len(futs)}")
+
+    # (3) Chunked service: one row echoing chunks/delay, full run completes.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        crow = engine.submit(service_ms=8, work_mode="sleep", chunks=4,
+                             chunk_delay_ms=1).result()
+        _check_row(crow, "hpx chunked (4x)")
+        if crow["chunks"] != 4 or crow["chunk_delay_ms"] != 1:
+            _fail(f"hpx chunked echo wrong: {crow}")
+        _check_prefix(crow["actor_id"], _HPX_PREFIX, "hpx chunked prefix")
+
+    # (4) Queued cancellation: a victim queued behind a long spin occupier cancels
+    # True and retires status="cancelled" (0 chunks run); a served request is
+    # cancel False.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "hpx queued occ active")
+        victim = engine.submit(service_ms=5, label="hv")
+        if engine.cancel(victim) is not True:
+            _fail("hpx cancel(queued victim) did not return True")
+        if victim.cancelled() is not True:
+            _fail("hpx victim.cancelled() not True")
+        vrow = victim.result()
+        _check_cancelled_row(vrow, "hpx queued cancel", label="hv")
+        if vrow["chunks_completed"] != 0:
+            _fail(f"hpx queued cancel chunks_completed {vrow['chunks_completed']} "
+                  "!= 0 (should be a queued skip)")
+        occ.result()  # drain
+
+    # (5) Running cancellation at a chunk boundary: a started chunked request with
+    # boundaries ahead cancels True and retires a strictly-partial run
+    # (1 <= chunks_completed < chunks). Same controls as the std running-cancel
+    # check (50ms wait vs ~200ms final boundary), no exact count / timing assert.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        f = engine.submit(service_ms=240, work_mode="sleep", chunks=6,
+                          chunk_delay_ms=0, label="hrc")
+        time.sleep(0.05)  # started; many boundaries remain
+        if engine.cancel(f) is not True:
+            _fail("hpx cancel(running chunked) did not return True")
+        if f.cancelled() is not True:
+            _fail("hpx running-cancelled future.cancelled() not True")
+        row = f.result()
+        _check_cancelled_row(row, "hpx running chunk-boundary cancel", label="hrc")
+        if not (1 <= row["chunks_completed"] < row["chunks"]):
+            _fail(f"hpx running cancel chunks_completed {row['chunks_completed']} "
+                  "not in [1, chunks)")
+
+    # (6) Bounded admission: with cap 2 on one lane, fill the queue behind a spin
+    # occupier, then the next submit raises QueueFullError (a no-op: queue depth
+    # unchanged); admitted + occupier work still completes normally.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx",
+                max_queue_depth_per_lane=2) as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        _poll_until(lambda: engine.lane_stats()[0]["active"], "hpx cap occ active")
+        a = engine.submit(service_ms=5, work_mode="spin")  # depth 1
+        b = engine.submit(service_ms=5, work_mode="spin")  # depth 2 (full)
+        if engine.lane_stats()[0]["queue_depth"] != 2:
+            _fail(f"hpx cap: expected queue_depth 2, got "
+                  f"{engine.lane_stats()[0]['queue_depth']}")
+        ex = _expect_exc(lambda: engine.submit(service_ms=5, work_mode="spin"),
+                         QueueFullError, "hpx cap full submit")
+        if not isinstance(ex, RuntimeError):
+            _fail("hpx QueueFullError must subclass RuntimeError")
+        if engine.lane_stats()[0]["queue_depth"] != 2:
+            _fail("hpx rejected submit changed queue_depth (should be a no-op)")
+        for r in engine.get([occ, a, b]):  # admitted + occupier complete normally
+            _check_row(r, "hpx admitted work completes")
+
+    # (7) lane_stats on the hpx backend: well-typed rows with the act-hpxl- ids;
+    # occupier observed active with queued depth > 0; returns to idle after drain.
+    with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        occ = engine.submit(service_ms=OCC, work_mode="spin")
+        victims = [engine.submit(service_ms=5, work_mode="spin", label=f"hq{i}")
+                   for i in range(3)]
+        snap = _poll_until(lambda: (engine.lane_stats()
+                                    if engine.lane_stats()[0]["active"] else None),
+                           "hpx occupier active")
+        _check_stat_rows(snap, "hpx occupied", expected_lanes=1)
+        _check_prefix(snap[0]["actor_id"], _HPX_PREFIX, "hpx lane_stats prefix")
+        if sum(r["queue_depth"] for r in snap) <= 0:
+            _fail(f"hpx expected queued work behind occupier, got {snap}")
+        for v in victims:
+            engine.cancel(v)
+            v.result()
+        occ.result()
+        idle = _poll_until(lambda: (engine.lane_stats()
+                                    if engine.lane_stats()[0]["queue_depth"] == 0
+                                    and not engine.lane_stats()[0]["active"]
+                                    else None),
+                           "hpx lane idle after drain")
+        _check_stat_rows(idle, "hpx drained", expected_lanes=1)
+
+    print("PASS: hpx backend (submit/get; wait/as_completed; chunked; queued + "
+          "running cancel; bounded admission/QueueFullError; lane_stats; "
+          "act-hpxl- prefix throughout) -> ok")
+
+
 def main():
     check_import()
     check_hpx_smoke()
@@ -1167,7 +1640,11 @@ def main():
     check_repr()
     check_wait_contracts()
     check_bounded_wait()
+    check_lane_stats()
+    check_admission_control()
     check_synthetic_actor()
+    check_lane_impl_selection()
+    check_hpx_backend()
     print("OK: rayx smoke passed")
 
 

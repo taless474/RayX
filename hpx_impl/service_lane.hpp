@@ -23,6 +23,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -187,6 +188,13 @@ public:
 
 private:
     friend class ServiceLane;
+    // Opt-in cooperative HPX-thread lane (hpx_impl/hpx_lane.hpp) reuses this ONE
+    // shared, lane-agnostic cancel state machine as the rayx backend behind
+    // Engine(lane_impl="hpx"); it needs the same construction access ServiceLane
+    // has (to set prom_/actor_id_/submit_ns_ at submit time). This grant is
+    // behavior-neutral for ServiceLane -- it adds no member, changes no logic, and
+    // keeps a single CancelToken implementation instead of duplicating it.
+    friend class HpxLane;
     enum class Phase { Queued, Running, StopRequested, Cancelled, Completed };
     std::mutex m_;
     Phase phase_ = Phase::Queued;
@@ -224,6 +232,30 @@ public:
 
     const std::string& actor_id() const { return actor_id_; }
 
+    // ---- Observability snapshot (debugging only) ------------------------
+    //
+    // A point-in-time view of one lane: how many requests are queued-but-not-
+    // started, and whether the lane is currently inside a request's service
+    // lifecycle. It briefly takes the lane mutex for the queue size; `active_`
+    // is an atomic flag. This is a SNAPSHOT -- both fields can change the instant
+    // after it returns -- and is fully NON-CONSUMING: it never touches any
+    // promise/future and does not change submit/service/cancel semantics. It is
+    // NOT scheduler state, NOT placement control, NOT a synchronization
+    // primitive, and is NOT part of the JSONL schema.
+    struct LaneStat {
+        std::string actor_id;
+        int queue_depth = 0;  // queued, not yet popped/started
+        bool active = false;  // a request has been popped and is being serviced
+    };
+    LaneStat stats() {
+        LaneStat s;
+        s.actor_id = actor_id_;
+        std::lock_guard<std::mutex> lk(mu_);
+        s.queue_depth = static_cast<int>(queue_.size());
+        s.active = active_.load(std::memory_order_relaxed);
+        return s;
+    }
+
     // Submit a request; returns a future resolved by the lane when serviced.
     //
     // out_tok is opt-in cancellation support: when non-null, a CancelToken is
@@ -254,6 +286,55 @@ public:
                 it.queue_depth = static_cast<int>(queue_.size());
             }
         }
+        cv_.notify_one();
+        if (out_tok) *out_tok = std::move(tok);
+        return fut;
+    }
+
+    // Bounded-admission enqueue (rayx Engine capped path only): like submit(),
+    // but ADMIT only if this lane currently holds fewer than max_queue_depth
+    // queued-but-not-started requests; otherwise REJECT and return std::nullopt.
+    //
+    // The depth check and the queue push happen under ONE lock acquisition, so
+    // the depth that is admitted against is exactly the depth observed -- there
+    // is no read-then-act (TOCTOU) window (lane_stats(), which releases the lock
+    // before returning, must NOT be used as the gate). max_queue_depth counts
+    // ONLY queued items (queue_.size()); the active in-service request has
+    // already been popped and is not in queue_, so it is not counted. A
+    // cancelled-but-not-yet-popped request is still in queue_, so it still counts
+    // until the lane pops/skips it.
+    //
+    // On REJECT nothing is created: no promise, no future, no token, no queue
+    // entry, no notify -- the call is side-effect-free on the lane (the rayx
+    // Engine still advances its round-robin counter, which is Engine state, not
+    // lane state). On ADMIT the behavior is identical to submit(): the promise/
+    // token are built and the item is pushed under the lock, then one notify.
+    //
+    // submit() (the native-baseline anchor and the uncapped rayx path) is left
+    // byte-for-byte unchanged; this is purely additive.
+    std::optional<hpx::future<Result>> try_submit(
+            Request req, int max_queue_depth,
+            std::shared_ptr<CancelToken>* out_tok = nullptr) {
+        std::unique_lock<std::mutex> lk(mu_);
+        if (static_cast<int>(queue_.size()) >= max_queue_depth) {
+            return std::nullopt;  // lane full: reject before creating anything
+        }
+        auto prom = std::make_shared<hpx::promise<Result>>();
+        hpx::future<Result> fut = prom->get_future();
+        std::shared_ptr<CancelToken> tok;
+        if (out_tok) {
+            tok = std::make_shared<CancelToken>();
+            tok->prom_ = prom;
+            tok->actor_id_ = actor_id_;
+            tok->submit_ns_ = req.submit_ns;
+        }
+        queue_.push_back(Item{std::move(req), std::move(prom), tok});
+        if (diag_) {
+            Item& it = queue_.back();
+            it.enqueue_ns = now_ns();
+            it.queue_depth = static_cast<int>(queue_.size());
+        }
+        lk.unlock();
         cv_.notify_one();
         if (out_tok) *out_tok = std::move(tok);
         return fut;
@@ -328,6 +409,12 @@ private:
                 if (stop_ && queue_.empty()) return;
                 item = std::move(queue_.front());
                 queue_.pop_front();
+                // Observability (stats()): the lane has popped a request and is
+                // now in its service lifecycle. Set under the same lock that
+                // guards queue_, so a stats() snapshot sees the reduced
+                // queue_depth and active=true coherently. Cleared below once the
+                // promise is fulfilled (or the request is a queued-cancel skip).
+                active_.store(true, std::memory_order_relaxed);
             }
             // Cancellation point: decide start-vs-cancel OUTSIDE the lane mutex,
             // under the token's own mutex. begin_service(chunks) flips Queued ->
@@ -338,6 +425,7 @@ private:
             // service time spent, FIFO order for the surviving work unchanged.
             // Items without a token (native path) always service.
             if (item.tok && !item.tok->begin_service(item.req.chunks)) {
+                active_.store(false, std::memory_order_relaxed);  // queued-cancel skip
                 continue;  // queued-cancel won before start; promise fulfilled
             }
             // service() carries the token so it can honor a RUNNING stop at a
@@ -349,6 +437,7 @@ private:
             res.enqueue_ns = item.enqueue_ns;
             res.queue_depth_at_enqueue = item.queue_depth;
             item.prom->set_value(std::move(res));
+            active_.store(false, std::memory_order_relaxed);  // lifecycle done
         }
     }
 
@@ -464,6 +553,12 @@ private:
     std::deque<Item> queue_;
     bool stop_ = false;
     bool diag_ = false;
+    // Observability only (stats()): true while the lane is inside a request's
+    // service lifecycle (popped, not yet fulfilled). Atomic so stats() can read
+    // it without holding the lane mutex over the whole service call; set under
+    // the lane mutex on pop, cleared after fulfillment / queued-cancel skip. Off
+    // the inner sleep/spin loop -- it is per-request, not per-chunk.
+    std::atomic<bool> active_{false};
 };
 
 }  // namespace rayhpx

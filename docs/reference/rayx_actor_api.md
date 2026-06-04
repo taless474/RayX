@@ -99,7 +99,8 @@ The complete small API surface is: `Engine.submit(...)`,
 `Engine.get(...)`, `Engine.cancel(...)`, `SyntheticActor.remote(...)`,
 `SyntheticActor.remote_batch(...)`, `SyntheticActor.wait(...)`,
 `SyntheticActor.as_completed(...)`, `SyntheticActor.get(...)`,
-`SyntheticActor.cancel(...)`,
+`SyntheticActor.cancel(...)`, `Engine.lane_stats()` /
+`SyntheticActor.lane_stats()`,
 `SyntheticActor.serve.remote(...)` / `SyntheticActor.serve.remote_batch(...)`,
 plus `Future.ready()` / `Future.cancelled()` / `Future.result(...)`.
 
@@ -275,6 +276,77 @@ plus `Future.ready()` / `Future.cancelled()` / `Future.result(...)`.
   `False` (including for a request that completed normally and for a
   non-cancelable batch future). Unlike `ready()` / `result()`, it does **not**
   raise after retire and does **not** consume the Future.
+* **`Engine.lane_stats() -> list[dict]`** (and `SyntheticActor.lane_stats()`,
+  which forwards to it) — an **observability snapshot for debugging**. Returns
+  one dict per service lane, **in stable lane order** (the order `submit`
+  round-robins over): `{"actor_id": str, "queue_depth": int, "active": bool}`.
+  `queue_depth` is the count of requests **queued but not yet started** on that
+  lane (the in-service request is not counted); `active` is `True` once the lane
+  has **popped** a request and is inside its service lifecycle (until that row is
+  fulfilled, or a queued-cancel skip clears it), `False` when idle. It briefly
+  takes each lane's mutex and is **non-consuming** — it touches no `Future` and
+  does not change `submit` / `wait` / `cancel` / `result` semantics. It is a
+  **snapshot**: the values can change the instant after it returns (a concurrent
+  pop/fulfilment races it), so treat it as a debugging/observability view, **not**
+  a coordination primitive. It is **not** Ray scheduler state, **not** placement
+  control (lane choice stays internal round-robin — `actor_id` reports the
+  serving lane, it is not a handle you submit to), and **not** part of the
+  benchmark JSONL / analyzer schema. It **raises** `RuntimeError` after engine
+  `shutdown()` (the lanes are destroyed), consistent with the other coordination
+  APIs. See `docs/reference/rayx_frontend_design.md` §11.
+* **Bounded admission — `Engine(max_queue_depth_per_lane=None)` +
+  `QueueFullError`** (also `SyntheticActor(max_queue_depth_per_lane=...)`, which
+  forwards it) — an optional, **local per-lane admission-by-rejection** cap. The
+  default `None` is **unbounded** and preserves the original behavior exactly (no
+  admission check runs). A positive `int` `N` bounds each lane to at most `N`
+  **queued-but-not-started** requests; the **active in-service request is not
+  counted**. When the round-robin **target lane** is already at the cap,
+  `Engine.submit` / `SyntheticActor.remote` / `actor.serve.remote` raise
+  `QueueFullError` (a `RuntimeError` **subclass**, so `except RuntimeError` still
+  catches it, while a load-shedding caller can catch it specifically). The
+  rejection is raised **before** any `Future` is created — a rejected request has
+  **no Future, no result row, and no JSONL row** — and the round-robin rotation
+  **still advances** (a rejected call consumes its lane turn, so one full lane
+  never stalls submissions to the other lanes). The cap is **per-lane queue
+  depth, not a global backlog**, and a full lane is **never** skipped to a
+  different lane — rejection targets only the one lane the rotation picked. A
+  **cancelled but not-yet-popped** queued request **still counts** against the
+  cap until the lane pops/skips it (cancel settles the future; it does not
+  dequeue). Admission is checked **atomically with the enqueue, under the lane
+  mutex** (one check-and-push), so there is no read-then-act (TOCTOU) window —
+  `lane_stats()` is observability only and is **not** used as the gate. The
+  **batch** paths (`submit_batch` / `remote_batch` / `serve.remote_batch`) are
+  **not supported under a cap**: rather than silently bypass the per-lane limit
+  they **refuse loudly** with a plain `RuntimeError` (not `QueueFullError` — no
+  lane is "full"; the op is simply unsupported when a cap is set). Constructor
+  validation: `None` and a positive `int` are accepted; `0` / negative raise
+  `ValueError`, and `bool` / `float` / `str` raise `TypeError`. This is **not**
+  Ray Serve backpressure, **not** distributed flow control, **not** a scheduler,
+  and **not** blocking backpressure (the call returns immediately by raising; it
+  never blocks waiting for space). See
+  `docs/reference/rayx_frontend_design.md` §12.
+* **Lane backend — `Engine(lane_impl="std")`** (also
+  `SyntheticActor(lane_impl="std")`, which forwards it) — selects the lane
+  **mechanism** behind every lane. The default `"std"` is the `std::thread`
+  `ServiceLane`, the project's **stable comparison anchor**; `"hpx"` opts into the
+  cooperative HPX-thread `HpxLane`. **Both honor the identical lane contract** —
+  FIFO ordering, `actor_id`, `lane_stats()` `queue_depth` / `active`, bounded
+  admission (`max_queue_depth_per_lane` + `QueueFullError`), queued cancellation,
+  running cancellation at chunk boundaries, and `wait` / `get` / `as_completed`
+  behavior — and the **result-row / JSONL schema is unchanged**. The only visible
+  difference is the lane `actor_id` **prefix**: `act-hpx-` for `std` /
+  `ServiceLane`, `act-hpxl-` for `hpx` / `HpxLane`. No HPX internals are exposed
+  to Python by either choice. Validation: a non-`str` raises `TypeError`, an
+  unknown string raises `ValueError` (before the HPX runtime starts). This is
+  **not** the task/dataflow mechanism probe from experiment 20, **not** Ray Serve,
+  and **not** an "HPX beats Ray" claim — it is an opt-in lane mechanism behind the
+  same Ray-like API. See `docs/reference/rayx_frontend_design.md` §13.
+
+  ```python
+  with Engine(num_lanes=2, hpx_threads=4, lane_impl="hpx") as engine:
+      row = engine.submit(service_ms=5).result()
+      # row["actor_id"] starts with "act-hpxl-"
+  ```
 * **`SyntheticActor.serve.remote(service_ms, work_mode)` /
   `SyntheticActor.serve.remote_batch(service_ms, count, work_mode)`** — optional
   Ray-like **method-style** sugar. `actor.serve.remote(...)` mirrors Ray's
@@ -343,6 +415,11 @@ still raises (`Engine is shut down`): `submit`, `submit_batch`, `cancel`,
   interrupt an **in-progress active chunk / parked gap** (those always run to the
   boundary — see §2 and `docs/reference/rayx_frontend_design.md` §7). It is not
   real token-stream cancellation either.
+* **Not Ray Serve / not backpressure or distributed flow control.** The optional
+  `max_queue_depth_per_lane` cap (§2) is **local per-lane admission by
+  rejection**: when a lane's queued-but-not-started depth is at the cap, the
+  submit raises `QueueFullError` immediately. It does not block, buffer, shed
+  across lanes, or coordinate flow across processes, and it is not a scheduler.
 * No object store.
 * No distributed scheduler.
 * No fault tolerance / autoscaling.

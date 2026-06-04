@@ -1,0 +1,313 @@
+{
+  "experiment": "bounded_admission_burst",
+  "boundary": "hpx-python-frontend",
+  "instrument": "Engine(max_queue_depth_per_lane=cap) admission control + Engine.lane_stats() observability snapshot (per-lane {actor_id, queue_depth, active})",
+  "submit": "facade Engine.submit (single-request); burst of N=lanes*8 submitted as fast as possible without retiring; capped mode catches QueueFullError per submit",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "note": "max_queue_depth_per_lane is LOCAL, PER-LANE admission by rejection. It is NOT Ray Serve backpressure, NOT distributed flow control, and NOT blocking backpressure (submit returns by raising QueueFullError; it never blocks waiting for space). The cap counts queued-but-not-started work only -- the active in-service request is extra -- so a lane's live footprint is at most cap+1 (one active + cap queued). Rejected requests are caller-visible exceptions, NOT result rows (no Future, no row). Capped mode trades shed load for a bounded backlog/tail; unbounded admits everything and the late-queued tail grows. Cancelled queued items still count against the cap until the lane pops them, but cancellation is NOT exercised here. Latency/throughput magnitudes are machine-specific and REPORTED, not gated; the structural gates are the result. Raw per-run JSON is an experiment-local scratch format under results/ (gitignored), NOT the v1 benchmark schema.",
+  "modes": {
+    "unbounded": "max_queue_depth_per_lane=None; admit all N, deep backlog",
+    "capped": "max_queue_depth_per_lane=3; reject overflow, bounded backlog"
+  },
+  "matrix": {
+    "work_mode": "sleep",
+    "num_lanes": 4,
+    "modes": [
+      "unbounded",
+      "capped"
+    ],
+    "cap": 3,
+    "service_ms": 40.0,
+    "requests_per_lane": 8,
+    "hpx_threads": 4,
+    "repeats": 3
+  },
+  "gates": [
+    "G1 unbounded admits all: admitted==N, rejected==0",
+    "G2 capped admitted band: lanes*cap <= admitted <= lanes*(cap+1)[+drain], rejected>0, admitted+rejected==N",
+    "G3 capped bounds backlog: peak per-lane queue_depth <= cap",
+    "G4 unbounded grows backlog: peak per-lane queue_depth > cap",
+    "G5 admitted complete: every retired row status==completed",
+    "G6 reject => no row: rows == admitted == N - rejected",
+    "G7 reaches idle: final num_active==0, total_queue==0",
+    "G8 round-robin balance: admitted lane-count spread<=1 across `lanes` lanes"
+  ],
+  "cells": [
+    {
+      "mode": "unbounded",
+      "num_lanes": 4,
+      "cap": null,
+      "requests": 32,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "hpx_threads": 4,
+      "repeats": 3,
+      "expected_admitted_band": [
+        32,
+        32
+      ],
+      "admitted_p50": 32,
+      "rejected_p50": 0,
+      "peak_per_lane_queue_depth_p50": 7,
+      "peak_per_lane_queue_depth_max": 7,
+      "queue_depth_cap_respected": null,
+      "observed_depth_over_cap": true,
+      "all_admitted_completed": true,
+      "rows_equal_admitted": true,
+      "reached_idle": true,
+      "lanes_seen": 4,
+      "lane_count_spread": 0,
+      "drain_span_ms_p50": 349.609,
+      "num_samples_p50": 277,
+      "completed_service_ms_p50": 42.6567,
+      "completed_total_ms_p50": 349.7326,
+      "completed_total_ms_p99": 349.735,
+      "completed_queue_wait_ms_p50": 307.071,
+      "completed_queue_wait_ms_p99": 309.6544,
+      "representative_first_sample": {
+        "queue_depth": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "active": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "total_queue": 28,
+        "num_active": 4
+      },
+      "representative_final_sample": {
+        "queue_depth": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.004,
+          "total_queue": 28,
+          "num_active": 4,
+          "max_queue_depth": 7
+        },
+        {
+          "t_rel_ms": 31.928,
+          "total_queue": 28,
+          "num_active": 4,
+          "max_queue_depth": 7
+        },
+        {
+          "t_rel_ms": 64.77,
+          "total_queue": 24,
+          "num_active": 4,
+          "max_queue_depth": 6
+        },
+        {
+          "t_rel_ms": 96.578,
+          "total_queue": 20,
+          "num_active": 4,
+          "max_queue_depth": 5
+        },
+        {
+          "t_rel_ms": 128.26,
+          "total_queue": 19,
+          "num_active": 4,
+          "max_queue_depth": 5
+        },
+        {
+          "t_rel_ms": 161.167,
+          "total_queue": 16,
+          "num_active": 4,
+          "max_queue_depth": 4
+        },
+        {
+          "t_rel_ms": 192.835,
+          "total_queue": 12,
+          "num_active": 4,
+          "max_queue_depth": 3
+        },
+        {
+          "t_rel_ms": 225.862,
+          "total_queue": 8,
+          "num_active": 4,
+          "max_queue_depth": 2
+        },
+        {
+          "t_rel_ms": 257.665,
+          "total_queue": 8,
+          "num_active": 4,
+          "max_queue_depth": 2
+        },
+        {
+          "t_rel_ms": 289.467,
+          "total_queue": 4,
+          "num_active": 4,
+          "max_queue_depth": 1
+        },
+        {
+          "t_rel_ms": 322.425,
+          "total_queue": 0,
+          "num_active": 4,
+          "max_queue_depth": 0
+        },
+        {
+          "t_rel_ms": 354.24,
+          "total_queue": 0,
+          "num_active": 0,
+          "max_queue_depth": 0
+        }
+      ]
+    },
+    {
+      "mode": "capped",
+      "num_lanes": 4,
+      "cap": 3,
+      "requests": 32,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "hpx_threads": 4,
+      "repeats": 3,
+      "expected_admitted_band": [
+        12,
+        16
+      ],
+      "admitted_p50": 16,
+      "rejected_p50": 16,
+      "peak_per_lane_queue_depth_p50": 3,
+      "peak_per_lane_queue_depth_max": 3,
+      "queue_depth_cap_respected": true,
+      "observed_depth_over_cap": null,
+      "all_admitted_completed": true,
+      "rows_equal_admitted": true,
+      "reached_idle": true,
+      "lanes_seen": 4,
+      "lane_count_spread": 0,
+      "drain_span_ms_p50": 173.981,
+      "num_samples_p50": 138,
+      "completed_service_ms_p50": 42.671,
+      "completed_total_ms_p50": 174.0475,
+      "completed_total_ms_p99": 174.0651,
+      "completed_queue_wait_ms_p50": 132.1696,
+      "completed_queue_wait_ms_p99": 133.7746,
+      "representative_first_sample": {
+        "queue_depth": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "active": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "total_queue": 12,
+        "num_active": 4
+      },
+      "representative_final_sample": {
+        "queue_depth": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.004,
+          "total_queue": 12,
+          "num_active": 4,
+          "max_queue_depth": 3
+        },
+        {
+          "t_rel_ms": 15.346,
+          "total_queue": 12,
+          "num_active": 4,
+          "max_queue_depth": 3
+        },
+        {
+          "t_rel_ms": 31.914,
+          "total_queue": 12,
+          "num_active": 4,
+          "max_queue_depth": 3
+        },
+        {
+          "t_rel_ms": 47.144,
+          "total_queue": 8,
+          "num_active": 4,
+          "max_queue_depth": 2
+        },
+        {
+          "t_rel_ms": 62.301,
+          "total_queue": 8,
+          "num_active": 4,
+          "max_queue_depth": 2
+        },
+        {
+          "t_rel_ms": 77.558,
+          "total_queue": 8,
+          "num_active": 4,
+          "max_queue_depth": 2
+        },
+        {
+          "t_rel_ms": 93.914,
+          "total_queue": 4,
+          "num_active": 4,
+          "max_queue_depth": 1
+        },
+        {
+          "t_rel_ms": 108.844,
+          "total_queue": 4,
+          "num_active": 4,
+          "max_queue_depth": 1
+        },
+        {
+          "t_rel_ms": 124.25,
+          "total_queue": 4,
+          "num_active": 4,
+          "max_queue_depth": 1
+        },
+        {
+          "t_rel_ms": 139.543,
+          "total_queue": 0,
+          "num_active": 4,
+          "max_queue_depth": 0
+        },
+        {
+          "t_rel_ms": 156.056,
+          "total_queue": 0,
+          "num_active": 4,
+          "max_queue_depth": 0
+        },
+        {
+          "t_rel_ms": 171.265,
+          "total_queue": 0,
+          "num_active": 0,
+          "max_queue_depth": 0
+        }
+      ]
+    }
+  ]
+}

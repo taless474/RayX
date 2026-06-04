@@ -1,0 +1,146 @@
+{
+  "experiment": "rayx_hpxlane_backend_parity",
+  "schema_version": 1,
+  "boundary": "hpx-python-frontend",
+  "goal": "semantic parity (NOT performance) between rayx lane_impl='std' (std::thread ServiceLane) and lane_impl='hpx' (cooperative HpxLane): both honor the same RayX lane contract",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "backends": [
+    "std",
+    "hpx"
+  ],
+  "expected_prefix": {
+    "std": "act-hpx-",
+    "hpx": "act-hpxl-"
+  },
+  "matrix": {
+    "full": {
+      "multi_lanes": 4,
+      "basic_n": 24,
+      "fan_n": 12,
+      "stats_lanes": 4
+    },
+    "quick": {
+      "multi_lanes": 2,
+      "basic_n": 8,
+      "fan_n": 6,
+      "stats_lanes": 2
+    },
+    "hpx_threads": 4,
+    "cancel_scenarios_num_lanes": 1,
+    "occupier_ms": 120.0,
+    "service_ms": 4.0
+  },
+  "scenarios": {
+    "basic": "round-robin burst via get(): all complete, one row each, prefix + lane balance",
+    "wait": "wait(num_returns=1) partitions ready/rest, non-consuming, all retire",
+    "as_completed": "as_completed yields each future once, all complete",
+    "chunked": "chunked service completes, echoes chunks/chunk_delay_ms, full run",
+    "queued_cancel": "victim queued behind a spin occupier -> cancel True, status=cancelled, chunks_completed == 0",
+    "running_cancel": "started chunked request -> cancel True, status=cancelled, 0 < chunks_completed < chunks",
+    "bounded_admission": "cap full -> QueueFullError (no-op on depth); admitted + occupier complete",
+    "lane_stats": "shape {actor_id,queue_depth,active}; active+depth under load; returns to idle after drain"
+  },
+  "note": "Parity/semantics only; timing is an observation, NEVER a gate; no speedup claim and no 'HPX beats Ray' claim. This is the opt-in rayx HpxLane serialized backend (lane_impl='hpx'), NOT the experiment-20 hpx::async / hpx::dataflow task-pool probe. Not Ray Serve, not a Ray object store, not real inference. No analyzer / benchmark-JSONL-schema / driver / CI / Future-ownership change; no HPX internals exposed. Raw per-backend JSON is experiment-local scratch under results/ (gitignored), NOT the v1 benchmark schema.",
+  "all_parity_gates_passed": true,
+  "gate_failures": [],
+  "evidence": {
+    "std": {
+      "expected_prefix": "act-hpx-",
+      "actor_id_sample": "act-hpx-d765e148",
+      "scenario_pass": {
+        "basic": true,
+        "wait": true,
+        "as_completed": true,
+        "chunked": true,
+        "queued_cancel": true,
+        "running_cancel": true,
+        "bounded_admission": true,
+        "lane_stats": true
+      },
+      "all_pass": true,
+      "completion": {
+        "basic_requests": 24,
+        "basic_completed": 24,
+        "basic_rows": 24,
+        "basic_lane_count_spread": 0,
+        "as_completed_yielded": 12
+      },
+      "cancellation": {
+        "queued_chunks_completed": 0,
+        "running_chunks_completed": 2,
+        "running_chunks": 6
+      },
+      "bounded_admission": {
+        "cap": 2,
+        "queue_full_raised": true,
+        "depth_before_reject": 2,
+        "depth_after_reject": 2,
+        "admitted_completed": 3,
+        "admitted_total": 3
+      },
+      "lane_stats": {
+        "stat_keys": [
+          "active",
+          "actor_id",
+          "queue_depth"
+        ],
+        "shape_ok": true,
+        "active_observed_under_load": true,
+        "queue_depth_observed_under_load": 3,
+        "returned_to_idle": true
+      },
+      "timing_observations_non_gating": {
+        "basic_service_ms_observed_p50": 5.0156
+      }
+    },
+    "hpx": {
+      "expected_prefix": "act-hpxl-",
+      "actor_id_sample": "act-hpxl-532d9bc3",
+      "scenario_pass": {
+        "basic": true,
+        "wait": true,
+        "as_completed": true,
+        "chunked": true,
+        "queued_cancel": true,
+        "running_cancel": true,
+        "bounded_admission": true,
+        "lane_stats": true
+      },
+      "all_pass": true,
+      "completion": {
+        "basic_requests": 24,
+        "basic_completed": 24,
+        "basic_rows": 24,
+        "basic_lane_count_spread": 0,
+        "as_completed_yielded": 12
+      },
+      "cancellation": {
+        "queued_chunks_completed": 0,
+        "running_chunks_completed": 2,
+        "running_chunks": 6
+      },
+      "bounded_admission": {
+        "cap": 2,
+        "queue_full_raised": true,
+        "depth_before_reject": 2,
+        "depth_after_reject": 2,
+        "admitted_completed": 3,
+        "admitted_total": 3
+      },
+      "lane_stats": {
+        "stat_keys": [
+          "active",
+          "actor_id",
+          "queue_depth"
+        ],
+        "shape_ok": true,
+        "active_observed_under_load": true,
+        "queue_depth_observed_under_load": 3,
+        "returned_to_idle": true
+      },
+      "timing_observations_non_gating": {
+        "basic_service_ms_observed_p50": 4.5044
+      }
+    }
+  }
+}

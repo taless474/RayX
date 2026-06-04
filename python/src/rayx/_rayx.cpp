@@ -23,14 +23,17 @@
 #include <pybind11/stl.h>  // std::vector<double> <-> Python list/tuple (varied batch)
 
 #include "service_lane.hpp"
+#include "hpx_lane.hpp"  // rayhpx::HpxLane, the opt-in cooperative HPX-thread lane
 
 #include <hpx/hpx.hpp>
 #include <hpx/hpx_start.hpp>
 
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -159,6 +162,147 @@ private:
     std::shared_ptr<rayhpx::CancelToken> tok_;
 };
 
+// ---- rayx-local lane backend seam ---------------------------------------
+//
+// RayxLaneIface is the rayx Engine's OWN lane contract. It is deliberately
+// SEPARATE from the native benchmark LaneIface in hpx_synthetic_baseline.cpp
+// (which only covers the native FIFO-lane benchmark path and is left untouched):
+// this one carries the full surface the Engine needs -- a cancel-token-aware
+// submit, a bounded-admission try_submit, a non-cancelable submit_bulk, a
+// non-consuming stats() snapshot, and the lane's stable actor_id. Two backends
+// implement it through RayxLaneAdapter<Lane>: the default std::thread ServiceLane
+// (the stable comparison anchor) and the opt-in cooperative HpxLane.
+class RayxLaneIface {
+public:
+    // Neutral per-lane snapshot. ServiceLane::LaneStat and HpxLane::LaneStat are
+    // distinct types; the adapter copies whichever it has into this one shape so
+    // Engine::lane_stats() stays backend-agnostic. A plain value, never a
+    // reference into a backend temporary.
+    struct LaneStat {
+        std::string actor_id;
+        int queue_depth = 0;
+        bool active = false;
+    };
+
+    virtual ~RayxLaneIface() = default;
+
+    // out_tok: non-null requests a CancelToken (single-request cancelable path);
+    // null leaves the request non-cancelable. Callers pass nullptr explicitly.
+    virtual hpx::future<rayhpx::Result> submit(
+        rayhpx::Request req,
+        std::shared_ptr<rayhpx::CancelToken>* out_tok) = 0;
+    // Bounded admission: std::nullopt iff the lane is at/over max_queue_depth.
+    virtual std::optional<hpx::future<rayhpx::Result>> try_submit(
+        rayhpx::Request req, int max_queue_depth,
+        std::shared_ptr<rayhpx::CancelToken>* out_tok) = 0;
+    // Non-cancelable bulk enqueue, one future per request in input order.
+    virtual std::vector<hpx::future<rayhpx::Result>> submit_bulk(
+        std::vector<rayhpx::Request> reqs) = 0;
+    virtual LaneStat stats() = 0;
+    virtual const std::string& actor_id() const = 0;
+};
+
+// RayxLaneAdapter<Lane> wires one backend lane to RayxLaneIface.
+//
+// ServiceLane (kHpxHop == false): every call forwards DIRECTLY to the lane on the
+// calling (external Python) thread. This is behavior-equivalent to today's
+// Engine-owns-ServiceLane code -- the interface/adapter add a layer of structure
+// but no semantic change; ServiceLane uses std::mutex/std::thread, which are safe
+// off an HPX thread.
+//
+// HpxLane (kHpxHop == true): HpxLane guards its queue with hpx::mutex /
+// hpx::condition_variable_any and runs its worker as an hpx::thread, all of which
+// must be touched only from an HPX thread. The Engine runs on the external Python
+// thread, so the adapter hops EVERY lane-state operation -- construction (spawns
+// the worker hpx::thread), destruction (locks hpx::mutex, joins the hpx::thread),
+// submit, try_submit, submit_bulk, stats -- through hpx::run_as_hpx_thread, which
+// runs the (cheap, enqueue-only) work on an HPX worker and blocks the caller for
+// the result. actor_id() returns the lane's owned string and needs no hop.
+// Cancellation is intentionally NOT routed here: CancelToken uses its own
+// std::mutex + hpx::promise, so EngineFuture / token.cancel() stay on their
+// existing no-hop path for BOTH backends.
+template <class Lane>
+class RayxLaneAdapter final : public RayxLaneIface {
+    static constexpr bool kHpxHop = std::is_same_v<Lane, rayhpx::HpxLane>;
+
+public:
+    RayxLaneAdapter() {
+        if constexpr (kHpxHop) {
+            // HpxLane's ctor spawns an hpx::thread -> build it on an HPX thread.
+            hpx::run_as_hpx_thread(
+                [this]() { lane_ = std::make_unique<Lane>(); });
+        } else {
+            lane_ = std::make_unique<Lane>();
+        }
+    }
+
+    ~RayxLaneAdapter() override {
+        if constexpr (kHpxHop) {
+            // ~HpxLane locks hpx::mutex and joins the worker hpx::thread -> run on
+            // an HPX thread. HPX is still up here (Engine clears lanes BEFORE
+            // hpx::finalize/stop, and ~Engine calls shutdown() before HPX stops).
+            hpx::run_as_hpx_thread([this]() { lane_.reset(); });
+        }
+        // ServiceLane: the unique_ptr resets on this thread (joins its std::thread).
+    }
+
+    hpx::future<rayhpx::Result> submit(
+        rayhpx::Request req,
+        std::shared_ptr<rayhpx::CancelToken>* out_tok) override {
+        if constexpr (kHpxHop) {
+            return hpx::run_as_hpx_thread(
+                [this, req = std::move(req), out_tok]() mutable {
+                    return lane_->submit(std::move(req), out_tok);
+                });
+        } else {
+            return lane_->submit(std::move(req), out_tok);
+        }
+    }
+
+    std::optional<hpx::future<rayhpx::Result>> try_submit(
+        rayhpx::Request req, int max_queue_depth,
+        std::shared_ptr<rayhpx::CancelToken>* out_tok) override {
+        if constexpr (kHpxHop) {
+            return hpx::run_as_hpx_thread(
+                [this, req = std::move(req), max_queue_depth,
+                 out_tok]() mutable {
+                    return lane_->try_submit(std::move(req), max_queue_depth,
+                                             out_tok);
+                });
+        } else {
+            return lane_->try_submit(std::move(req), max_queue_depth, out_tok);
+        }
+    }
+
+    std::vector<hpx::future<rayhpx::Result>> submit_bulk(
+        std::vector<rayhpx::Request> reqs) override {
+        if constexpr (kHpxHop) {
+            return hpx::run_as_hpx_thread(
+                [this, reqs = std::move(reqs)]() mutable {
+                    return lane_->submit_bulk(std::move(reqs));
+                });
+        } else {
+            return lane_->submit_bulk(std::move(reqs));
+        }
+    }
+
+    LaneStat stats() override {
+        if constexpr (kHpxHop) {
+            typename Lane::LaneStat s =
+                hpx::run_as_hpx_thread([this]() { return lane_->stats(); });
+            return LaneStat{s.actor_id, s.queue_depth, s.active};
+        } else {
+            typename Lane::LaneStat s = lane_->stats();
+            return LaneStat{s.actor_id, s.queue_depth, s.active};
+        }
+    }
+
+    const std::string& actor_id() const override { return lane_->actor_id(); }
+
+private:
+    std::unique_ptr<Lane> lane_;
+};
+
 // ---- _Engine ------------------------------------------------------------
 
 std::vector<char> to_cstr(const std::string& s) {
@@ -169,11 +313,30 @@ std::vector<char> to_cstr(const std::string& s) {
 
 class Engine {
 public:
-    Engine(int num_lanes, int hpx_threads) {
+    // max_queue_depth_per_lane: -1 (sentinel) = unbounded (default; preserves the
+    // original behavior exactly). >= 1 = per-lane bounded admission: each lane
+    // admits at most that many queued-but-not-started requests (see submit()).
+    // The Python facade validates None/positive-int and passes -1 for None; the
+    // <1 (non-sentinel) guard here is a defensive backstop.
+    // lane_impl selects the backend behind every lane: "std" (default) = the
+    // std::thread ServiceLane stable comparison anchor; "hpx" = the opt-in
+    // cooperative HpxLane. Both implement the same RayxLaneIface contract; the
+    // choice is invisible to the JSONL schema and visible only through the lane's
+    // actor_id prefix (act-hpx- vs act-hpxl-). Validated up front so an unknown
+    // value throws before any process resource (HPX runtime) is touched.
+    Engine(int num_lanes, int hpx_threads, int max_queue_depth_per_lane,
+           std::string lane_impl) {
         if (num_lanes < 1)
             throw std::invalid_argument("num_lanes must be >= 1");
         if (hpx_threads < 1)
             throw std::invalid_argument("hpx_threads must be >= 1");
+        if (max_queue_depth_per_lane != -1 && max_queue_depth_per_lane < 1)
+            throw std::invalid_argument(
+                "max_queue_depth_per_lane must be -1 (unbounded) or >= 1");
+        if (lane_impl != "std" && lane_impl != "hpx")
+            throw std::invalid_argument(
+                "lane_impl must be \"std\" or \"hpx\"");
+        max_qd_per_lane_ = max_queue_depth_per_lane;
 
         bool expected = false;
         if (!active().compare_exchange_strong(expected, true)) {
@@ -189,9 +352,17 @@ public:
             throw;
         }
 
+        // Construct the lanes AFTER start_hpx: the HpxLane adapter ctor hops onto
+        // an HPX thread to spawn the lane's worker, so the runtime must be up.
         lanes_.reserve(static_cast<std::size_t>(num_lanes));
         for (int i = 0; i < num_lanes; ++i) {
-            lanes_.push_back(std::make_unique<rayhpx::ServiceLane>());
+            if (lane_impl == "hpx") {
+                lanes_.push_back(
+                    std::make_unique<RayxLaneAdapter<rayhpx::HpxLane>>());
+            } else {
+                lanes_.push_back(
+                    std::make_unique<RayxLaneAdapter<rayhpx::ServiceLane>>());
+            }
         }
         running_ = true;
     }
@@ -204,8 +375,12 @@ public:
         }
     }
 
-    EngineFuture submit(double service_ms, const std::string& work_mode,
-                        int chunks, double chunk_delay_ms) {
+    // Returns a Python _Future on admission, or Python None when a per-lane cap
+    // is configured and the target lane is full (the facade raises QueueFullError
+    // on None). py::object (rather than EngineFuture) is the return type precisely
+    // so the rejected case can be a clean None without a sentinel future.
+    py::object submit(double service_ms, const std::string& work_mode,
+                      int chunks, double chunk_delay_ms) {
         if (!running_) throw std::runtime_error("Engine is shut down");
         rayhpx::Request req;
         req.service_ms_requested = service_ms;
@@ -213,13 +388,26 @@ public:
         req.chunks = chunks;                  // chunked service (single-submit only)
         req.chunk_delay_ms = chunk_delay_ms;  // parked inter-chunk gap
         req.submit_ns = rayhpx::now_ns();
-        rayhpx::ServiceLane& lane = *lanes_[rr_ % lanes_.size()];
+        RayxLaneIface& lane = *lanes_[rr_ % lanes_.size()];
+        // rr_ advances on EVERY call -- admitted or rejected -- so call index i
+        // always maps to lane (i % num_lanes) and one full lane never shifts the
+        // rotation for later calls. (rr_ is Engine state, not a result-row field.)
         ++rr_;
         // Single-request submit is cancelable: request a CancelToken so
         // Engine::cancel can target this request while it is still queued.
         std::shared_ptr<rayhpx::CancelToken> tok;
-        auto fut = lane.submit(std::move(req), &tok);
-        return EngineFuture(std::move(fut), std::move(tok));
+        if (max_qd_per_lane_ >= 0) {
+            // Bounded admission: check-and-push atomically under the lane mutex
+            // (try_submit); std::nullopt means the lane was at/over the cap.
+            std::optional<hpx::future<rayhpx::Result>> fut =
+                lane.try_submit(std::move(req), max_qd_per_lane_, &tok);
+            if (!fut) return py::none();  // rejected: no future, no row, no token
+            return py::cast(EngineFuture(std::move(*fut), std::move(tok)),
+                            py::return_value_policy::move);
+        }
+        auto fut = lane.submit(std::move(req), &tok);  // unbounded path unchanged
+        return py::cast(EngineFuture(std::move(fut), std::move(tok)),
+                        py::return_value_policy::move);
     }
 
     // Cancel a single submitted request (queued skip, or running stop at the
@@ -447,6 +635,29 @@ public:
 
     int num_lanes() const { return static_cast<int>(lanes_.size()); }
 
+    // Observability snapshot (debugging only): one dict per lane, in stable lane
+    // order, with the lane's queued-but-not-started count and whether it is
+    // currently inside a request's service lifecycle. Briefly takes each lane's
+    // mutex (RayxLaneIface::stats, hopping onto an HPX thread for the hpx
+    // backend); NON-consuming -- it touches no future and
+    // changes no submit/service/cancel semantics. Snapshot only: values can change
+    // the instant after this returns. Raises if the engine is shut down (lanes are
+    // destroyed), consistent with the other coordination/new-work APIs. Not Ray
+    // scheduler state, not placement control, not part of the JSONL schema.
+    py::list lane_stats() {
+        if (!running_) throw std::runtime_error("Engine is shut down");
+        py::list out;
+        for (auto& lane : lanes_) {
+            RayxLaneIface::LaneStat s = lane->stats();
+            py::dict d;
+            d["actor_id"] = s.actor_id;
+            d["queue_depth"] = s.queue_depth;
+            d["active"] = s.active;
+            out.append(std::move(d));
+        }
+        return out;
+    }
+
     // INTERNAL A/B toggle (not public API): select the batch enqueue strategy.
     // true (default) = per-lane bulk enqueue (one lock+notify per lane); false =
     // original one-by-one enqueue (one lock+notify per request). Affects only the
@@ -519,7 +730,7 @@ private:
         } else {
             for (std::size_t i = 0; i < n; ++i) {
                 const std::size_t lane = (rr_start + i) % L;
-                ordered[i] = lanes_[lane]->submit(std::move(reqs[i]));
+                ordered[i] = lanes_[lane]->submit(std::move(reqs[i]), nullptr);
             }
         }
         return ordered;
@@ -543,8 +754,11 @@ private:
         }
     }
 
-    std::vector<std::unique_ptr<rayhpx::ServiceLane>> lanes_;
+    std::vector<std::unique_ptr<RayxLaneIface>> lanes_;
     std::size_t rr_ = 0;
+    // Per-lane bounded-admission cap: -1 = unbounded (default); >= 1 = max
+    // queued-but-not-started requests admitted per lane (see submit()).
+    int max_qd_per_lane_ = -1;
     bool running_ = false;
     // Batch enqueue strategy (A/B; see set_bulk_enqueue). Default = bulk.
     bool use_bulk_enqueue_ = true;
@@ -597,7 +811,9 @@ PYBIND11_MODULE(_rayx, m) {
              "(batch) future. Safe before and after retire.");
 
     py::class_<Engine>(m, "_Engine")
-        .def(py::init<int, int>(), py::arg("num_lanes"), py::arg("hpx_threads"))
+        .def(py::init<int, int, int, std::string>(), py::arg("num_lanes"),
+             py::arg("hpx_threads"), py::arg("max_queue_depth_per_lane") = -1,
+             py::arg("lane_impl") = "std")
         .def("submit", &Engine::submit, py::arg("service_ms"),
              py::arg("work_mode"), py::arg("chunks"), py::arg("chunk_delay_ms"))
         .def("submit_batch", &Engine::submit_batch, py::arg("service_ms"),
@@ -630,6 +846,11 @@ PYBIND11_MODULE(_rayx, m) {
              "completed/cancelled. Raises if retired, not cancelable, or the "
              "engine is shut down.")
         .def("num_lanes", &Engine::num_lanes)
+        .def("lane_stats", &Engine::lane_stats,
+             "Observability snapshot (debugging only): list of per-lane dicts "
+             "{actor_id, queue_depth, active} in stable lane order. Non-consuming; "
+             "snapshot can race; raises if the engine is shut down. Not scheduler "
+             "state, not placement control, not part of the JSONL schema.")
         .def("shutdown", &Engine::shutdown);
 
     m.def("hpx_smoke", &hpx_smoke,

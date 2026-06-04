@@ -39,7 +39,26 @@ except ImportError as exc:
         "shared libraries are findable. See docs/hpx_build_notes.md."
     ) from exc
 
-__all__ = ["Engine", "Future", "SyntheticActor", "hpx_smoke"]
+__all__ = ["Engine", "Future", "SyntheticActor", "QueueFullError", "hpx_smoke"]
+
+
+class QueueFullError(RuntimeError):
+    """Raised by :meth:`Engine.submit` when bounded admission rejects a request.
+
+    Only raised when the :class:`Engine` was built with a finite
+    ``max_queue_depth_per_lane`` and the round-robin **target lane** already
+    holds that many queued-but-not-started requests. It is raised **before** any
+    :class:`Future` is created, so a rejected request has no Future, no result
+    row, and no JSONL row. Subclasses :class:`RuntimeError`, so existing
+    ``except RuntimeError`` still catches it, while a load-shedding caller can
+    catch ``QueueFullError`` specifically (and distinguish it from the
+    ``RuntimeError`` raised after :meth:`Engine.shutdown`).
+
+    This is **local, per-lane admission by rejection** — not Ray Serve
+    backpressure, not distributed flow control, not a scheduler, and not blocking
+    backpressure (the call returns immediately by raising; it never blocks waiting
+    for space).
+    """
 
 
 def _validate_label(label: "str | None") -> "str | None":
@@ -53,6 +72,46 @@ def _validate_label(label: "str | None") -> "str | None":
         raise TypeError(
             f"label must be str or None, got {type(label).__name__}")
     return label
+
+
+def _validate_max_queue_depth_per_lane(value: "int | None") -> int:
+    """Validate the per-lane bounded-admission cap and map it to the C++ sentinel.
+
+    ``None`` (default) means **unbounded** and maps to ``-1`` (the C++ sentinel
+    that preserves the original behavior exactly). Otherwise it must be an ``int``
+    >= 1 (``bool`` is rejected even though it is an ``int`` subclass); ``0``,
+    negatives, floats, and other types raise. Returns the int passed to
+    ``_Engine`` (``-1`` for ``None``).
+    """
+    if value is None:
+        return -1
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(
+            "max_queue_depth_per_lane must be a positive int or None, got "
+            f"{type(value).__name__}")
+    if value < 1:
+        raise ValueError(
+            f"max_queue_depth_per_lane must be >= 1 or None, got {value}")
+    return value
+
+
+def _validate_lane_impl(value: str) -> str:
+    """Validate the lane backend selector and return it unchanged.
+
+    ``"std"`` (default) selects the std::thread ``ServiceLane`` stable comparison
+    anchor; ``"hpx"`` selects the opt-in cooperative HPX-thread lane. Both honor
+    the same lane contract (FIFO, actor_id, queue_depth/active, bounded admission,
+    queued/running cancellation) and leave the result-row/JSONL schema unchanged;
+    the choice is visible only through the lane's ``actor_id`` prefix
+    (``act-hpx-`` vs ``act-hpxl-``). A non-``str`` raises ``TypeError``; an
+    unrecognized string raises ``ValueError``.
+    """
+    if not isinstance(value, str):
+        raise TypeError(
+            f'lane_impl must be "std" or "hpx", got {type(value).__name__}')
+    if value not in ("std", "hpx"):
+        raise ValueError(f'lane_impl must be "std" or "hpx", got {value!r}')
+    return value
 
 
 # The synthetic service work modes the native lane supports (service_lane.hpp):
@@ -341,10 +400,41 @@ class Engine:
 
     Only one active Engine is allowed per process; constructing a second before
     calling ``shutdown()`` on the first raises. Usable as a context manager.
+
+    ``max_queue_depth_per_lane`` (default ``None`` = unbounded, exactly the
+    original behavior) optionally enables **bounded admission**: each lane admits
+    at most that many queued-but-not-started requests, and :meth:`submit` raises
+    :class:`QueueFullError` when the round-robin target lane is full. It is a
+    local, per-lane admission-by-rejection mechanism (not Ray Serve backpressure,
+    distributed flow control, a scheduler, or blocking backpressure); see
+    :meth:`submit` and :class:`QueueFullError`.
+
+    ``lane_impl`` selects the lane backend: ``"std"`` (default) is the
+    std::thread ``ServiceLane`` stable comparison anchor; ``"hpx"`` is the opt-in
+    cooperative HPX-thread lane. Both honor the identical lane contract (FIFO,
+    actor_id, queue_depth/active, bounded admission, queued/running cancellation)
+    and leave every result-row/JSONL field unchanged -- the only visible
+    difference is the lane's ``actor_id`` prefix (``act-hpx-`` vs ``act-hpxl-``).
+    No HPX internals are exposed to Python by either choice.
     """
 
-    def __init__(self, num_lanes: int = 1, hpx_threads: int = 1):
-        self._engine = _Engine(num_lanes=num_lanes, hpx_threads=hpx_threads)
+    def __init__(self, num_lanes: int = 1, hpx_threads: int = 1,
+                 max_queue_depth_per_lane: "int | None" = None,
+                 lane_impl: str = "std"):
+        # max_queue_depth_per_lane: None (default) = unbounded, preserving the
+        # original behavior exactly. A positive int bounds each lane's queued-but-
+        # not-started depth; submit() then raises QueueFullError when the target
+        # lane is full. Validated here (None / positive int) and passed to C++ as
+        # -1 (None) or the int. Stored so submit_batch can refuse under a cap.
+        self._max_queue_depth_per_lane = max_queue_depth_per_lane
+        cap = _validate_max_queue_depth_per_lane(max_queue_depth_per_lane)
+        # lane_impl: "std" (default) keeps the ServiceLane anchor; "hpx" opts into
+        # the cooperative HpxLane backend. Validated (str / known value) before the
+        # process-singleton HPX runtime is touched, then forwarded to _Engine.
+        lane_impl = _validate_lane_impl(lane_impl)
+        self._engine = _Engine(num_lanes=num_lanes, hpx_threads=hpx_threads,
+                               max_queue_depth_per_lane=cap,
+                               lane_impl=lane_impl)
         self._closed = False
 
     def submit(self, service_ms: float = 0.0, work_mode: str = "sleep",
@@ -388,6 +478,15 @@ class Engine:
         echoes ``chunks`` / ``chunk_delay_ms``. ``chunks=1, chunk_delay_ms=0``
         (default) reproduces the unchunked single-step behavior exactly. Chunking
         is **single-request only** -- :meth:`submit_batch` does not accept it.
+
+        **Bounded admission.** If the :class:`Engine` was built with a finite
+        ``max_queue_depth_per_lane``, this raises :class:`QueueFullError` when the
+        round-robin **target lane** already holds that many queued-but-not-started
+        requests (the in-service request is not counted). The rejection is raised
+        **before** any Future is created -- no Future, no result row, no JSONL row
+        -- and the round-robin rotation still advances (a rejected call consumes
+        its lane turn, so one full lane never stalls submissions to other lanes).
+        With the default ``max_queue_depth_per_lane=None`` no admission check runs.
         """
         _validate_label(label)
         _validate_work_mode(work_mode)
@@ -395,6 +494,15 @@ class Engine:
         delay = _validate_chunk_delay_ms(chunk_delay_ms)
         submit_ns = time.perf_counter_ns()
         cf = self._engine.submit(float(service_ms), work_mode, n_chunks, delay)
+        if cf is None:
+            # Bounded admission: the C++ engine returns None when a per-lane cap
+            # is set and the round-robin target lane is full. Raise BEFORE building
+            # a Future -- a rejected request has no Future, no row, no JSONL row.
+            raise QueueFullError(
+                "submit rejected: the target lane already holds "
+                f"max_queue_depth_per_lane={self._max_queue_depth_per_lane} "
+                "queued-but-not-started requests (active request not counted). "
+                "Bounded admission by rejection; retire/drain work or retry.")
         return Future(cf, submit_ns, label=label, chunks=n_chunks,
                       chunk_delay_ms=delay)
 
@@ -429,7 +537,27 @@ class Engine:
         the batch paths take a list. Like :meth:`submit`, the batch path does not
         accept a ``label``. The result-row schema is unchanged -- each row already
         reports its own ``service_ms_observed``.
+
+        **Bounded admission.** ``submit_batch`` does **not** participate in
+        bounded admission in v1: if the :class:`Engine` was built with a finite
+        ``max_queue_depth_per_lane``, this raises ``RuntimeError`` (it refuses
+        loudly rather than silently bypass the per-lane cap). Bounded admission is
+        a :meth:`submit`-only feature; build the Engine without a cap to use the
+        batch throughput path.
         """
+        if self._max_queue_depth_per_lane is not None:
+            # Bounded admission is a submit()-only feature in v1. The batch path
+            # is the unbounded bulk/throughput probe (non-cancelable, multi-lane);
+            # rather than silently bypass the cap, refuse loudly so the protection
+            # cannot be defeated by accident. A plain RuntimeError (not
+            # QueueFullError) because no lane is "full" here -- the operation is
+            # simply unsupported under a cap. Use submit() for bounded admission,
+            # or build the Engine without max_queue_depth_per_lane for batches.
+            raise RuntimeError(
+                "submit_batch is not supported when max_queue_depth_per_lane is "
+                f"set (={self._max_queue_depth_per_lane}); bounded admission is a "
+                "submit()-only feature in v1. Use submit() under a cap, or build "
+                "the Engine without max_queue_depth_per_lane for batch submits.")
         _validate_work_mode(work_mode)
         svc_list = _validate_batch_service_ms(service_ms, count)
         submit_ns = time.perf_counter_ns()
@@ -626,6 +754,33 @@ class Engine:
     def num_lanes(self) -> int:
         return self._engine.num_lanes()
 
+    def lane_stats(self) -> "list[dict]":
+        """Observability snapshot of the service lanes (debugging only).
+
+        Returns one dict per lane, in **stable lane order** (the same order
+        :meth:`submit` round-robins over)::
+
+            [{"actor_id": "act-hpx-...", "queue_depth": 3, "active": True},
+             {"actor_id": "act-hpx-...", "queue_depth": 0, "active": False}]
+
+        * ``queue_depth`` -- requests **queued but not yet started** on that lane
+          (the in-service request, if any, is not counted).
+        * ``active`` -- ``True`` once the lane has **popped** a request and is in
+          its service lifecycle, until that request's row is fulfilled (or a
+          queued-cancel skip clears it); ``False`` when the lane is idle.
+
+        This is for **observability/debugging only**. It is a **snapshot** -- the
+        values can change the instant after it returns -- and **non-consuming**:
+        it does not touch any :class:`Future` and does not affect
+        ``submit``/``wait``/``cancel``/``result`` semantics. It is **not** Ray
+        scheduler state, **not** placement control (lane choice stays internal
+        round-robin; you cannot submit to a chosen lane), **not** a
+        synchronization primitive, and **not** part of the benchmark JSONL /
+        analyzer schema. Raises ``RuntimeError`` after :meth:`shutdown` (the lanes
+        are destroyed), consistent with the other coordination APIs.
+        """
+        return self._engine.lane_stats()
+
     def shutdown(self) -> None:
         """Graceful drain: block until all queued/in-flight submitted work
         completes and every Future is fulfilled, then stop the HPX runtime.
@@ -742,8 +897,21 @@ class SyntheticActor:
     second before ``shutdown()`` raises. Usable as a context manager.
     """
 
-    def __init__(self, num_lanes: int = 1, hpx_threads: int = 1):
-        self._engine = Engine(num_lanes=num_lanes, hpx_threads=hpx_threads)
+    def __init__(self, num_lanes: int = 1, hpx_threads: int = 1,
+                 max_queue_depth_per_lane: "int | None" = None,
+                 lane_impl: str = "std"):
+        # Forwards the optional per-lane bounded-admission cap to the underlying
+        # Engine: remote() then raises QueueFullError when the target lane is full,
+        # and remote_batch() / serve.remote_batch() refuse under the cap (both via
+        # Engine). Default None = unbounded (unchanged behavior).
+        #
+        # lane_impl ("std" default / "hpx") selects the lane backend and is
+        # forwarded to Engine (validated there); "hpx" opts into the cooperative
+        # HpxLane. The contract and result rows are identical -- only the lane
+        # actor_id prefix differs (act-hpx- vs act-hpxl-).
+        self._engine = Engine(num_lanes=num_lanes, hpx_threads=hpx_threads,
+                              max_queue_depth_per_lane=max_queue_depth_per_lane,
+                              lane_impl=lane_impl)
 
     def remote(self, service_ms: float = 0.0, work_mode: str = "sleep",
                label: "str | None" = None, chunks: int = 1,
@@ -753,7 +921,9 @@ class SyntheticActor:
         Forwards directly to :meth:`Engine.submit`, including the optional
         client-side ``label`` (echoed by ``result()`` as ``row["label"]``) and
         the chunked synthetic-service controls ``chunks`` / ``chunk_delay_ms``
-        (single-request only; see :meth:`Engine.submit`).
+        (single-request only; see :meth:`Engine.submit`). If the actor was built
+        with a finite ``max_queue_depth_per_lane``, this raises
+        :class:`QueueFullError` when the target lane is full (bounded admission).
         """
         return self._engine.submit(
             service_ms=service_ms, work_mode=work_mode, label=label,
@@ -831,6 +1001,13 @@ class SyntheticActor:
 
     def num_lanes(self) -> int:
         return self._engine.num_lanes()
+
+    def lane_stats(self) -> "list[dict]":
+        """Forward to :meth:`Engine.lane_stats` (observability snapshot of the
+        service lanes: one ``{actor_id, queue_depth, active}`` dict per lane).
+        Debugging only -- snapshot can race, non-consuming, not scheduler state /
+        placement control / JSONL schema; raises after :meth:`shutdown`."""
+        return self._engine.lane_stats()
 
     def shutdown(self) -> None:
         """Forward to :meth:`Engine.shutdown` (graceful drain; Futures submitted

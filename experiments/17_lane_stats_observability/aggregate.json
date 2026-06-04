@@ -1,0 +1,484 @@
+{
+  "experiment": "lane_stats_observability",
+  "boundary": "hpx-python-frontend",
+  "instrument": "Engine.lane_stats() observability snapshot (per-lane {actor_id, queue_depth, active}); non-consuming, can race",
+  "submit": "facade Engine.submit (single-request); burst of N=lanes*8 submitted without retiring -> deep FIFO backlog per lane",
+  "machine": "macOS laptop, 10 cores (4 P + 6 E), single locality",
+  "note": "Observability ONLY: lane_stats() is a snapshot, non-consuming, and NOT scheduler state / placement control / a synchronization primitive / part of the v1 JSONL schema. cancel() does NOT remove a queued item from the deque, so queue_depth still counts a cancelled-but-not-yet-popped request (first-active total_queue is N-lanes with or without cancel); cancellation shows up as faster drain / skipped service when the lane later pops it, not an immediate queue_depth drop. Raw per-run JSON is an experiment-local scratch format under results/ (gitignored), NOT the v1 benchmark schema.",
+  "scenarios": {
+    "drain": "burst submit, watch the backlog drain FIFO to idle",
+    "cancel_tail": "burst submit, immediately cancel idx [N/2,N) (deep queue -> all queued cancels), then watch drain"
+  },
+  "matrix": {
+    "work_mode": "sleep",
+    "num_lanes": [
+      2,
+      4
+    ],
+    "scenarios": [
+      "drain",
+      "cancel_tail"
+    ],
+    "service_ms": 40.0,
+    "requests_per_lane": 8,
+    "hpx_threads": 4,
+    "repeats": 3
+  },
+  "gates": [
+    "G1 first all-active snapshot: num_active==lanes, queue_depth spread<=1, total_queue==N-lanes",
+    "G2 total_queue non-increasing (FIFO drain, no re-queue)",
+    "G3 reaches idle (num_active==0, total_queue==0)",
+    "G4 outcomes: drain N/0; cancel_tail N/2 completed + N/2 cancelled (~0 service), all tail cancels queued (True)",
+    "G5 round-robin over all requests: lane request-count spread<=1 across exactly `lanes` lanes"
+  ],
+  "cells": [
+    {
+      "scenario": "drain",
+      "num_lanes": 2,
+      "requests": 16,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "cancel_k": 0,
+      "repeats": 3,
+      "expected_total_queue": 14,
+      "first_active_num_active": 2,
+      "first_active_total_queue": 14,
+      "first_active_balance_spread": 0,
+      "monotonic_ok": true,
+      "reached_idle": true,
+      "drain_span_ms_p50": 346.889,
+      "num_samples_p50": 276,
+      "completed": 16,
+      "cancelled": 0,
+      "completed_service_ms_p50": 43.9823,
+      "cancelled_service_ms_p50": null,
+      "lane_count_spread": 0,
+      "representative_first_active_snapshot": {
+        "queue_depth": [
+          7,
+          7
+        ],
+        "active": [
+          true,
+          true
+        ],
+        "total_queue": 14,
+        "num_active": 2
+      },
+      "representative_final_snapshot": {
+        "queue_depth": [
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.004,
+          "total_queue": 14,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 31.671,
+          "total_queue": 14,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 62.129,
+          "total_queue": 12,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 93.899,
+          "total_queue": 10,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 124.155,
+          "total_queue": 9,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 156.038,
+          "total_queue": 8,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 186.25,
+          "total_queue": 6,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 218.054,
+          "total_queue": 4,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 248.178,
+          "total_queue": 4,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 279.943,
+          "total_queue": 2,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 310.08,
+          "total_queue": 0,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 341.799,
+          "total_queue": 0,
+          "num_active": 0
+        }
+      ]
+    },
+    {
+      "scenario": "drain",
+      "num_lanes": 4,
+      "requests": 32,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "cancel_k": 0,
+      "repeats": 3,
+      "expected_total_queue": 28,
+      "first_active_num_active": 4,
+      "first_active_total_queue": 28,
+      "first_active_balance_spread": 0,
+      "monotonic_ok": true,
+      "reached_idle": true,
+      "drain_span_ms_p50": 356.577,
+      "num_samples_p50": 277,
+      "completed": 32,
+      "cancelled": 0,
+      "completed_service_ms_p50": 43.9279,
+      "cancelled_service_ms_p50": null,
+      "lane_count_spread": 0,
+      "representative_first_active_snapshot": {
+        "queue_depth": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "active": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "total_queue": 28,
+        "num_active": 4
+      },
+      "representative_final_snapshot": {
+        "queue_depth": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.004,
+          "total_queue": 28,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 32.888,
+          "total_queue": 28,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 66.031,
+          "total_queue": 24,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 97.715,
+          "total_queue": 20,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 130.893,
+          "total_queue": 19,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 163.838,
+          "total_queue": 16,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 196.45,
+          "total_queue": 12,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 229.512,
+          "total_queue": 8,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 262.569,
+          "total_queue": 6,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 294.28,
+          "total_queue": 4,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 327.337,
+          "total_queue": 0,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 360.316,
+          "total_queue": 0,
+          "num_active": 0
+        }
+      ]
+    },
+    {
+      "scenario": "cancel_tail",
+      "num_lanes": 2,
+      "requests": 16,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "cancel_k": 8,
+      "repeats": 3,
+      "expected_total_queue": 14,
+      "first_active_num_active": 2,
+      "first_active_total_queue": 14,
+      "first_active_balance_spread": 0,
+      "monotonic_ok": true,
+      "reached_idle": true,
+      "drain_span_ms_p50": 172.403,
+      "num_samples_p50": 137,
+      "completed": 8,
+      "cancelled": 8,
+      "completed_service_ms_p50": 41.2146,
+      "cancelled_service_ms_p50": 0.0,
+      "lane_count_spread": 0,
+      "representative_first_active_snapshot": {
+        "queue_depth": [
+          7,
+          7
+        ],
+        "active": [
+          true,
+          true
+        ],
+        "total_queue": 14,
+        "num_active": 2
+      },
+      "representative_final_snapshot": {
+        "queue_depth": [
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.002,
+          "total_queue": 14,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 15.225,
+          "total_queue": 14,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 31.567,
+          "total_queue": 14,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 46.729,
+          "total_queue": 12,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 61.968,
+          "total_queue": 12,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 78.494,
+          "total_queue": 12,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 93.688,
+          "total_queue": 10,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 110.131,
+          "total_queue": 10,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 125.335,
+          "total_queue": 9,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 140.566,
+          "total_queue": 8,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 157.12,
+          "total_queue": 8,
+          "num_active": 2
+        },
+        {
+          "t_rel_ms": 172.404,
+          "total_queue": 0,
+          "num_active": 0
+        }
+      ]
+    },
+    {
+      "scenario": "cancel_tail",
+      "num_lanes": 4,
+      "requests": 32,
+      "service_ms": 40.0,
+      "work_mode": "sleep",
+      "cancel_k": 16,
+      "repeats": 3,
+      "expected_total_queue": 28,
+      "first_active_num_active": 4,
+      "first_active_total_queue": 28,
+      "first_active_balance_spread": 0,
+      "monotonic_ok": true,
+      "reached_idle": true,
+      "drain_span_ms_p50": 176.301,
+      "num_samples_p50": 140,
+      "completed": 16,
+      "cancelled": 16,
+      "completed_service_ms_p50": 42.855,
+      "cancelled_service_ms_p50": 0.0,
+      "lane_count_spread": 0,
+      "representative_first_active_snapshot": {
+        "queue_depth": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "active": [
+          true,
+          true,
+          true,
+          true
+        ],
+        "total_queue": 28,
+        "num_active": 4
+      },
+      "representative_final_snapshot": {
+        "queue_depth": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "active": [
+          false,
+          false,
+          false,
+          false
+        ],
+        "total_queue": 0,
+        "num_active": 0
+      },
+      "representative_trajectory": [
+        {
+          "t_rel_ms": 0.004,
+          "total_queue": 28,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 15.281,
+          "total_queue": 28,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 31.808,
+          "total_queue": 28,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 47.019,
+          "total_queue": 24,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 63.508,
+          "total_queue": 24,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 78.61,
+          "total_queue": 24,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 95.12,
+          "total_queue": 20,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 110.301,
+          "total_queue": 20,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 126.931,
+          "total_queue": 17,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 142.227,
+          "total_queue": 16,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 158.791,
+          "total_queue": 16,
+          "num_active": 4
+        },
+        {
+          "t_rel_ms": 174.066,
+          "total_queue": 0,
+          "num_active": 0
+        }
+      ]
+    }
+  ]
+}

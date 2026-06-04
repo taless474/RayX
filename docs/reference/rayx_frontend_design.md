@@ -15,8 +15,10 @@ throughput benchmark).
 
 `rayx` is a **thin Python frontend over the HPX synthetic service lanes**. The
 Python layer (`python/src/rayx/__init__.py`) wraps a compiled pybind11/HPX
-extension (`_rayx`) that owns the HPX runtime and `N` serialized
-`rayhpx::ServiceLane` instances; submissions are round-robined across the lanes.
+extension (`_rayx`) that owns the HPX runtime and `N` serialized service lanes
+(by default `rayhpx::ServiceLane`; an opt-in cooperative `HpxLane` backend is
+selectable via `lane_impl`, see §13); submissions are round-robined across the
+lanes.
 
 It is a **synthetic serving-control frontend**, not a Ray replacement and not
 real model inference. The lanes run native C++ synthetic work (blocking sleep or
@@ -515,7 +517,20 @@ The frontend contract is locked by shape-only smokes, not timing thresholds:
   non-consuming, cancelled-queued ready, running-cancel pending-until-boundary,
   `num_returns` + duplicate/type/retired/empty guards; `timeout=None` unchanged;
   finite `> 0` → `NotImplementedError`; negative / `NaN` / `inf` / `bool` /
-  non-numeric rejected; actor forwards), and the `SyntheticActor` façade.
+  non-numeric rejected; actor forwards), **`lane_stats()` observability** (one
+  well-typed `{actor_id, queue_depth, active}` row per lane; fresh engine idle;
+  a long occupier + queued work → some lane `active` with total `queue_depth > 0`;
+  idle again after draining; actor forwards; post-shutdown raises), **bounded
+  admission** (`max_queue_depth_per_lane`: ctor validation — `None` / positive
+  `int` accepted, `0` / negative → `ValueError`, `bool` / `float` / `str` →
+  `TypeError`; default `None` accepts a deep backlog unchanged; a full target
+  lane → `QueueFullError` raised before any Future, leaving `queue_depth`
+  unchanged; per-lane not global — a full lane does not block a non-full one;
+  draining a slot reopens admission; a queued cancel does **not** free a slot
+  until the lane pops it; `submit_batch` refuses under a cap with a plain
+  `RuntimeError` while uncapped batch is unchanged; actor forwards; the
+  post-shutdown `RuntimeError` takes precedence over `QueueFullError`), and the
+  `SyntheticActor` façade.
 * **`bench/smoke_local.py`** is the local smoke / golden / contract aggregator.
   It runs the gates available on the host and skips unavailable optional tiers
   (no built `_rayx`, no native binary, no Ray). It is not a benchmark matrix.
@@ -524,3 +539,187 @@ The frontend contract is locked by shape-only smokes, not timing thresholds:
   through both `--retire-mode one_by_one` and `--retire-mode batch_wait`, each
   parsed by the analyzer — so both retire paths stay runnable end to end. See
   `docs/experiment_plan.md` §"rayx contract + retire-mode gates".
+
+## 11. Observability: `lane_stats()`
+
+`Engine.lane_stats()` (and `SyntheticActor.lane_stats()`, which forwards to it)
+is a small **debugging/observability** surface — a point-in-time view of the
+service lanes — deliberately scoped so it cannot be mistaken for a control or
+scheduling API.
+
+* **What it returns.** One dict per `ServiceLane`, in **stable lane order** (the
+  same order `submit` round-robins over): `{"actor_id": str, "queue_depth": int,
+  "active": bool}`. `queue_depth` is **queued-but-not-started** (the in-service
+  request is not counted); `active` is `True` from the moment the lane **pops** a
+  request until that request's row is fulfilled (a queued-cancel skip also clears
+  it), `False` when the lane is idle.
+* **How it is implemented (and why it is cheap and honest).** Each lane carries
+  one `std::atomic<bool> active_`, set under the lane mutex right after `pop` and
+  cleared after `set_value` / a queued-cancel skip — **per request, off the inner
+  sleep/spin (and chunk) loop**, so it adds nothing to the service hot path.
+  `stats()` briefly takes the lane mutex to read `queue_.size()` and loads
+  `active_`. `service_lane.hpp` gains only this flag + a `stats()` snapshot; the
+  submit/service/cancel paths are otherwise unchanged.
+* **Snapshot, can race.** The reading is a snapshot: a concurrent pop or
+  fulfilment can change either field the instant after `lane_stats()` returns. It
+  is **non-consuming** — it touches no promise/future and is safe to call at any
+  time — but it is **not** a synchronization primitive; never gate correctness on
+  it. (Use `wait` / `as_completed` / `ready` for readiness/coordination.)
+* **What it is not.** Not Ray scheduler state; not placement control (lane choice
+  stays internal round-robin — `actor_id` reports the serving lane after the
+  fact, it is not a handle you submit to); not part of the benchmark JSONL /
+  analyzer schema (it is a separate Python call, not a result-row field). It
+  **raises** `RuntimeError` after `shutdown()` (the lanes are destroyed),
+  consistent with the other new-work / coordination APIs.
+* **Scope note.** `lane_stats()` reports the lanes of whichever backend the
+  Engine was built with (`lane_impl`, §13): `ServiceLane` by default, or the
+  opt-in cooperative `HpxLane` under `lane_impl="hpx"`. The snapshot shape is
+  identical for both; the `actor_id` prefix (`act-hpx-` vs `act-hpxl-`) shows
+  which. It does **not** cover the experiment-20 task/dataflow mechanism probe,
+  which is a native-only experiment and not a rayx lane backend.
+
+## 12. Bounded admission: `max_queue_depth_per_lane` + `QueueFullError`
+
+`Engine(max_queue_depth_per_lane=None)` (forwarded by
+`SyntheticActor(max_queue_depth_per_lane=...)`) adds an **optional, local,
+per-lane admission cap**. It is deliberately the smallest honest mechanism that
+protects a lane's backlog — admission **by rejection** — and is scoped so it
+cannot be mistaken for Ray Serve, a scheduler, or distributed flow control.
+
+* **What it is.** A per-lane bound on **queued-but-not-started** depth. The
+  default `None` is **unbounded** and preserves the original behavior exactly
+  (no admission check runs — the uncapped `ServiceLane::submit` path is
+  byte-for-byte unchanged). A positive `int` `N` admits at most `N` queued
+  requests per lane; the **active in-service request is not counted** (it has
+  already been popped off `queue_`). When the round-robin **target lane** is at
+  the cap, `Engine.submit` / `SyntheticActor.remote` / `actor.serve.remote`
+  raise `QueueFullError`.
+* **`QueueFullError`.** Python-owned, defined in `python/src/rayx/__init__.py`
+  as a subclass of `RuntimeError` (no pybind exception registration). So
+  `except RuntimeError` still catches it, while a load-shedding caller can catch
+  `QueueFullError` specifically — and distinguish it from the plain
+  `RuntimeError` raised after `shutdown()`.
+* **Rejection is side-effect-free and Future-free.** The rejection is decided
+  **before** anything is created: on a full lane there is **no promise, no
+  Future, no cancel token, no queue entry, and no notify** — and therefore **no
+  result row and no JSONL row**. The C++ `Engine::submit` returns Python `None`
+  (a clean sentinel, not a stub Future) and the façade raises `QueueFullError`
+  before constructing a `rayx.Future`.
+* **Atomic check-and-enqueue (no TOCTOU).** Admission uses an additive
+  `ServiceLane::try_submit(req, max_queue_depth, ...)` that performs the depth
+  check **and** the queue push under **one** acquisition of the lane mutex, so
+  the depth admitted against is exactly the depth observed. `lane_stats()` (§11)
+  releases the lock before returning, so it is **observability only** and is
+  **not** used as the gate — using it would reintroduce a read-then-act window.
+  The uncapped path keeps calling `submit(...)` unchanged; `try_submit` is a
+  separate capped-only method, so the native baseline and the uncapped rayx path
+  carry none of the cap logic.
+* **Per-lane, not global; no skip-to-another-lane.** The cap is **per-lane queue
+  depth**, never a global backlog count, and a full lane is **never** skipped to
+  a different lane: a submit targets exactly the one lane the round-robin picked,
+  and rejects there if it is full. The round-robin counter `rr_` advances on
+  **every** submit call — admitted **or rejected** — so call index `i` always
+  maps to lane `i % num_lanes` and one saturated lane never shifts the rotation
+  or stalls submissions to the other lanes. (`rr_` is Engine state, not a
+  result-row field.)
+* **Cancel does not free a slot until the lane pops it.** A queued cancel
+  settles the future immediately but **leaves the item in `queue_`** (it does not
+  dequeue), so a cancelled-but-not-yet-popped request **still counts** against
+  the cap until the lane reaches it and pops/skips it. This is consistent with
+  `lane_stats()` `queue_depth`, which likewise counts the still-present cancelled
+  item.
+* **Batch refuses loudly under a cap.** The batch paths (`submit_batch` /
+  `remote_batch` / `serve.remote_batch`) are **not supported when a cap is set**.
+  Rather than silently bypass the per-lane limit (the batch path is the
+  multi-lane, non-cancelable bulk/throughput probe), they **refuse loudly** with
+  a plain `RuntimeError` — **not** `QueueFullError`, because no lane is "full";
+  the operation is simply unsupported under a cap. v1 deliberately does **not**
+  implement all-or-nothing batch preflight admission; use `submit()` under a cap,
+  or build the Engine without `max_queue_depth_per_lane` for batches.
+* **Validation.** `None` and a positive `int` are accepted. `0` and negatives
+  raise `ValueError`; `bool` (an `int` subclass), `float`, `str`, and other types
+  raise `TypeError`. `None` maps to the C++ sentinel `-1` (unbounded); the
+  positive int is passed through. Constructor rejections raise inside `__init__`
+  **before** the HPX runtime starts, so a bad cap leaves no active engine.
+* **Precedence.** The running-engine guard fires first: after `shutdown()`,
+  `submit` raises the "Engine is shut down" `RuntimeError`, **not**
+  `QueueFullError`.
+* **What it is not.** Not Ray Serve and not Ray Serve backpressure; not
+  distributed flow control; not a scheduler or placement control (lane choice
+  stays internal round-robin); and **not blocking backpressure** — the call
+  returns immediately by raising, it never blocks waiting for space. It is a
+  local, in-process, per-lane admission-by-rejection cap on synthetic service
+  requests, nothing more.
+
+## 13. Lane backend selection: `lane_impl` (`"std"` / `"hpx"`)
+
+`Engine(lane_impl="std")` (forwarded by `SyntheticActor(lane_impl="std")`)
+selects the **lane mechanism** behind every lane, beneath the same Ray-like API.
+It is an opt-in mechanism choice, not a behavior change: both backends implement
+the **identical RayX lane contract** and leave the result-row / JSONL schema
+untouched. For the consolidated evidence arc across exp16/20/21/22/23, see
+`docs/reference/hpxlane_backend_arc.md`.
+
+* **`"std"` (default) — `rayhpx::ServiceLane`.** The `std::thread` lane that has
+  been the project's **stable comparison anchor** throughout. It remains the
+  default, so every existing measurement, example, and benchmark keeps its
+  current behavior; selecting `"std"` explicitly is behavior-equivalent to the
+  default.
+* **`"hpx"` (opt-in) — `rayhpx::HpxLane`.** The cooperative **HPX-thread** lane:
+  its worker runs as an `hpx::thread`, its queue is guarded by `hpx::mutex` /
+  `hpx::condition_variable_any`, and the inter-chunk parked gaps use the
+  cooperative HPX timer. This is the same cooperative-lane mechanism first
+  explored as a native-only probe in experiment 16, now reachable as an opt-in
+  rayx backend.
+* **Same contract, both backends.** FIFO per-lane ordering; stable `actor_id`;
+  `lane_stats()` `queue_depth` (queued-but-not-started) and `active` (in-service)
+  (§11); bounded admission (`max_queue_depth_per_lane` + `QueueFullError`, §12,
+  via a cancel-token-aware `try_submit`); queued cancellation (skip before
+  service); running cancellation at a **chunk boundary** (strictly-partial run,
+  §7); and `wait` / `get` / `as_completed` retirement. Both reuse the **one**
+  shared `Request` / `Result` / `CancelToken` and synthetic-service semantics, so
+  cancellation and timing fields mean the same thing on either lane.
+* **Visible only through the `actor_id` prefix.** `std` / `ServiceLane` lanes
+  report `act-hpx-…`; `hpx` / `HpxLane` lanes report `act-hpxl-…`. That prefix is
+  the only observable difference — result rows are otherwise schema-identical, so
+  the choice is invisible to the analyzer and JSONL.
+* **The backend seam (rayx-local, no HPX leak).** The Engine holds
+  `std::vector<std::unique_ptr<RayxLaneIface>>`; a `RayxLaneAdapter<Lane>` wires
+  each backend to that interface. The `ServiceLane` adapter forwards calls
+  **directly** (behavior-equivalent to the previous Engine-owns-`ServiceLane`
+  code — the interface adds structure, not semantics). The `HpxLane` adapter
+  **hops** each lane-state operation — construction, destruction, `submit`,
+  `try_submit`, `submit_bulk`, `stats` — onto an HPX thread via
+  `hpx::run_as_hpx_thread`, because `hpx::mutex` / `hpx::thread` may be touched
+  only from an HPX worker (the Engine itself runs on the external Python thread).
+  Cancellation needs no hop: `CancelToken` uses its own `std::mutex` +
+  `hpx::promise`, so `Future.cancel()` stays on its existing path for both
+  backends. `RayxLaneIface` is **separate** from the native benchmark `LaneIface`
+  in `hpx_synthetic_baseline.cpp`, which is left untouched. **No HPX types cross
+  into Python.**
+* **Validation.** `lane_impl` must be a `str`; a non-`str` raises `TypeError`, an
+  unrecognized string raises `ValueError`. Like the other constructor knobs, the
+  rejection happens inside `__init__` **before** the HPX runtime starts.
+* **What it is not.** **Not** the `hpx::async` task / `hpx::dataflow` mechanism
+  probe from experiment 20: those pools are deliberately **not** drop-in rayx
+  lane backends (a different execution model, kept as native mechanism
+  experiments). Not Ray Serve, not a Ray object store, not real model inference,
+  and **not** a general "HPX beats Ray" claim — `lane_impl` only swaps the
+  in-process synthetic lane mechanism behind a fixed, narrow API. Whether `"hpx"`
+  is faster or slower than `"std"` is an empirical, workload-dependent question
+  this seam does not assert.
+* **Evidence.** Contract parity between the two backends is verified in
+  `experiments/21_rayx_hpxlane_backend_parity/`. Where they **structurally
+  diverge under load** is characterized in
+  `experiments/22_rayx_hpxlane_load_divergence/`: under parked **sleep** service
+  both backends overlap (cooperative parking yields the HPX worker, so `HpxLane`
+  overlaps even at `hpx_threads=1`), while under non-yielding **spin** —  a
+  synthetic CPU-bound diagnostic mode — `ServiceLane` parallelism follows the
+  OS/core count whereas `HpxLane` concurrency is bounded by the `hpx_threads`
+  worker pool. That is a scheduling-**mechanism** difference recorded as
+  observation only; exp22 gates structural facts and makes **no** speedup or
+  "HPX beats Ray" claim. The **uncontended** per-call cost of the `HpxLane`
+  adapter's `run_as_hpx_thread` hop (vs the no-hop `ServiceLane` path) is
+  characterized in `experiments/23_rayx_hpxlane_adapter_hop_cost/` — a
+  single-digit-to-tens-of-µs boundary cost (best approximated by `lane_stats()`),
+  observation-only and not a faster/slower verdict.

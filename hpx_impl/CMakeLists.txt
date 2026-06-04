@@ -15,3 +15,10 @@ target_link_libraries(hpx_synthetic_baseline PRIVATE HPX::hpx HPX::wrap_main)
 # dispatch throughput, and is NOT part of the serving-control benchmark corpus.
 add_executable(hpx_lane_feasibility hpx_lane_feasibility.cpp)
 target_link_libraries(hpx_lane_feasibility PRIVATE HPX::hpx HPX::wrap_main)
+
+# HPX task/dataflow mechanism probe (experiments/20). Standalone: it reuses
+# service_lane.hpp and hpx_lane.hpp UNMODIFIED to compare serialized lanes against
+# hpx::async / hpx::dataflow pool mechanisms and report which lane contracts are
+# preserved/relaxed/n-a. NOT part of the serving-control benchmark corpus.
+add_executable(hpx_task_dataflow_probe hpx_task_dataflow_probe.cpp)
+target_link_libraries(hpx_task_dataflow_probe PRIVATE HPX::hpx HPX::wrap_main)
