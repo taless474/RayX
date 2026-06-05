@@ -700,6 +700,15 @@ untouched. For the consolidated evidence arc across exp16/20/21/22/23, see
 * **Validation.** `lane_impl` must be a `str`; a non-`str` raises `TypeError`, an
   unrecognized string raises `ValueError`. Like the other constructor knobs, the
   rejection happens inside `__init__` **before** the HPX runtime starts.
+* **Read-only accessor.** The validated string is stored on the `Engine`
+  (`self._lane_impl`) and exposed by `Engine.lane_impl()` (forwarded by
+  `SyntheticActor.lane_impl()`), returning `"std"` or `"hpx"`. It is a method for
+  consistency with `num_lanes()`, and is pure constructor-echo **introspection** —
+  it lets user code/logging confirm the backend *before* any submit, rather than
+  inferring it from a row's `actor_id` prefix. It returns a plain Python `str`
+  (never an HPX type), is **not** scheduler state, placement control, or part of
+  the result-row / JSONL schema, and — unlike `num_lanes()` — does not cross into
+  C++, so it remains valid after `shutdown()`.
 * **What it is not.** **Not** the `hpx::async` task / `hpx::dataflow` mechanism
   probe from experiment 20: those pools are deliberately **not** drop-in rayx
   lane backends (a different execution model, kept as native mechanism

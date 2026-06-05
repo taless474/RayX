@@ -347,6 +347,16 @@ plus `Future.ready()` / `Future.cancelled()` / `Future.result(...)`.
       row = engine.submit(service_ms=5).result()
       # row["actor_id"] starts with "act-hpxl-"
   ```
+
+  `Engine.lane_impl()` (forwarded by `SyntheticActor.lane_impl()`) is a
+  **read-only accessor** that returns the validated backend string (`"std"` /
+  `"hpx"`) this instance was built with. It is constructor-echo **introspection**
+  only — a plain Python `str` available immediately (before any submit, unlike
+  inferring the backend from a row's `actor_id` prefix); it is **not** an HPX
+  type, not scheduler state, not placement control, and not part of the
+  result-row / JSONL schema. Like `num_lanes()` it is a method (not a property);
+  unlike `num_lanes()` it does not cross into C++, so it stays valid after
+  `shutdown()`.
 * **`SyntheticActor.serve.remote(service_ms, work_mode)` /
   `SyntheticActor.serve.remote_batch(service_ms, count, work_mode)`** — optional
   Ray-like **method-style** sugar. `actor.serve.remote(...)` mirrors Ray's

@@ -24,6 +24,9 @@
 
 #include "service_lane.hpp"
 #include "hpx_lane.hpp"  // rayhpx::HpxLane, the opt-in cooperative HPX-thread lane
+#include "runtime_ops.hpp"  // rayx_runtime: Phase 1 registered-operation registry
+#include "runtime_cancel.hpp"  // rayx_runtime::RuntimeCancelToken (Slice 2a)
+#include "runtime_lane.hpp"  // rayx_runtime::RuntimeLane, the HPX-native FIFO lane (Slice 1)
 
 #include <hpx/hpx.hpp>
 #include <hpx/hpx_start.hpp>
@@ -311,6 +314,41 @@ std::vector<char> to_cstr(const std::string& s) {
     return v;
 }
 
+// ---- shared process-wide HPX runtime guard + bootstrap -------------------
+//
+// The HPX runtime is a process resource: only ONE owner may have it started at a
+// time. Both the harness `Engine` and the experimental `RuntimeEngine`
+// (rayx.runtime) start HPX as a library, so they share this single guard/bootstrap
+// -- which is exactly what makes them mutually exclusive: whichever is constructed
+// first flips `process_runtime_active()` true, and the other's constructor then
+// raises until the first is shut down. Extracted verbatim from the original
+// Engine::active()/start_hpx()/shutdown() internals; behavior for Engine is
+// unchanged (same single atomic, same hpx::start args, same finalize+stop order).
+
+std::atomic<bool>& process_runtime_active() {
+    static std::atomic<bool> a{false};
+    return a;
+}
+
+void start_process_hpx(int hpx_threads) {
+    std::vector<char> a0 = to_cstr("rayx");
+    std::vector<char> a1 = to_cstr("--hpx:threads=" +
+                                   std::to_string(hpx_threads));
+    char* argv[] = {a0.data(), a1.data(), nullptr};
+    int argc = 2;
+    hpx::init_params params;
+    py::gil_scoped_release release;
+    if (!hpx::start(nullptr, argc, argv, params)) {
+        throw std::runtime_error("hpx::start failed");
+    }
+}
+
+void stop_process_hpx() {
+    py::gil_scoped_release release;
+    hpx::post([]() { hpx::finalize(); });
+    hpx::stop();
+}
+
 class Engine {
 public:
     // max_queue_depth_per_lane: -1 (sentinel) = unbounded (default; preserves the
@@ -339,16 +377,16 @@ public:
         max_qd_per_lane_ = max_queue_depth_per_lane;
 
         bool expected = false;
-        if (!active().compare_exchange_strong(expected, true)) {
+        if (!process_runtime_active().compare_exchange_strong(expected, true)) {
             throw std::runtime_error(
-                "an Engine is already active in this process; call shutdown() "
-                "on it before creating another");
+                "an Engine or Runtime is already active in this process; call "
+                "shutdown() on it before creating another");
         }
 
         try {
-            start_hpx(hpx_threads);
+            start_process_hpx(hpx_threads);
         } catch (...) {
-            active() = false;
+            process_runtime_active() = false;
             throw;
         }
 
@@ -672,12 +710,8 @@ public:
         running_ = false;
         // Join lane threads first (drains queued requests), then stop HPX.
         lanes_.clear();
-        {
-            py::gil_scoped_release release;
-            hpx::post([]() { hpx::finalize(); });
-            hpx::stop();
-        }
-        active() = false;
+        stop_process_hpx();
+        process_runtime_active() = false;
     }
 
 private:
@@ -736,24 +770,6 @@ private:
         return ordered;
     }
 
-    static std::atomic<bool>& active() {
-        static std::atomic<bool> a{false};
-        return a;
-    }
-
-    static void start_hpx(int hpx_threads) {
-        std::vector<char> a0 = to_cstr("rayx");
-        std::vector<char> a1 = to_cstr("--hpx:threads=" +
-                                       std::to_string(hpx_threads));
-        char* argv[] = {a0.data(), a1.data(), nullptr};
-        int argc = 2;
-        hpx::init_params params;
-        py::gil_scoped_release release;
-        if (!hpx::start(nullptr, argc, argv, params)) {
-            throw std::runtime_error("hpx::start failed");
-        }
-    }
-
     std::vector<std::unique_ptr<RayxLaneIface>> lanes_;
     std::size_t rr_ = 0;
     // Per-lane bounded-admission cap: -1 = unbounded (default); >= 1 = max
@@ -762,6 +778,414 @@ private:
     bool running_ = false;
     // Batch enqueue strategy (A/B; see set_bulk_enqueue). Default = bulk.
     bool use_bulk_enqueue_ = true;
+};
+
+// ---- rayx.runtime registered-operation runtime --------------------------
+//
+// EXPERIMENTAL, additive, and fully SEPARATE from the harness above. The runtime
+// layer dispatches a fixed native operation registry (rayx_runtime::registry)
+// over N HPX-native FIFO RuntimeLanes, returning a user value PLUS the core
+// measurement-row fields as TWO separate things (the Python layer puts the value
+// on OperationResult.value and the row on OperationResult.row). It provides
+// round-robin lanes + num_lanes/lane_stats, cooperative queued/running
+// cancellation, bounded per-lane admission, and non-consuming wait/as_completed.
+//
+// It is NOT Ray and NOT Ray-compatible: no object store, no ObjectRef, no HPX
+// actions/components, no distributed locality, and no arbitrary Python execution.
+
+// Move-only wrapper around one in-flight runtime result future. Consume-once,
+// mirroring EngineFuture's valid()-guard so a second result() raises a clean
+// RayX-level error instead of a raw HPX no_state.
+class RuntimeFuture {
+public:
+    RuntimeFuture(hpx::future<rayx_runtime::RuntimeResult> fut,
+                  std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok)
+        : fut_(std::move(fut)), tok_(std::move(tok)) {}
+
+    RuntimeFuture(RuntimeFuture&&) = default;
+    RuntimeFuture& operator=(RuntimeFuture&&) = default;
+    RuntimeFuture(const RuntimeFuture&) = delete;
+    RuntimeFuture& operator=(const RuntimeFuture&) = delete;
+
+    // Block (GIL released) for the result; return the C++-measured fields plus
+    // the operation value. The Python layer splits these into OperationResult
+    // (value vs row) and adds submit_ns/total_ms/queue_wait_ms (its own clock).
+    py::dict result() {
+        if (!fut_.valid()) {
+            throw std::runtime_error(
+                "RuntimeFuture is invalid (already retired via result()); "
+                "cannot call result() again");
+        }
+        rayx_runtime::RuntimeResult r;
+        {
+            py::gil_scoped_release release;
+            r = fut_.get();
+        }
+        py::dict d;
+        d["actor_id"] = r.actor_id;
+        d["start_ns"] = r.start_ns;
+        d["end_ns"] = r.end_ns;
+        d["service_ms_observed"] = (r.end_ns - r.start_ns) / 1e6;
+        d["status"] = r.status;
+        if (r.error.empty()) {
+            d["error"] = py::none();
+        } else {
+            d["error"] = r.error;
+        }
+        // Value channel (kept OUT of the row by the Python layer): has_value is
+        // false for a failed (or, later, cancelled) operation -> .value raises.
+        d["has_value"] = r.has_value;
+        if (r.has_value) {
+            d["value"] = r.value;
+        } else {
+            d["value"] = py::none();
+        }
+        return d;
+    }
+
+    bool ready() {
+        if (!fut_.valid()) {
+            throw std::runtime_error(
+                "RuntimeFuture is invalid (already retired via result()); "
+                "cannot query ready()");
+        }
+        return fut_.is_ready();
+    }
+
+    // Cancel this operation. Runs DIRECTLY on the external Python thread (the token
+    // is a self-contained std::mutex state machine + a copy of the promise -- NO
+    // hpx::run_as_hpx_thread hop). Returns true iff THIS call settles a
+    // cancellation: the op was still QUEUED (lane will skip it) or RUNNING a
+    // checkpointed op with a boundary still ahead (it stops at the next checkpoint).
+    // Returns false otherwise (already completed/cancelled, or running a
+    // checkpoint_count == 1 op). Safe after retire (terminal phase -> false).
+    bool cancel() { return tok_ ? tok_->cancel() : false; }
+
+    // Non-consuming: true once cancellation is guaranteed (queued cancel, or a
+    // requested running stop), valid before AND after result().
+    bool cancelled() { return tok_ ? tok_->is_cancelled() : false; }
+
+    // Internal helpers for RuntimeEngine::wait (NOT pybind-exposed), mirroring
+    // EngineFuture::valid_now/take/put. wait() must move the move-only hpx::future
+    // out into a temp vector for the hpx::wait_some std::vector overload and move it
+    // back into the SAME RuntimeFuture afterwards. Only fut_ moves; the cancel token
+    // tok_ is untouched, so cancel semantics survive a wait.
+    bool valid_now() const { return fut_.valid(); }
+    hpx::future<rayx_runtime::RuntimeResult> take() { return std::move(fut_); }
+    void put(hpx::future<rayx_runtime::RuntimeResult> f) { fut_ = std::move(f); }
+
+private:
+    hpx::future<rayx_runtime::RuntimeResult> fut_;
+    std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok_;
+};
+
+// Build the service-slot closure for one operation: runs the op body, times it on
+// the same monotonic clock the row uses, and maps the outcome (value/failure) into
+// a RuntimeResult stamped with the SERVING LANE's actor_id. Lives here (not in
+// RuntimeLane) because it needs the registry's OpFn + rayhpx::now_ns + the
+// value/failure mapping; the lane just runs the closure HPX-natively. start_ns is
+// read INSIDE the closure (when the lane actually runs it), so the value reflects
+// service-slot occupancy, not enqueue/async-scheduling latency.
+inline rayx_runtime::RuntimeLane::OpTask make_op_task(
+        rayx_runtime::OpFn fn, std::vector<std::int64_t> args,
+        std::string actor) {
+    return [fn = std::move(fn), args = std::move(args), actor = std::move(actor)](
+               const rayx_runtime::StopCheckpoint& stop)
+               -> rayx_runtime::RuntimeResult {
+        rayx_runtime::RuntimeResult r;
+        r.actor_id = actor;
+        r.start_ns = rayhpx::now_ns();
+        try {
+            rayx_runtime::OpOutcome o = fn(args, stop);
+            r.value = o.value;
+            r.has_value = o.has_value;
+            r.status = o.status;
+            r.error = o.error;
+        } catch (const std::exception& e) {
+            // Operation exception -> failed result + error (P8).
+            r.status = "failed";
+            r.error = e.what();
+            r.has_value = false;
+        } catch (...) {
+            // Defensive backstop: a non-std::exception throw still maps to a
+            // failed result rather than escaping the task. The built-ins only
+            // throw std::runtime_error, so no current op reaches this path.
+            r.status = "failed";
+            r.error = "operation failed with a non-std::exception";
+            r.has_value = false;
+        }
+        r.end_ns = rayhpx::now_ns();
+        return r;
+    };
+}
+
+// Process-singleton runtime engine, sharing the SAME process_runtime_active()
+// guard as Engine (so Engine and Runtime are mutually exclusive). Slice 1 owns N
+// HPX-native RuntimeLanes (a single HPX-thread FIFO worker each), round-robins
+// submissions across them, and exposes per-lane observability via lane_stats().
+class RuntimeEngine {
+public:
+    RuntimeEngine(int hpx_threads, int num_lanes,
+                  int max_queue_depth_per_lane) {
+        if (hpx_threads < 1)
+            throw std::invalid_argument("hpx_threads must be >= 1");
+        if (num_lanes < 1)
+            throw std::invalid_argument("num_lanes must be >= 1");
+        // -1 (sentinel) = unbounded (default); >= 1 = per-lane bounded admission.
+        // The Python facade validates None/positive-int and passes -1 for None; the
+        // <1 (non-sentinel) guard here is a defensive backstop, mirroring Engine.
+        if (max_queue_depth_per_lane != -1 && max_queue_depth_per_lane < 1)
+            throw std::invalid_argument(
+                "max_queue_depth_per_lane must be -1 (unbounded) or >= 1");
+        max_qd_per_lane_ = max_queue_depth_per_lane;
+        bool expected = false;
+        if (!process_runtime_active().compare_exchange_strong(expected, true)) {
+            throw std::runtime_error(
+                "an Engine or Runtime is already active in this process; call "
+                "shutdown() on it before creating another");
+        }
+        try {
+            start_process_hpx(hpx_threads);
+        } catch (...) {
+            process_runtime_active() = false;
+            throw;
+        }
+        // Build the lanes ON an HPX thread: each RuntimeLane ctor spawns an
+        // hpx::thread worker, so the runtime must be up and the spawn must happen
+        // on an HPX thread. On a partial-construction failure, stop/join whatever
+        // lanes already exist (same HPX-thread teardown), stop HPX, clear the
+        // guard, and rethrow -- so a failed ctor leaves no live worker, no started
+        // runtime, and no claimed guard.
+        try {
+            hpx::run_as_hpx_thread([this, num_lanes]() {
+                lanes_.reserve(static_cast<std::size_t>(num_lanes));
+                for (int i = 0; i < num_lanes; ++i) {
+                    lanes_.push_back(
+                        std::make_unique<rayx_runtime::RuntimeLane>());
+                }
+            });
+        } catch (...) {
+            try {
+                hpx::run_as_hpx_thread([this]() {
+                    for (auto& lane : lanes_)
+                        if (lane) lane->stop_and_join();
+                    lanes_.clear();
+                });
+            } catch (...) {
+                // best-effort cleanup; do not mask the original failure
+            }
+            stop_process_hpx();
+            process_runtime_active() = false;
+            throw;
+        }
+        running_ = true;
+    }
+
+    ~RuntimeEngine() {
+        try {
+            shutdown();
+        } catch (...) {
+            // best-effort; never throw from a destructor
+        }
+    }
+
+    // Dispatch one registered operation through a round-robin-selected lane.
+    // op_id/args are already validated at the Python boundary (unknown id / wrong
+    // arity / non-int rejected there); the arity re-check here is a defensive
+    // backstop. The op body is packaged as a closure (make_op_task) stamped with
+    // the SERVING LANE's actor_id, then enqueued on the lane's hpx::mutex queue --
+    // which must happen on an HPX thread, so the enqueue hops via
+    // run_as_hpx_thread (mirroring the harness RayxLaneAdapter). The lane's worker
+    // runs the closure via hpx::async(exec_, ...).get() (cooperative HPX
+    // suspension) in FIFO order; RuntimeFuture.result() later blocks (GIL
+    // released) on the returned future.
+    py::object submit_operation(const std::string& op_id,
+                                const std::vector<std::int64_t>& args) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        auto it = rayx_runtime::registry().find(op_id);
+        if (it == rayx_runtime::registry().end()) {
+            throw std::invalid_argument("unknown operation id: " + op_id);
+        }
+        if (static_cast<int>(args.size()) != it->second.arity) {
+            throw std::invalid_argument(
+                "wrong number of arguments for operation: " + op_id);
+        }
+        const rayx_runtime::OpFn fn = it->second.fn;  // copied into the closure
+        // Checkpoint count from the op's args (square/add/boom -> 1; busy_sum ->
+        // ceil(n/STRIDE)). It arms running-cancellability in begin_service:
+        // cancellable_ = (count > 1), so a count==1 op is queued-cancelable only.
+        const int checkpoint_count = it->second.checkpoint_count(args);
+        // Round-robin lane selection. rr_ advances on EVERY submit so call index i
+        // maps to lane (i % num_lanes); rr_ is engine state, not a row field.
+        rayx_runtime::RuntimeLane& lane = *lanes_[rr_ % lanes_.size()];
+        ++rr_;
+        rayx_runtime::RuntimeLane::OpTask task =
+            make_op_task(fn, args, lane.actor_id());
+        std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok;
+        if (max_qd_per_lane_ >= 0) {
+            // Bounded admission: try_submit check-and-pushes atomically under the
+            // lane mutex; std::nullopt means the lane was at/over the cap. On reject
+            // NOTHING is created (no future/token/promise/entry/notify) -- we return
+            // Python None and the facade raises QueueFullError; rr_ already advanced
+            // (engine state), matching the harness round-robin-on-reject behavior.
+            std::optional<hpx::future<rayx_runtime::RuntimeResult>> fut =
+                hpx::run_as_hpx_thread(
+                    [&lane, &task, checkpoint_count, &tok, this]() {
+                        return lane.try_submit(std::move(task), max_qd_per_lane_,
+                                               checkpoint_count, &tok);
+                    });
+            if (!fut) return py::none();  // rejected: no row, no future, no token
+            return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
+                            py::return_value_policy::move);
+        }
+        hpx::future<rayx_runtime::RuntimeResult> fut =
+            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, &tok]() {
+                return lane.submit(std::move(task), checkpoint_count, &tok);
+            });
+        return py::cast(RuntimeFuture(std::move(fut), std::move(tok)),
+                        py::return_value_policy::move);
+    }
+
+    // As-completed wait over RuntimeFutures (Slice 2c). Block (GIL released) until
+    // at least num_returns of the given _RuntimeFuture objects are ready, then
+    // return the indices (into the input list) of ALL currently-ready futures. The
+    // caller retires the ones it wants and keeps the rest in flight. A direct
+    // mirror of Engine::wait, retargeted to rayx_runtime::RuntimeResult; see that
+    // method for the full hpx::wait_some / non-consuming / RAII-restore / GIL
+    // rationale. NON-consuming: hpx::wait_some keeps every input future valid; we
+    // move them out and back into the SAME RuntimeFuture objects only because
+    // hpx::future is move-only and we use the std::vector overload. A failed or
+    // cancelled op resolves its future normally (the outcome is encoded in the
+    // RuntimeResult, not thrown into the future), so wait treats completed, failed,
+    // and cancelled results uniformly as "ready".
+    py::list wait(py::list futures, int num_returns) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        const std::size_t n = futures.size();
+        if (n == 0) throw std::invalid_argument("wait() got an empty futures list");
+        if (num_returns < 1)
+            throw std::invalid_argument("num_returns must be >= 1");
+        if (static_cast<std::size_t>(num_returns) > n)
+            throw std::invalid_argument("num_returns must be <= len(futures)");
+
+        // Borrow the C++ wrappers (Python retains the objects). A non-_RuntimeFuture
+        // entry raises TypeError via pybind's cast; an already-retired future raises
+        // a clear error; a duplicate (same underlying _RuntimeFuture twice) is
+        // rejected BEFORE any take() below -- otherwise we would move the same
+        // hpx::future out twice and corrupt it.
+        std::vector<RuntimeFuture*> rfs;
+        rfs.reserve(n);
+        std::unordered_set<RuntimeFuture*> seen;
+        seen.reserve(n);
+        for (py::handle h : futures) {
+            RuntimeFuture* rf = h.cast<RuntimeFuture*>();
+            if (!rf->valid_now()) {
+                throw std::runtime_error(
+                    "wait() received a RuntimeFuture already retired via result()");
+            }
+            if (!seen.insert(rf).second) {
+                throw std::invalid_argument(
+                    "wait() received the same RuntimeFuture more than once; each "
+                    "future may appear at most once");
+            }
+            rfs.push_back(rf);
+        }
+
+        // Move each underlying future out into `tmp`, guarded by a RAII Restore that
+        // moves them back into the SAME RuntimeFuture objects on EVERY exit path
+        // (normal return or an exception out of wait_some), restoring exactly as
+        // many as were taken -- so even a partial take is unwound cleanly and a
+        // RuntimeFuture is never left moved-from.
+        std::vector<hpx::future<rayx_runtime::RuntimeResult>> tmp;
+        tmp.reserve(n);
+        struct Restore {
+            std::vector<RuntimeFuture*>& rfs;
+            std::vector<hpx::future<rayx_runtime::RuntimeResult>>& tmp;
+            ~Restore() {
+                for (std::size_t i = 0; i < tmp.size(); ++i)
+                    rfs[i]->put(std::move(tmp[i]));
+            }
+        } restore{rfs, tmp};
+        for (RuntimeFuture* rf : rfs) tmp.push_back(rf->take());
+
+        {
+            // Release the GIL ONLY around the blocking HPX wait. No Python objects
+            // are touched inside this scope (tmp holds C++ futures); the ready-list
+            // construction below runs with the GIL reacquired.
+            py::gil_scoped_release release;
+            hpx::wait_some(static_cast<std::size_t>(num_returns), tmp);
+        }
+
+        py::list ready;
+        for (std::size_t i = 0; i < tmp.size(); ++i) {
+            if (tmp[i].is_ready()) ready.append(static_cast<int>(i));
+        }
+        return ready;  // ~Restore() moves the futures back into the RuntimeFutures
+    }
+
+    int num_lanes() const { return static_cast<int>(lanes_.size()); }
+
+    // Observability snapshot (debugging only): one dict per lane, in stable lane
+    // order, with the lane's queued-but-not-started depth and whether it is in a
+    // service slot. Collects each lane's stats ON an HPX thread (the queue size is
+    // read under the lane's hpx::mutex); NON-consuming -- touches no future and
+    // changes no submit/service semantics. Snapshot only; values can change the
+    // instant after this returns. Raises if shut down (lanes destroyed). Not Ray
+    // scheduler state, not placement control, not part of the JSONL schema.
+    py::list lane_stats() {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        std::vector<rayx_runtime::RuntimeLane::LaneStat> snaps =
+            hpx::run_as_hpx_thread([this]() {
+                std::vector<rayx_runtime::RuntimeLane::LaneStat> v;
+                v.reserve(lanes_.size());
+                for (auto& lane : lanes_) v.push_back(lane->stats());
+                return v;
+            });
+        py::list out;  // built with the GIL held (no Python touched in the hop)
+        for (auto& s : snaps) {
+            py::dict d;
+            d["actor_id"] = s.actor_id;
+            d["queue_depth"] = s.queue_depth;
+            d["active"] = s.active;
+            out.append(std::move(d));
+        }
+        return out;
+    }
+
+    void shutdown() {
+        if (!running_) return;
+        running_ = false;
+        // Runtime shutdown CANCELS outstanding work, then drains -- an intentional
+        // difference from the harness drain-to-completion (registered operations
+        // can be long-running, so draining a queued/in-flight busy_sum to its end
+        // would make teardown block for the whole op). cancel_pending() cancels
+        // every queued token (the worker then skips them) and the in-flight token
+        // (a running busy_sum stops at its next checkpoint), so stop_and_join drains
+        // promptly -- bounded by one checkpoint stride, not the full op -- while
+        // still fulfilling every promise. The GIL is RELEASED around the hop because
+        // the drain may block on a checkpoint; the hop locks each lane's hpx::mutex
+        // / joins its hpx::thread, so it runs on an HPX thread while HPX is still up.
+        // Lanes are cleared BEFORE stop_process_hpx(); the guard is cleared LAST.
+        if (!lanes_.empty()) {
+            py::gil_scoped_release release;
+            hpx::run_as_hpx_thread([this]() {
+                for (auto& lane : lanes_)
+                    if (lane) lane->cancel_pending();
+                for (auto& lane : lanes_)
+                    if (lane) lane->stop_and_join();
+                lanes_.clear();
+            });
+        }
+        stop_process_hpx();
+        process_runtime_active() = false;
+    }
+
+private:
+    std::vector<std::unique_ptr<rayx_runtime::RuntimeLane>> lanes_;
+    std::size_t rr_ = 0;
+    // Per-lane bounded-admission cap: -1 = unbounded (default); >= 1 = max
+    // queued-but-not-started requests admitted per lane (see submit_operation).
+    int max_qd_per_lane_ = -1;
+    bool running_ = false;
 };
 
 // ---- hpx_smoke (retained debug helper) ----------------------------------
@@ -856,4 +1280,56 @@ PYBIND11_MODULE(_rayx, m) {
     m.def("hpx_smoke", &hpx_smoke,
           "Start HPX as a library, run a trivial async, shut down cleanly; "
           "returns {'status': 'ok', 'value': 42}.");
+
+    // ---- rayx.runtime runtime bindings ----------------------------------
+    // Additive; surfaced in Python under `rayx.runtime`, NOT in rayx.__all__.
+
+    py::class_<RuntimeFuture>(m, "_RuntimeFuture")
+        .def("result", &RuntimeFuture::result,
+             "Block (GIL released) for the operation result; returns a dict of "
+             "the C++-measured row fields plus the operation value/has_value. "
+             "Consume-once: a second call raises.")
+        .def("ready", &RuntimeFuture::ready,
+             "Non-blocking: True if the result is ready. Raises if already "
+             "retired via result().")
+        .def("cancel", &RuntimeFuture::cancel,
+             "Cancel this operation (queued skip, or cooperative running stop at "
+             "the next checkpoint). Runs on the calling thread with no HPX hop. "
+             "Returns True iff this call settles a cancellation; False if already "
+             "completed/cancelled or running a non-checkpointed op.")
+        .def("cancelled", &RuntimeFuture::cancelled,
+             "Non-consuming: True once cancellation is guaranteed; valid before "
+             "and after result().");
+
+    py::class_<RuntimeEngine>(m, "_RuntimeEngine")
+        .def(py::init<int, int, int>(), py::arg("hpx_threads"),
+             py::arg("num_lanes"), py::arg("max_queue_depth_per_lane"))
+        .def("submit_operation", &RuntimeEngine::submit_operation,
+             py::arg("op_id"), py::arg("args"),
+             "Dispatch one registered native operation through a round-robin "
+             "RuntimeLane (HPX-native FIFO: the lane worker runs the op via "
+             "hpx::async(exec_, ...).get()); returns a _RuntimeFuture.")
+        .def("wait", &RuntimeEngine::wait, py::arg("futures"),
+             py::arg("num_returns"),
+             "Block (GIL released) via hpx::wait_some until at least num_returns "
+             "of the given _RuntimeFuture objects are ready; return the indices of "
+             "ALL currently-ready futures. Non-consuming (futures stay valid). "
+             "Mirrors _Engine.wait.")
+        .def("num_lanes", &RuntimeEngine::num_lanes,
+             "Number of RuntimeLanes owned by this runtime.")
+        .def("lane_stats", &RuntimeEngine::lane_stats,
+             "Per-lane observability snapshot: a list of "
+             "{actor_id, queue_depth, active} dicts in stable lane order. "
+             "Non-consuming; raises if shut down. Not scheduler state, not "
+             "placement control, not part of the JSONL schema.")
+        .def("shutdown", &RuntimeEngine::shutdown);
+
+    m.def("runtime_op_table", []() {
+        py::dict d;
+        for (const auto& kv : rayx_runtime::op_arities()) {
+            d[py::str(kv.first)] = kv.second;
+        }
+        return d;
+    }, "Return {op_id: arity} for the fixed Phase 1 operation registry "
+       "(used by rayx.runtime for Python-boundary validation).");
 }

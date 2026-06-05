@@ -12,6 +12,8 @@ The project compares:
 
 RayX is not a Ray replacement, not Ray Serve, not Ray Train, not a Ray object-store project, and not real model inference.
 
+The benchmark harness remains synthetic. The repo also contains an experimental `rayx.runtime` prototype for fixed registered native operations only; it is not arbitrary Python remote execution and not an object store.
+
 Do not clone, modify, or vendor Ray internals unless explicitly requested.
 
 ## Session startup
@@ -26,7 +28,7 @@ Do not suggest staging, committing, amending, or pushing unless explicitly asked
 
 ## Technical guardrails
 
-Keep RayX synthetic and honest.
+Keep the benchmark harness synthetic and honest. Keep `rayx.runtime` narrow and honest: fixed registered native operations only, no arbitrary Python execution, no object store, and no Ray replacement semantics.
 
 Do not imply:
 
@@ -63,6 +65,7 @@ Use these as durable interpretation constraints unless new evidence changes them
 * The std::thread `ServiceLane` remains the stable actor-like comparison anchor unless an experiment explicitly opts into another lane mechanism.
 * Opt-in HPX-thread/cooperative-lane probes are mechanism experiments, not replacements for the main corpus.
 * `lane_impl` selects the rayx lane backend: `"std"` / `ServiceLane` is the default stable comparison anchor; `"hpx"` / `HpxLane` is an opt-in cooperative HPX-thread lane behind the *same* RayX contract (FIFO, `actor_id`, `lane_stats()` queue_depth/active, bounded admission/`QueueFullError`, queued + chunk-boundary running cancellation, get/wait/as_completed). Backend choice is visible only via the `actor_id` prefix (`act-hpx-` vs `act-hpxl-`); no HPX internals are exposed to Python and the v1 JSONL schema is unchanged.
+* `rayx.runtime` is a separate experimental subpackage for fixed registered native operations (`square`, `add`, `boom`, `busy_sum`) over HPX-native FIFO `RuntimeLane`s. It has value+row separation, cooperative cancellation, bounded admission, `lane_stats()`, and `get`/`wait`/`as_completed`, but no ObjectRef, no object store, no arbitrary Python callables, no HPX actions/components, no distributed locality, no module-level `rayx.get` / `rayx.wait`, and no `Runtime.lane_impl`.
 * The HpxLane evidence arc is exp16 (native single-lane feasibility/timer behavior) → exp20 (task/dataflow pools are *not* drop-in RayX lane backends) → exp21 (RayX backend contract parity) → exp22 (load-divergence mechanism, observation-only) → exp23 (adapter-hop cost, observation-only). See `docs/reference/hpxlane_backend_arc.md` for the consolidated reading guide.
 * exp22/exp23 timings (and the spin divergence) are observation-only and machine-specific: do not use them as performance claims, and do not state an "HpxLane is faster/slower than ServiceLane" verdict.
 * Synthetic service timing should not be described as real inference work.
@@ -72,9 +75,16 @@ Use these as durable interpretation constraints unless new evidence changes them
 * `readme.md`: project overview, `rayx` frontend at-a-glance, Quickstart, headline benchmark result, and documentation map.
 * `docs/`: stable project framing and reference documentation.
 * `docs/reference/`: API and design reference notes.
+* `docs/design/`: exploratory runtime design notes; do not treat these as stable shipped reference docs unless explicitly promoted.
 * `bench/`: benchmark drivers, analyzers, smoke/contract checks, and shared helpers.
 * `ray_impl/`: Ray baseline implementation code.
 * `hpx_impl/`: HPX-native baseline implementation code.
+* `python/src/rayx/runtime/`: experimental `rayx.runtime` Python API plus import-light validation/error helpers.
+* `python/src/rayx/runtime_ops.hpp`: fixed registered native operation registry for `rayx.runtime`.
+* `python/src/rayx/runtime_lane.hpp`: HPX-native FIFO `RuntimeLane` implementation.
+* `python/src/rayx/runtime_cancel.hpp`: runtime-local cooperative cancellation token.
+* `tests/unit/`: pure import-light runtime validation/error tests; must not import `rayx` / `_rayx`.
+* `tests/integration/`: native runtime contract tests requiring built `_rayx`; should skip cleanly when `_rayx` is unavailable.
 * `benchmarks/NN_name/`: chronological benchmark write-ups and curated evidence.
 * `experiments/NN_name/`: investigative write-ups and curated evidence.
 * `examples/`: small runnable API examples.
@@ -112,7 +122,7 @@ Do not hide important timing assumptions.
 
 Do not introduce real model backends such as llama.cpp, vLLM, SGLang, TensorRT-LLM, or OpenVINO unless explicitly requested.
 
-Do not add payload execution, object-store behavior, or arbitrary task execution unless the project direction is explicitly changed.
+Do not add arbitrary payload execution, object-store behavior, Python callable execution, or Ray-like task execution unless the project direction is explicitly changed. `rayx.runtime` is limited to fixed registered native operations.
 
 Do not create large generated files.
 
@@ -125,6 +135,7 @@ Keep these stories separate:
 * Ray-facing mapping: useful for showing how common Ray actor/future control patterns map onto RayX.
 * HPX-facing design: should consider HPX futures, `hpx::async`, continuations, `hpx::dataflow`, executors, resource partitioning, cooperative scheduling, and HPX-thread lane mechanisms where appropriate.
 * RayX harness design: remains a synthetic comparison harness with explicit, narrow semantics.
+* `rayx.runtime` design: registered native operations over HPX-native runtime lanes, still narrow and explicitly not arbitrary Python or object-store semantics.
 
 Do not present a Ray actor-pool pattern as HPX best-practice guidance. If an example mirrors Ray actor-pool code, label it as a Ray-pattern mapping only.
 
@@ -185,6 +196,7 @@ Use:
 * `docs/experiment_plan.md` for benchmark shapes, metrics, commands, schemas, and acceptance gates.
 * `docs/ray_hpx_mapping.md` for conceptual mapping between Ray and HPX.
 * `docs/reference/` for API and design reference material.
+* `docs/design/` for exploratory runtime design notes.
 * `benchmarks/` for benchmark write-ups.
 * `experiments/` for investigative write-ups and curated evidence packages.
 * `examples/` for small runnable API examples.
@@ -223,12 +235,19 @@ Good CI checks include:
 * artifact hygiene checks
 * curated aggregate ignore/trackability checks
 * schema/golden contract checks when deterministic and cheap
+* pure unit tests that do not require `_rayx` or HPX
 
 Do not add full benchmark or experiment matrices to normal CI.
 
 Do not add machine-sensitive performance checks to normal CI.
 
 Do not require an HPX source build in normal CI unless explicitly requested.
+
+For the runtime test split:
+
+* repo-sanity should run `py_compile` and pure `tests/unit` only; it must not require `_rayx` or HPX.
+* the native RayX smoke job may run `bench/smoke_rayx_runtime.py`, `examples/rayx_runtime_basic.py`, and `tests/integration` after `_rayx` is built.
+* do not run runtime integration tests or runtime smokes in repo-sanity.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 

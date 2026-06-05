@@ -27,10 +27,25 @@ jobs:
         # experiment runner (experiments/NN_name/run_*.py) so the list cannot
         # drift. Experiment runners are COMPILED here but NEVER run in CI -- they
         # need _rayx + HPX and some are timing-sensitive (run them locally). The
-        # rayx Python facade (python/src/rayx/*.py) is included too; py_compile
-        # parses it without importing, so the _rayx/HPX-only import path is never
-        # triggered.
-        run: python -m py_compile bench/*.py examples/*.py ray_impl/*.py experiments/*/run_*.py benchmarks/*/run_*.py python/src/rayx/*.py
+        # rayx Python facade (python/src/rayx/*.py) and the rayx.runtime subpackage
+        # (python/src/rayx/runtime/*.py) are included too; py_compile parses them
+        # without importing, so their _rayx/HPX-only import path is never triggered.
+        # The test suites (tests/unit, tests/integration) are compiled here for
+        # syntax coverage; only tests/unit is RUN in this job (see below) -- the
+        # integration tests need _rayx and run in native-rayx-smoke.yml.
+        run: python -m py_compile bench/*.py examples/*.py ray_impl/*.py experiments/*/run_*.py benchmarks/*/run_*.py python/src/rayx/*.py python/src/rayx/runtime/*.py tests/unit/*.py tests/integration/*.py
+
+      - name: Install dev test dependencies
+        # pytest only (requirements-dev.txt). Pure-Python, fast; this job does NOT
+        # build _rayx / HPX, so it runs only the import-light unit tests below.
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Run rayx.runtime pure unit tests
+        # tests/unit is import-light: it loads rayx/runtime/_validate.py and
+        # _errors.py by FILE PATH and never imports rayx / rayx.runtime / _rayx, so
+        # it is safe in this no-extension job. The integration tests and the runtime
+        # smoke are NOT run here -- they need _rayx (see native-rayx-smoke.yml).
+        run: pytest tests/unit
 
       - name: Golden service-sequence check
         # Dependency-free (no Ray, no rayx): pins the shared deterministic

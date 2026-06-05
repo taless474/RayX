@@ -30,8 +30,10 @@ replacement.
 
 * Not a Ray replacement, and not a fork of Ray.
 * Not modifying Ray Core internals; not Ray Serve / Ray Train / Ray object store.
-* `rayx` runs native synthetic C++ work only — it does not run arbitrary Python
-  functions remotely.
+* The `Engine` / `SyntheticActor` harness runs synthetic C++ work only, and the
+  experimental `rayx.runtime` prototype runs only fixed registered native
+  operations — neither runs arbitrary Python functions remotely, and neither has
+  an object store / `ObjectRef`, Ray task semantics, or real model inference.
 * Not benchmarking real model inference yet.
 
 ## Current status
@@ -188,7 +190,22 @@ lane-pool shape is a Ray-comparison convenience rather than HPX best-practice
 guidance (conceptual mapping in
 [docs/reference/rayx_actor_api.md](docs/reference/rayx_actor_api.md) §8; the
 Ray / HPX-native / harness distinction in
-[docs/ray_hpx_mapping.md](docs/ray_hpx_mapping.md)).
+[docs/ray_hpx_mapping.md](docs/ray_hpx_mapping.md)). For the opt-in `lane_impl`
+backend selector, see [examples/rayx_lane_impl.py](examples/rayx_lane_impl.py) —
+an API/observability example only (not a benchmark) that contrasts
+`lane_impl="std"` and `lane_impl="hpx"` and shows the one observable difference,
+the lane `actor_id` prefix (`act-hpx-` vs `act-hpxl-`). For a focused look at
+`max_queue_depth_per_lane` and `QueueFullError`, see
+[examples/rayx_bounded_admission.py](examples/rayx_bounded_admission.py) — an API
+example (not a benchmark) showing local **per-lane admission by rejection**
+(rejected submits raise immediately and produce no Future/row), which is not Ray
+Serve backpressure, not distributed flow control, and not a global cap. For the
+experimental `rayx.runtime` prototype, see
+[examples/rayx_runtime_basic.py](examples/rayx_runtime_basic.py) — an API/semantics
+example (not a benchmark) that demonstrates `rayx.runtime` value+row separation, the
+fixed native operations (`square`/`add`/`boom`/`busy_sum`), cancellation, `lane_stats`
+observability, and the `get`/`as_completed` collection APIs over HPX-native FIFO
+RuntimeLanes (not Ray, not an object store, not arbitrary remote Python).
 
 To run the available local smoke/golden gates in one step, use the stdlib-only
 aggregator [bench/smoke_local.py](bench/smoke_local.py): `python
@@ -246,6 +263,21 @@ there.
 * [docs/reference/rayx_submit_batch.md](docs/reference/rayx_submit_batch.md) — rayx `submit_batch()` bulk-submit path and first throughput benchmark (engine/actor/batch).
 * [docs/reference/rayx_frontend_design.md](docs/reference/rayx_frontend_design.md) — rayx frontend design rationale: Future ownership, `wait`/`as_completed`, why benchmark `batch_wait` differs, shutdown drain, queued + chunk-boundary running cancellation, the `lane_impl` backend seam (§13), and the `hpx::wait_some` choice.
 * [docs/reference/chunked_service_synthesis.md](docs/reference/chunked_service_synthesis.md) — cross-reading of benchmark 09 (sleep, cross-driver) and experiment 14 (spin, HPX-native + rayx): the shared chunked model, why sleep "preservation" is overshoot-approximate while spin is exact, and what readers should not conclude (no "Ray faster", no "rayx faster than HPX-native", L8 is lane×core not chunking).
+
+### Experimental: `rayx.runtime` prototype (design notes)
+
+A separate, **exploratory** workstream from the shipped comparison harness above.
+`rayx.runtime` runs **registered native C++ operations** that return a user
+**value** plus a measurement **row** (kept strictly separate), over HPX-native FIFO
+`RuntimeLane`s. It is experimental and **not** part of the benchmark corpus — it
+emits no JSONL, has no analyzer rollup, and makes no performance claim — and it
+keeps the same honest boundaries as the harness (not Ray, no object store /
+`ObjectRef`, no arbitrary remote Python, no HPX actions / components / distributed
+locality). Runnable tour: [examples/rayx_runtime_basic.py](examples/rayx_runtime_basic.py).
+
+* [docs/design/rayx_runtime_problem_model.md](docs/design/rayx_runtime_problem_model.md) — the runtime problem model: the settled goal / non-goals, and why a value-producing runtime is kept separate from the frozen `Future → measurement row` harness world.
+* [docs/design/rayx_runtime_hpx_design_principles.md](docs/design/rayx_runtime_hpx_design_principles.md) — HPX-native design principles for the runtime (HPX futures / async / continuations / executors / cooperative scheduling), distinct from the Ray-shaped actor mapping.
+* [docs/design/rayx_phase1_registered_operation_api.md](docs/design/rayx_phase1_registered_operation_api.md) — the Phase 1 registered-operation API contract: `Runtime` / `RuntimeFuture` / `OperationResult`, the fixed native registry (`square` / `add` / `boom` / `busy_sum`), the value/row model, cooperative cancellation, bounded admission, and the `get` / `wait` / `as_completed` collection APIs.
 
 ### Main benchmark arc (benchmarks 01–10)
 

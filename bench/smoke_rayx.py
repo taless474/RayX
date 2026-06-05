@@ -1454,26 +1454,36 @@ def check_lane_impl_selection():
     # TypeError, unknown str -> ValueError) on both Engine and SyntheticActor.
     from rayx import Engine, SyntheticActor
 
+    # The read-only lane_impl() accessor echoes the validated constructor choice
+    # (introspection only -- a plain str, never an HPX type or scheduler state).
+    def _check_impl(got, want, where):
+        if got != want:
+            _fail(f"{where}: lane_impl() returned {got!r}, expected {want!r}")
+
     # (1) Default Engine == std behavior (act-hpx- prefix).
     with Engine(num_lanes=1, hpx_threads=2) as engine:
+        _check_impl(engine.lane_impl(), "std", "default Engine lane_impl()")
         row = engine.submit(service_ms=0).result()
         _check_row(row, "default Engine (implicit std)")
         _check_prefix(row["actor_id"], _STD_PREFIX, "default Engine prefix")
 
     # (2) Explicit lane_impl="std" matches the default.
     with Engine(num_lanes=1, hpx_threads=2, lane_impl="std") as engine:
+        _check_impl(engine.lane_impl(), "std", "explicit std Engine lane_impl()")
         row = engine.submit(service_ms=0).result()
         _check_row(row, "explicit std Engine")
         _check_prefix(row["actor_id"], _STD_PREFIX, "explicit std prefix")
 
     # (3) Explicit lane_impl="hpx" -> HpxLane backend (act-hpxl- prefix).
     with Engine(num_lanes=1, hpx_threads=2, lane_impl="hpx") as engine:
+        _check_impl(engine.lane_impl(), "hpx", "explicit hpx Engine lane_impl()")
         row = engine.submit(service_ms=0).result()
         _check_row(row, "explicit hpx Engine")
         _check_prefix(row["actor_id"], _HPX_PREFIX, "explicit hpx prefix")
 
     # (4) SyntheticActor forwards lane_impl to its Engine (hpx -> act-hpxl-).
     with SyntheticActor(num_lanes=1, hpx_threads=2, lane_impl="hpx") as actor:
+        _check_impl(actor.lane_impl(), "hpx", "actor hpx lane_impl()")
         row = actor.remote(service_ms=0).result()
         _check_row(row, "actor hpx remote")
         _check_prefix(row["actor_id"], _HPX_PREFIX, "actor hpx prefix")
@@ -1489,8 +1499,8 @@ def check_lane_impl_selection():
                 "SyntheticActor lane_impl unknown")
 
     print("PASS: lane_impl selection (default/explicit std -> act-hpx-; hpx -> "
-          "act-hpxl-; actor forwards; non-str -> TypeError, unknown -> "
-          "ValueError) -> ok")
+          "act-hpxl-; lane_impl() echoes std/hpx; actor forwards; non-str -> "
+          "TypeError, unknown -> ValueError) -> ok")
 
 
 def check_hpx_backend():

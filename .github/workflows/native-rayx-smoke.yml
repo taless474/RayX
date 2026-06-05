@@ -53,7 +53,9 @@ jobs:
             libhwloc-dev
 
       - name: Install Python build dependencies
-        run: python -m pip install --upgrade pip pybind11
+        # pybind11 builds the rayx extension; requirements-dev.txt adds pytest for
+        # the integration tests run after the build.
+        run: python -m pip install --upgrade pip pybind11 -r requirements-dev.txt
 
       # Diagnostic only (no behavior change): surfaces the exact toolchain this
       # cross-version (Python 3.12 / Linux) run uses, so build/link failures are
@@ -124,6 +126,27 @@ jobs:
 
       - name: Run rayx smoke
         run: python bench/smoke_rayx.py
+
+      - name: Run rayx.runtime smoke
+        # Contract smoke for the experimental rayx.runtime stack (value/row
+        # separation, HPX-native FIFO RuntimeLanes, cancellation, bounded
+        # admission, get/wait/as_completed). Deterministic (lane_stats polling, no
+        # sleeps-as-correctness) and fast; emits no JSONL. Runs here because this
+        # is the only job that builds _rayx + HPX.
+        run: python bench/smoke_rayx_runtime.py
+
+      - name: Run rayx.runtime example (public API no-crash check)
+        # Runs the user-facing example end to end as a no-crash / public-API check
+        # (NOT a benchmark): value+row, the native operations, cancellation,
+        # lane_stats, and the collection APIs. Fast and file-free.
+        run: python examples/rayx_runtime_basic.py
+
+      - name: Run rayx.runtime integration tests (pytest)
+        # Integration contract tests that need the built _rayx (public API shape,
+        # value/row, failure, cancellation, bounded admission, collection APIs,
+        # arg validation). Complements the comprehensive bench/smoke_rayx_runtime.py
+        # above; the pure unit tests (tests/unit) already ran in ci.yml.
+        run: pytest tests/integration
 
       - name: Run rayx driver retire-mode smoke (one_by_one + batch_wait)
         # Exercises the Python driver's FIFO (one_by_one) and as-completed

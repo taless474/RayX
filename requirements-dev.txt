@@ -1,0 +1,4 @@
+# Dev / test-only dependencies (NOT needed to build or run rayx).
+# Kept separate from requirements.txt (Ray baseline) and requirements-python.txt
+# (rayx build deps). Installed in CI only in the jobs that run the test suite.
+pytest==8.4.2

@@ -431,10 +431,12 @@ class Engine:
         # lane_impl: "std" (default) keeps the ServiceLane anchor; "hpx" opts into
         # the cooperative HpxLane backend. Validated (str / known value) before the
         # process-singleton HPX runtime is touched, then forwarded to _Engine.
-        lane_impl = _validate_lane_impl(lane_impl)
+        # Stored as the validated string so lane_impl() can echo the constructor
+        # choice (introspection only -- never an HPX type).
+        self._lane_impl = _validate_lane_impl(lane_impl)
         self._engine = _Engine(num_lanes=num_lanes, hpx_threads=hpx_threads,
                                max_queue_depth_per_lane=cap,
-                               lane_impl=lane_impl)
+                               lane_impl=self._lane_impl)
         self._closed = False
 
     def submit(self, service_ms: float = 0.0, work_mode: str = "sleep",
@@ -754,6 +756,20 @@ class Engine:
     def num_lanes(self) -> int:
         return self._engine.num_lanes()
 
+    def lane_impl(self) -> str:
+        """Return the lane backend this Engine was built with: ``"std"`` or ``"hpx"``.
+
+        Read-only echo of the validated ``lane_impl`` constructor argument
+        (``"std"`` = the default ``ServiceLane`` anchor; ``"hpx"`` = the opt-in
+        cooperative ``HpxLane``). It is pure **introspection** -- a plain Python
+        string captured at construction, available immediately (before any
+        submit, unlike inferring the backend from a row's ``actor_id`` prefix).
+        It is **not** an HPX type, not scheduler state, not placement control,
+        and not part of the result-row / JSONL schema. Unlike :meth:`num_lanes`
+        it does not cross into C++, so it stays valid after :meth:`shutdown`.
+        """
+        return self._lane_impl
+
     def lane_stats(self) -> "list[dict]":
         """Observability snapshot of the service lanes (debugging only).
 
@@ -1001,6 +1017,12 @@ class SyntheticActor:
 
     def num_lanes(self) -> int:
         return self._engine.num_lanes()
+
+    def lane_impl(self) -> str:
+        """Forward to :meth:`Engine.lane_impl` (the validated ``"std"`` / ``"hpx"``
+        lane backend this actor was built with; read-only constructor echo, not an
+        HPX type, not scheduler state, not placement)."""
+        return self._engine.lane_impl()
 
     def lane_stats(self) -> "list[dict]":
         """Forward to :meth:`Engine.lane_stats` (observability snapshot of the
