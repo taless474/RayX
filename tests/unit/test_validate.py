@@ -73,3 +73,134 @@ def test_validate_call_valid_returns_int_args(validate, op_table):
     assert validate.validate_call("add", [3, 4], op_table) == [3, 4]
     assert validate.validate_call("boom", [], op_table) == []
     assert validate.validate_call("busy_sum", [0], op_table) == [0]
+
+
+# --- int64 typed signature (value-model V1) ---------------------------------
+
+
+def test_validate_call_int64_bounds_accepted(validate, op_table):
+    # The inclusive int64 endpoints are valid and pass through unchanged.
+    assert validate.validate_call("square", [validate.INT64_MAX], op_table) == [
+        validate.INT64_MAX]
+    assert validate.validate_call("square", [validate.INT64_MIN], op_table) == [
+        validate.INT64_MIN]
+    assert validate.validate_call(
+        "add", [validate.INT64_MIN, validate.INT64_MAX], op_table) == [
+            validate.INT64_MIN, validate.INT64_MAX]
+
+
+def test_validate_call_int64_out_of_range_rejected(validate, op_table):
+    # Python ints are arbitrary-precision; one past either endpoint -> ValueError
+    # at the boundary (no future is created).
+    with pytest.raises(ValueError):
+        validate.validate_call("square", [validate.INT64_MAX + 1], op_table)
+    with pytest.raises(ValueError):
+        validate.validate_call("square", [validate.INT64_MIN - 1], op_table)
+    with pytest.raises(ValueError):
+        validate.validate_call("add", [0, validate.INT64_MAX + 1], op_table)
+
+
+def test_validate_call_arity_derived_from_arg_types(validate, op_table):
+    # Arity comes from len(arg_types), so a typed table with the wrong count still
+    # rejects exactly as the old arity-only table did.
+    assert validate.validate_call("fanout_sum", [10, 3], op_table) == [10, 3]
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10], op_table)
+
+
+def test_validate_call_unsupported_declared_type_rejected(validate):
+    # Defensive: a declared type the boundary cannot enforce must fail loudly rather
+    # than letting an unvalidated arg cross (V3 validates int64 + double only).
+    bad_table = {"weird": {"arg_types": ["bytes"], "result_type": "bytes"}}
+    with pytest.raises(ValueError):
+        validate.validate_call("weird", [1], bad_table)
+
+
+# --- double typed signature (value-model V3) --------------------------------
+
+
+def test_validate_call_double_accepts_float(validate, op_table):
+    assert validate.validate_call("scale_double", [1.5, 2.0], op_table) == [1.5, 2.0]
+    assert validate.validate_call("scale_double", [-0.5, 4.0], op_table) == [-0.5, 4.0]
+    assert validate.validate_call("scale_double", [3.0, 0.0], op_table) == [3.0, 0.0]
+
+
+def test_validate_call_double_rejects_int_no_widening(validate, op_table):
+    # No implicit int->float widening: a Python int for a double arg is a TypeError.
+    with pytest.raises(TypeError):
+        validate.validate_call("scale_double", [2, 2.0], op_table)
+    with pytest.raises(TypeError):
+        validate.validate_call("scale_double", [1.5, 3], op_table)
+
+
+def test_validate_call_double_rejects_bool(validate, op_table):
+    with pytest.raises(TypeError):
+        validate.validate_call("scale_double", [True, 2.0], op_table)
+
+
+def test_validate_call_double_rejects_str(validate, op_table):
+    with pytest.raises(TypeError):
+        validate.validate_call("scale_double", ["1.5", 2.0], op_table)
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+def test_validate_call_double_rejects_non_finite(validate, op_table, bad):
+    with pytest.raises(ValueError):
+        validate.validate_call("scale_double", [bad, 2.0], op_table)
+
+
+def test_validate_call_double_wrong_arity(validate, op_table):
+    with pytest.raises(ValueError):
+        validate.validate_call("scale_double", [1.5], op_table)        # needs 2
+
+
+# --- fanout_sum boundary validation -----------------------------------------
+
+
+def test_validate_call_fanout_sum_wrong_arity(validate, op_table):
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10], op_table)        # needs 2
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10, 2, 3], op_table)  # too many
+
+
+def test_validate_call_fanout_sum_non_int_rejected(validate, op_table):
+    with pytest.raises(TypeError):
+        validate.validate_call("fanout_sum", [10.0, 2], op_table)
+    with pytest.raises(TypeError):
+        validate.validate_call("fanout_sum", [10, "2"], op_table)
+
+
+def test_validate_call_fanout_sum_bool_rejected(validate, op_table):
+    with pytest.raises(TypeError):
+        validate.validate_call("fanout_sum", [True, 2], op_table)
+    with pytest.raises(TypeError):
+        validate.validate_call("fanout_sum", [10, False], op_table)
+
+
+def test_validate_call_fanout_sum_negative_n(validate, op_table):
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [-1, 2], op_table)
+
+
+def test_validate_call_fanout_sum_parts_below_one(validate, op_table):
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10, 0], op_table)
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10, -5], op_table)
+
+
+def test_validate_call_fanout_sum_parts_above_max(validate, op_table):
+    assert validate.PARTS_MAX == 1024
+    with pytest.raises(ValueError):
+        validate.validate_call("fanout_sum", [10, validate.PARTS_MAX + 1], op_table)
+
+
+def test_validate_call_fanout_sum_valid_returns_int_args(validate, op_table):
+    assert validate.validate_call("fanout_sum", [10, 3], op_table) == [10, 3]
+    assert validate.validate_call("fanout_sum", [0, 1], op_table) == [0, 1]
+    # parts > n is allowed (empty trailing ranges contribute 0).
+    assert validate.validate_call("fanout_sum", [5, 10], op_table) == [5, 10]
+    # parts == PARTS_MAX is the inclusive upper bound.
+    assert validate.validate_call(
+        "fanout_sum", [10, validate.PARTS_MAX], op_table) == [10, validate.PARTS_MAX]

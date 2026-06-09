@@ -6,15 +6,91 @@ can be imported and unit-tested WITHOUT the ``_rayx`` extension or HPX (the pack
 ``from .._rayx``, **no** ``import rayx``, and **no** relative imports (only ``math``),
 so it is safe to load by file path in lightweight (repo-sanity) unit tests.
 
-``validate_call`` takes the operation table (``{op_id: arity}``) as a **parameter**
+``validate_call`` takes the operation table (the typed-signature view
+``{op_id: {"arg_types": [type, ...], "result_type": type}}``) as a **parameter**
 rather than reading a module global, which is exactly what makes it testable without
 the native registry: ``__init__`` passes the real C++ ``_OP_TABLE``; tests pass a
 representative dict.
+
+Value-model V1 (int64-only) is a Python-boundary / type-substrate step, NOT an HPX
+mechanism step: it only adds typed per-argument validation (driven by the registry's
+declared ``arg_types``) plus an explicit ``int64`` range check at the boundary. The
+value channel is unchanged -- arguments still cross as ``int`` and results still come
+back as ``int``; no ``std::variant``, no ``double``, no ``bytes``, and no new op.
 """
 
 import math
 
-__all__ = ["ROW_FIELDS", "validate_timeout", "validate_call"]
+__all__ = [
+    "ROW_FIELDS",
+    "PARTS_MAX",
+    "INT64_MIN",
+    "INT64_MAX",
+    "validate_timeout",
+    "validate_call",
+    "validate_actor_create",
+    "validate_actor_call",
+]
+
+# Upper bound on the fanout_sum `parts` argument, enforced at the Python boundary.
+# Mirror of FANOUT_PARTS_MAX in python/src/rayx/runtime_ops.hpp -- keep the two in
+# sync. Bounds the op's internal hpx::async fan-out so an absurd part count cannot
+# spawn an unbounded number of tasks.
+PARTS_MAX = 1024
+
+# Inclusive int64 range. Python ints are arbitrary-precision, so a value that does not
+# fit a C++ std::int64_t must be rejected EXPLICITLY at the boundary (deterministic,
+# well-messaged) rather than relying on an opaque pybind cast failure at the crossing.
+# Value-model V1 ships int64 only.
+INT64_MIN = -(2 ** 63)
+INT64_MAX = 2 ** 63 - 1
+
+
+def _validate_int64(label, i, a):
+    """Validate one declared-``int64`` argument: ``bool``/non-``int`` -> ``TypeError``;
+    out of ``[INT64_MIN, INT64_MAX]`` -> ``ValueError``. Returns the ``int`` value.
+
+    ``label`` is the already-formatted context noun for messages (e.g.
+    ``operation 'square'`` for ops, ``actor 'counter' init`` / ``method 'add'`` for
+    actors). It replaces the former hard-coded ``operation`` wording so the same
+    validators serve both the op and actor boundaries; ``validate_call`` passes
+    ``operation '<op_id>'`` so op-path messages are unchanged."""
+    # bool is an int subclass; reject it explicitly (almost always a mistake).
+    if isinstance(a, bool) or not isinstance(a, int):
+        raise TypeError(
+            f"{label} argument {i} must be int, got {type(a).__name__}")
+    if a < INT64_MIN or a > INT64_MAX:
+        raise ValueError(
+            f"{label} argument {i} (int64) is out of range "
+            f"[{INT64_MIN}, {INT64_MAX}], got {a}")
+    return int(a)
+
+
+def _validate_double(label, i, a):
+    """Validate one declared-``double`` argument (value-model V3): strict ``float``
+    only -- ``bool``/``int``/anything non-``float`` -> ``TypeError`` (NO implicit
+    int->float widening); ``NaN``/``inf``/``-inf`` -> ``ValueError``. Returns the
+    ``float``. ``label`` is the formatted context noun (see :func:`_validate_int64`)."""
+    # bool is an int subclass and int is NOT a float; require a real float. (The
+    # explicit bool check keeps the message clear; `not isinstance(a, float)` alone
+    # would also reject bool and int.)
+    if isinstance(a, bool) or not isinstance(a, float):
+        raise TypeError(
+            f"{label} argument {i} must be float, got "
+            f"{type(a).__name__}")
+    if not math.isfinite(a):
+        raise ValueError(
+            f"{label} argument {i} (double) must be finite, got {a!r}")
+    return a
+
+
+# Per-type boundary validators, keyed by the registry's declared type name. V3 ships
+# int64 + double; bytes is deliberately absent (no op declares it), and an unknown
+# declared type fails loudly below rather than passing silently.
+_TYPE_VALIDATORS = {
+    "int64": _validate_int64,
+    "double": _validate_double,
+}
 
 # The exact runtime measurement-row key set. Documented in
 # docs/design/rayx_phase1_registered_operation_api.md §9: the core measurement-row
@@ -38,11 +114,17 @@ ROW_FIELDS = (
 def validate_call(op_id, args, op_table):
     """Validate ``op_id`` + ``args`` at the Python boundary, before the crossing.
 
-    ``op_table`` is the ``{op_id: arity}`` registry view. Unknown op id ->
-    ``ValueError``; wrong arity -> ``ValueError``; a non-``int`` argument (``bool``
-    rejected explicitly, as an ``int`` subclass) -> ``TypeError``. Returns the
-    validated list of ``int`` args. Mirrors the harness ``_validate_*`` boundary
-    discipline; no ``RuntimeFuture`` is created on rejection.
+    ``op_table`` is the typed-signature registry view
+    ``{op_id: {"arg_types": [type, ...], "result_type": type}}``. Unknown op id ->
+    ``ValueError``; wrong arity (``len(args) != len(arg_types)``) -> ``ValueError``;
+    an argument of the wrong Python type for its declared type (``bool`` rejected
+    explicitly, as an ``int`` subclass) -> ``TypeError``; an ``int64`` argument
+    outside ``[INT64_MIN, INT64_MAX]`` -> ``ValueError``; a ``double`` argument that is
+    non-finite -> ``ValueError`` (value-model V3). Returns the validated Python args
+    for the typed native marshaller: an ``int64`` arg stays a Python ``int`` and a
+    ``double`` arg stays a Python ``float`` (the native side marshals each into the
+    typed OpValue channel). Mirrors the harness ``_validate_*`` boundary discipline;
+    public validation runs here, before any ``RuntimeFuture`` is created on rejection.
     """
     if not isinstance(op_id, str):
         raise TypeError(f"op_id must be str, got {type(op_id).__name__}")
@@ -50,24 +132,113 @@ def validate_call(op_id, args, op_table):
         raise ValueError(
             f"unknown operation id {op_id!r}; registered operations: "
             f"{sorted(op_table)}")
-    arity = op_table[op_id]
+    arg_types = op_table[op_id]["arg_types"]
+    arity = len(arg_types)
     if len(args) != arity:
         raise ValueError(
             f"operation {op_id!r} expects {arity} argument(s), got {len(args)}")
     out = []
-    for i, a in enumerate(args):
-        # bool is an int subclass; reject it explicitly (almost always a mistake).
-        if isinstance(a, bool) or not isinstance(a, int):
-            raise TypeError(
-                f"operation {op_id!r} argument {i} must be int, got "
-                f"{type(a).__name__}")
-        out.append(int(a))
+    for i, (a, t) in enumerate(zip(args, arg_types)):
+        validator = _TYPE_VALIDATORS.get(t)
+        if validator is None:
+            # Defensive: V1 ships int64 only, so a declared type with no validator
+            # means the registry advertised a type the boundary cannot enforce.
+            # Fail loudly rather than letting an unvalidated arg cross.
+            raise ValueError(
+                f"operation {op_id!r} argument {i} has unsupported declared type "
+                f"{t!r}; this build validates: {sorted(_TYPE_VALIDATORS)}")
+        # Pass the formatted label so messages stay exactly "operation '<op_id>'
+        # argument N ..." (byte-identical to before the validators were generalized).
+        out.append(validator(f"operation {op_id!r}", i, a))
     # Per-op argument-domain checks (fail fast at the boundary, like the harness
     # _validate_* helpers). busy_sum's step count must be non-negative.
     if op_id == "busy_sum" and out[0] < 0:
         raise ValueError(f"operation 'busy_sum' argument 0 (n) must be >= 0, "
                          f"got {out[0]}")
+    # fanout_sum(n, parts): n >= 0; parts in [1, PARTS_MAX]. parts > n is allowed
+    # (trailing ranges are empty and contribute 0). Arity (2) and the int/non-bool
+    # checks above are already enforced generically; these are the domain bounds.
+    if op_id == "fanout_sum":
+        n, parts = out[0], out[1]
+        if n < 0:
+            raise ValueError(f"operation 'fanout_sum' argument 0 (n) must be >= 0, "
+                             f"got {n}")
+        if parts < 1:
+            raise ValueError(f"operation 'fanout_sum' argument 1 (parts) must be "
+                             f">= 1, got {parts}")
+        if parts > PARTS_MAX:
+            raise ValueError(f"operation 'fanout_sum' argument 1 (parts) must be "
+                             f"<= {PARTS_MAX}, got {parts}")
     return out
+
+
+def _validate_typed_args(label, args, arg_types):
+    """Arity + per-argument type validation against a typed signature, reusing
+    ``_TYPE_VALIDATORS``. Shared by the actor create/call boundary validators (and
+    structurally identical to ``validate_call``'s per-arg loop, kept separate so the
+    op path stays untouched). ``label`` is the formatted context noun. Wrong arity ->
+    ``ValueError``; wrong type -> ``TypeError``; out-of-range ``int64`` / non-finite
+    ``double`` -> ``ValueError``. Returns the validated args list."""
+    arity = len(arg_types)
+    if len(args) != arity:
+        raise ValueError(f"{label} expects {arity} argument(s), got {len(args)}")
+    out = []
+    for i, (a, t) in enumerate(zip(args, arg_types)):
+        validator = _TYPE_VALIDATORS.get(t)
+        if validator is None:
+            raise ValueError(
+                f"{label} argument {i} has unsupported declared type {t!r}; "
+                f"this build validates: {sorted(_TYPE_VALIDATORS)}")
+        out.append(validator(label, i, a))
+    return out
+
+
+def validate_actor_create(actor_type, args, actor_table):
+    """Validate an actor-create call at the Python boundary, before the native
+    crossing and before any actor lane/state is built.
+
+    ``actor_table`` is the typed actor metadata view
+    ``{actor_type: {"init_arg_types": [type, ...], "methods": {...}}}`` (the shape of
+    ``_rayx.runtime_actor_table()``). Unknown actor type -> ``ValueError``; wrong init
+    arity -> ``ValueError``; an init arg of the wrong Python type (``bool`` rejected
+    as an ``int`` subclass) -> ``TypeError``; an ``int64`` init arg out of
+    ``[INT64_MIN, INT64_MAX]`` -> ``ValueError``. Returns the validated init args for
+    the native marshaller. Mirrors :func:`validate_call`'s boundary discipline; runs
+    before any native ``create_actor`` call on rejection."""
+    if not isinstance(actor_type, str):
+        raise TypeError(f"actor_type must be str, got {type(actor_type).__name__}")
+    if actor_type not in actor_table:
+        raise ValueError(
+            f"unknown actor type {actor_type!r}; registered actor types: "
+            f"{sorted(actor_table)}")
+    init_types = actor_table[actor_type]["init_arg_types"]
+    return _validate_typed_args(f"actor {actor_type!r} init", args, init_types)
+
+
+def validate_actor_call(actor_type, method_id, args, actor_table):
+    """Validate an actor-method call at the Python boundary, before the native
+    crossing and before any ``RuntimeFuture`` is created.
+
+    ``actor_table`` is as in :func:`validate_actor_create`. Unknown actor type ->
+    ``ValueError``; unknown method -> ``ValueError``; wrong method arity ->
+    ``ValueError``; a method arg of the wrong Python type (``bool`` rejected) ->
+    ``TypeError``; an ``int64`` arg out of range -> ``ValueError``. Returns the
+    validated method args for the native marshaller."""
+    if not isinstance(actor_type, str):
+        raise TypeError(f"actor_type must be str, got {type(actor_type).__name__}")
+    if not isinstance(method_id, str):
+        raise TypeError(f"method_id must be str, got {type(method_id).__name__}")
+    if actor_type not in actor_table:
+        raise ValueError(
+            f"unknown actor type {actor_type!r}; registered actor types: "
+            f"{sorted(actor_table)}")
+    methods = actor_table[actor_type]["methods"]
+    if method_id not in methods:
+        raise ValueError(
+            f"unknown method {method_id!r} for actor type {actor_type!r}; "
+            f"registered methods: {sorted(methods)}")
+    arg_types = methods[method_id]["arg_types"]
+    return _validate_typed_args(f"method {method_id!r}", args, arg_types)
 
 
 def validate_timeout(timeout):

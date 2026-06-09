@@ -7,6 +7,66 @@ It lives under `docs/design/` (exploratory) deliberately apart from
 `docs/reference/` (stable contracts for shipped APIs). Nothing here is
 implemented.
 
+> **Supersession note (Phase 1 shipped).** Since this document was written,
+> **Phase 1** has shipped as an *experimental* prototype in commit `9143d2d` — see
+> [rayx_runtime_phase1_summary.md](rayx_runtime_phase1_summary.md) for the
+> completed milestone. The "nothing here is implemented" framing therefore applies
+> to **Phases 2–5** and to the un-built portions of the problem map; the Phase-1
+> design (registered native operations, value/row separation, the HPX-native FIFO
+> lane, cooperative cancellation, bounded admission, the collection APIs) is now
+> built. This doc is preserved as **provenance** — its phase order, locked
+> decisions, and considered-and-rejected record are kept intact, not rewritten.
+> `docs/design/` remains **exploratory**; shipping Phase 1 does **not** promote
+> these docs into stable `docs/reference/` contracts, and the runtime stays
+> experimental.
+
+## Current strategic target (post-Phase-1)
+
+**Target (current).** RayX can credibly become a **single-locality, many-core,
+GIL-free native runtime with Ray-familiar control ergonomics** — fixed/typed
+registered native operations over HPX-native FIFO lanes, with HPX-native
+scheduling and composition underneath, and Ray-*shaped* control (per-request
+handles, `get` / `wait` / `as_completed`, cooperative cancellation, bounded
+admission). This **sharpens** the "Settled goal" below; it does not replace it.
+
+**What this is explicitly NOT:** not a Ray replacement; not "distributed Ray with
+HPX underneath"; not an `ObjectRef` / object store; not arbitrary Python; not
+dynamic pickled closures; not Ray-grade fault tolerance / lineage / autoscaling;
+and not a performance or "HPX beats Ray" claim. The credible advantage is
+**intra-locality** (no process / IPC / pickle boundary, GIL-free native workers,
+M:N fine-grained scheduling). Going multi-node moves *toward* HPX's weaker ground
+and toward the explicitly-excluded subsystems, so **distribution is design-only and
+much later**, not the near-term direction.
+
+**Near-term axis ordering (current re-ranking).** The Phase 0–5 order below is
+**preserved as provenance**; the *current* near-term ordering is:
+
+1. **Done — Phase 1 registered native runtime** (`square` / `add` / `boom` /
+   `busy_sum`).
+2. **Done — composition extension `fanout_sum`** (one internal-composition op; P1
+   launch-all, queued-cancelable only).
+3. **Next serious design axis — closed value/type model.** Escape `int64`-only with
+   a small closed typed arg/result set, in-process — the binding constraint on
+   everything real. This is the *local, in-process* typed-value part of Phase 4
+   brought forward; **not** an object store.
+4. **Done (experimental MVP) — local stateful native actors** (Phase 2): a native
+   `CounterActor` (`int64` state + registered `add` / `get` / `reset`) over a
+   dedicated per-actor HPX-native FIFO lane, via `Runtime.create_actor` /
+   `ActorHandle.call`; local-only and experimental. See
+   [rayx_runtime_local_native_actors.md](rayx_runtime_local_native_actors.md).
+5. **Later — typed native plugin ABI** (a new axis: typed, compiled,
+   cooperative-cancellation-conforming op registration; gated on the value model
+   and a trust/contract design).
+6. **Much later / design-only — distributed HPX localities / actions / components**
+   (Phase 5), only after the value model, serialization, and a failure model (D6)
+   are designed.
+7. **Possibly never — `ObjectRef` / object store, or a Ray-compatible clone**
+   (evidence-gated; the most-excluded ground).
+
+This re-ranking is a **status note, not a new commitment**: `docs/design/` stays
+exploratory, nothing is promoted to `docs/reference/`, and no phase below is
+deleted.
+
 The HPX-native *how* for this model — which HPX mechanism is the primary design
 tool at each phase, and which Ray-shaped instinct to avoid — lives in the
 companion doc
@@ -73,7 +133,16 @@ These are constraints on any runtime-prototype work, not preferences:
 * **D2 — Registered native operations, not arbitrary Python.** A task runs a
   *named, pre-registered* native operation with typed inputs (dispatched locally
   via `hpx::async`; not an HPX action until the remote phase). Arbitrary pickled
-  closures / arbitrary remote Python are out at the target level.
+  closures / arbitrary remote Python are out at the target level. **This is not
+  only an API-narrowness guardrail — it is central to making the HPX+Python
+  integration sound.** Because operation bodies are pure native code with **no
+  Python callback**, HPX worker threads **never need to acquire the GIL**.
+  Arbitrary Python executing on HPX workers would serialize on the GIL and
+  undermine HPX's M:N (user-thread over OS-thread) scheduling — the cooperative,
+  GIL-free native body is what lets the lane workers and their async tasks
+  multiplex `hpx_threads` cores. (Cancellation tractability — cooperative stop vs
+  the impossibility of safely force-killing arbitrary Python on an HPX thread — is
+  the *second* reason; see issue 7 and principles P7.)
 * **D3 — Value-return does not require ObjectRef.** A Phase-1 task returns a user
   value **directly** through the existing retire path *plus* the existing row. For
   *intra-locality dependencies*, the HPX-native mechanism is **future composition**
@@ -344,7 +413,11 @@ explicitly out of scope · risks / hard parts · how we would test it.
 
 ## Phase order
 
-Phases describe *what each step would need to define*, not commitments.
+Phases describe *what each step would need to define*, not commitments. **Status:**
+the *current* near-term axis ordering is re-ranked in "Current strategic target
+(post-Phase-1)" above (value/type model next, then local actors, then a typed
+plugin ABI, with distribution design-only and much later); this Phase 0–5 list is
+preserved as provenance and is not deleted.
 
 * **Phase 0 — Problem model.** This document: the settled goal, locked decisions,
   problem map, out-of-scope list. No code.
@@ -353,8 +426,10 @@ Phases describe *what each step would need to define*, not commitments.
   on a serving-control lane and returns a **user value plus the existing
   measurement row**. **No new `ObjectRef` type** (D3). Reuses the lane, FIFO,
   cancellation, and admission already shipped. (Issues 1, 6, 11; minimal 3.)
-* **Phase 2 — Local stateful native actors.** Actor = lane-owned state + registered
-  FIFO methods, returning value + row. **No HPX component yet.** (Issue 5.)
+* **Phase 2 — Local stateful native actors.** *(Implemented as an experimental MVP;
+  see [rayx_runtime_local_native_actors.md](rayx_runtime_local_native_actors.md).)*
+  Actor = lane-owned state + registered FIFO methods, returning value + row. **No
+  HPX component yet.** (Issue 5.)
 * **Phase 3 — Optional dependency-composition fork (serving-control stays
   primary).** Intra-locality dependencies, *if ever exposed*, use **HPX future
   composition** (`then` / `when_all` / `dataflow`) — **not** ObjectRef. Exposing a
@@ -426,7 +501,12 @@ Recorded so these are not re-proposed cold:
   question.
 * **Registered operations as a ramp to arbitrary Python — rejected.** Registered
   native operations are the *target design*, not a transitional step (D2).
-  Arbitrary remote Python is not a goal at any phase.
+  Arbitrary remote Python is not a goal at any phase. Beyond the boundary/
+  cancellation reasons, the **GIL** seals it: native operation bodies run on HPX
+  workers without acquiring the GIL, whereas arbitrary Python on those workers
+  would serialize on the GIL and defeat HPX's M:N scheduling (D2). The
+  registered-operation model is therefore the design that keeps the HPX+Python
+  integration sound, not a stepping stone away from it.
 * **Value-return implies a new handle type — rejected.** Phase 1 returns the value
   through the existing retire path; introducing a handle type in Phase 1 was
   over-scoping (D3).

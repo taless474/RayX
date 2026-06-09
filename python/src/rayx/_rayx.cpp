@@ -25,6 +25,8 @@
 #include "service_lane.hpp"
 #include "hpx_lane.hpp"  // rayhpx::HpxLane, the opt-in cooperative HPX-thread lane
 #include "runtime_ops.hpp"  // rayx_runtime: Phase 1 registered-operation registry
+#include "runtime_actor_ops.hpp"  // rayx_runtime: fixed local native actor registry (Slice B; header-only, no wiring yet)
+#include "runtime_ops_hpx.hpp"  // rayx_runtime: HPX-side composed-op registry (fanout_sum)
 #include "runtime_cancel.hpp"  // rayx_runtime::RuntimeCancelToken (Slice 2a)
 #include "runtime_lane.hpp"  // rayx_runtime::RuntimeLane, the HPX-native FIFO lane (Slice 1)
 
@@ -37,7 +39,9 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <unordered_map>  // RuntimeEngine::actors_ (actor_id -> ActorRecord)
 #include <unordered_set>
+#include <variant>  // std::visit over OpValue (int64|double) in RuntimeFuture::result
 #include <vector>
 
 namespace py = pybind11;
@@ -833,10 +837,15 @@ public:
             d["error"] = r.error;
         }
         // Value channel (kept OUT of the row by the Python layer): has_value is
-        // false for a failed (or, later, cancelled) operation -> .value raises.
+        // false for a failed/cancelled operation -> .value raises. The native value
+        // is an OpValue variant (int64|double); convert it to a Python object HERE,
+        // on the Python thread with the GIL held (this method releases the GIL only
+        // around fut_.get() above), via an explicit std::visit -- int64 -> Python int,
+        // double -> Python float. No Python object is ever built on an HPX worker.
         d["has_value"] = r.has_value;
         if (r.has_value) {
-            d["value"] = r.value;
+            d["value"] = std::visit(
+                [](const auto& v) -> py::object { return py::cast(v); }, r.value);
         } else {
             d["value"] = py::none();
         }
@@ -887,7 +896,7 @@ private:
 // read INSIDE the closure (when the lane actually runs it), so the value reflects
 // service-slot occupancy, not enqueue/async-scheduling latency.
 inline rayx_runtime::RuntimeLane::OpTask make_op_task(
-        rayx_runtime::OpFn fn, std::vector<std::int64_t> args,
+        rayx_runtime::OpFn fn, rayx_runtime::OpArgs args,
         std::string actor) {
     return [fn = std::move(fn), args = std::move(args), actor = std::move(actor)](
                const rayx_runtime::StopCheckpoint& stop)
@@ -912,6 +921,83 @@ inline rayx_runtime::RuntimeLane::OpTask make_op_task(
             // throw std::runtime_error, so no current op reaches this path.
             r.status = "failed";
             r.error = "operation failed with a non-std::exception";
+            r.has_value = false;
+        }
+        r.end_ns = rayhpx::now_ns();
+        return r;
+    };
+}
+
+// Marshal a Python arg sequence into the typed OpArgs value channel for the ACTOR
+// path. C1b MIRRORS submit_operation's inline marshalling deliberately (it is NOT a
+// shared refactor yet -- the op path stays byte-for-byte unchanged); a consolidation
+// into one helper is a later slice. Same rules: bool rejected BEFORE int (bool is a
+// Python int subclass); int -> int64; float -> double; anything else -> a clear
+// error. Runs on the Python thread (GIL held); no Python object is built on an HPX
+// worker. `what` is the already-formatted context noun so the message reads "actor
+// 'counter' init argument N ..." / "method 'add' argument N ..." (the only intended
+// difference from the op path's "operation 'X' ..." wording).
+inline rayx_runtime::OpArgs marshal_actor_args(const py::sequence& args,
+                                               const std::string& what) {
+    rayx_runtime::OpArgs targs;
+    targs.reserve(static_cast<std::size_t>(py::len(args)));
+    std::size_t ai = 0;
+    for (py::handle h : args) {
+        if (py::isinstance<py::bool_>(h)) {
+            throw std::invalid_argument(what + " argument " +
+                std::to_string(ai) + " must not be bool");
+        } else if (py::isinstance<py::int_>(h)) {
+            targs.emplace_back(h.cast<std::int64_t>());
+        } else if (py::isinstance<py::float_>(h)) {
+            targs.emplace_back(h.cast<double>());
+        } else {
+            throw std::invalid_argument(what + " argument " +
+                std::to_string(ai) +
+                " has an unsupported type (expected int or float)");
+        }
+        ++ai;
+    }
+    return targs;
+}
+
+// Build the service-slot closure for one ACTOR METHOD call. The analogue of
+// make_op_task, but it also carries the actor's native state. CAPTURE CONTRACT (the
+// load-bearing invariant from the actor design note + HPX audit): capture the
+// shared_ptr<ActorState>, the OpArgs, the actor-id string, and the MethodFn ALL BY
+// VALUE. The shared_ptr keeps the state alive for the whole method body even if the
+// owning ActorRecord is dropped (the body holds its OWN refcount), so state is freed
+// only after the worker has joined AND every in-flight body's closure copy is gone --
+// no use-after-free if actors_ is cleared at shutdown. NEVER capture an ActorState&,
+// a reference into actors_, or anything whose lifetime is tied to an ActorRecord.
+// The body downcasts state defensively via the registered method (as_counter) and
+// maps a throw to a status="failed" row, exactly as make_op_task does for ops; no
+// Python object is created on the HPX worker, and value/row separation is preserved.
+inline rayx_runtime::RuntimeLane::OpTask make_method_task(
+        rayx_runtime::MethodFn fn,
+        std::shared_ptr<rayx_runtime::ActorState> state,
+        rayx_runtime::OpArgs args,
+        std::string actor) {
+    return [fn = std::move(fn), state = std::move(state),
+            args = std::move(args), actor = std::move(actor)](
+               const rayx_runtime::StopCheckpoint& stop)
+               -> rayx_runtime::RuntimeResult {
+        rayx_runtime::RuntimeResult r;
+        r.actor_id = actor;
+        r.start_ns = rayhpx::now_ns();
+        try {
+            rayx_runtime::OpOutcome o = fn(*state, args, stop);
+            r.value = o.value;
+            r.has_value = o.has_value;
+            r.status = o.status;
+            r.error = o.error;
+        } catch (const std::exception& e) {
+            // Method exception (incl. defensive as_counter wrong-tag) -> failed row.
+            r.status = "failed";
+            r.error = e.what();
+            r.has_value = false;
+        } catch (...) {
+            r.status = "failed";
+            r.error = "actor method failed with a non-std::exception";
             r.has_value = false;
         }
         r.end_ns = rayhpx::now_ns();
@@ -1000,27 +1086,68 @@ public:
     // suspension) in FIFO order; RuntimeFuture.result() later blocks (GIL
     // released) on the returned future.
     py::object submit_operation(const std::string& op_id,
-                                const std::vector<std::int64_t>& args) {
+                                const py::sequence& args) {
         if (!running_) throw std::runtime_error("Runtime is shut down");
+        // Look the op up in the HPX-free core registry first, then the HPX-side
+        // composed-op registry (fanout_sum). Both hold the SAME OpEntry type; the
+        // only difference is whether the body uses HPX internally. op_id/args are
+        // already validated at the Python boundary; the arity re-check here is a
+        // defensive backstop.
+        const rayx_runtime::OpEntry* entry = nullptr;
         auto it = rayx_runtime::registry().find(op_id);
-        if (it == rayx_runtime::registry().end()) {
+        if (it != rayx_runtime::registry().end()) {
+            entry = &it->second;
+        } else {
+            auto hit = rayx_runtime::hpx_registry().find(op_id);
+            if (hit != rayx_runtime::hpx_registry().end()) entry = &hit->second;
+        }
+        if (!entry) {
             throw std::invalid_argument("unknown operation id: " + op_id);
         }
-        if (static_cast<int>(args.size()) != it->second.arity) {
+        if (static_cast<int>(py::len(args)) != entry->arity) {
             throw std::invalid_argument(
                 "wrong number of arguments for operation: " + op_id);
         }
-        const rayx_runtime::OpFn fn = it->second.fn;  // copied into the closure
-        // Checkpoint count from the op's args (square/add/boom -> 1; busy_sum ->
-        // ceil(n/STRIDE)). It arms running-cancellability in begin_service:
-        // cancellable_ = (count > 1), so a count==1 op is queued-cancelable only.
-        const int checkpoint_count = it->second.checkpoint_count(args);
+        // Typed marshalling (value-model V3): build the OpArgs value channel
+        // (vector<variant<int64,double>>) from the Python args. The PUBLIC path is
+        // already type-validated by rayx.runtime._validate (per-arg types, int64
+        // range, strict-finite double), so this runs on validated values; it is also
+        // the native backstop for the raw-_RuntimeEngine bypass. bool is rejected
+        // BEFORE int (bool is a Python int subclass); int -> int64; float -> double;
+        // anything else -> a clear error. Runs on the Python thread (GIL held); no
+        // Python object is constructed on an HPX worker.
+        rayx_runtime::OpArgs targs;
+        targs.reserve(static_cast<std::size_t>(py::len(args)));
+        std::size_t ai = 0;
+        for (py::handle h : args) {
+            if (py::isinstance<py::bool_>(h)) {
+                throw std::invalid_argument("operation '" + op_id + "' argument " +
+                    std::to_string(ai) + " must not be bool");
+            } else if (py::isinstance<py::int_>(h)) {
+                targs.emplace_back(h.cast<std::int64_t>());
+            } else if (py::isinstance<py::float_>(h)) {
+                targs.emplace_back(h.cast<double>());
+            } else {
+                throw std::invalid_argument("operation '" + op_id + "' argument " +
+                    std::to_string(ai) +
+                    " has an unsupported type (expected int or float)");
+            }
+            ++ai;
+        }
+        const rayx_runtime::OpFn fn = entry->fn;  // copied into the closure
+        // Checkpoint count from the op's args (square/add/boom/scale_double/fanout_sum
+        // -> 1; busy_sum -> ceil(n/STRIDE)). It arms running-cancellability in
+        // begin_service: cancellable_ = (count > 1), so a count==1 op is queued-
+        // cancelable only. The checkpointed ops read their arg DEFENSIVELY (wrong tag
+        // -> 1), so this never throws here -- a wrong-tag bypass produces a failed row
+        // from the op body instead.
+        const int checkpoint_count = entry->checkpoint_count(targs);
         // Round-robin lane selection. rr_ advances on EVERY submit so call index i
         // maps to lane (i % num_lanes); rr_ is engine state, not a row field.
         rayx_runtime::RuntimeLane& lane = *lanes_[rr_ % lanes_.size()];
         ++rr_;
         rayx_runtime::RuntimeLane::OpTask task =
-            make_op_task(fn, args, lane.actor_id());
+            make_op_task(fn, std::move(targs), lane.actor_id());
         std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok;
         if (max_qd_per_lane_ >= 0) {
             // Bounded admission: try_submit check-and-pushes atomically under the
@@ -1035,6 +1162,137 @@ public:
                                                checkpoint_count, &tok);
                     });
             if (!fut) return py::none();  // rejected: no row, no future, no token
+            return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
+                            py::return_value_policy::move);
+        }
+        hpx::future<rayx_runtime::RuntimeResult> fut =
+            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, &tok]() {
+                return lane.submit(std::move(task), checkpoint_count, &tok);
+            });
+        return py::cast(RuntimeFuture(std::move(fut), std::move(tok)),
+                        py::return_value_policy::move);
+    }
+
+    // ---- local native actors (C1b) ----------------------------------------
+
+    // Create one local stateful native actor of a registered type, returning its
+    // opaque actor_id (the dedicated actor lane's "rt-act-" id). C1b is the native
+    // engine plumbing only -- there is no Python ActorHandle / Runtime.create_actor /
+    // boundary validation yet (a later slice). The lifecycle follows the corrected
+    // algorithm from the design note + HPX audit:
+    //
+    //   on THIS (external/Python) thread, HPX-free, BEFORE any lane exists:
+    //     * registry lookup (unknown type rejected)
+    //     * defensive init-arity check + marshal init args (GIL held)
+    //     * build the native state via the factory -- a factory failure raises here,
+    //       with NO lane yet, so there is nothing to clean up;
+    //
+    //   inside ONE hpx::run_as_hpx_thread hop (the lane ctor spawns an hpx::thread,
+    //   so it + the actor_id read + the actors_ insert must happen on an HPX thread):
+    //     * construct RuntimeLane("rt-act-") (worker now live)
+    //     * read its actor_id; treat a collision as an error (astronomically unlikely
+    //       with 64-bit ids) rather than replacing a live actor
+    //     * insert the ActorRecord into actors_ INSIDE the hop
+    //     * if ANY step after the worker is live throws (collision, map allocation),
+    //       stop_and_join the still-locally-owned lane before unwinding -- so a
+    //       joinable hpx::thread is NEVER destroyed by an inert ~RuntimeLane.
+    //
+    // The lane is moved into actors_ only via NOEXCEPT moves AFTER the one throwing
+    // step (the empty-record insertion), so once the record exists the lane can never
+    // be stranded; until then it is reachable from the local `lane` for the catch.
+    std::string create_actor(const std::string& actor_type,
+                             const py::sequence& args) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        auto it = rayx_runtime::actor_registry().find(actor_type);
+        if (it == rayx_runtime::actor_registry().end())
+            throw std::invalid_argument("unknown actor type: " + actor_type);
+        const rayx_runtime::ActorTypeEntry& entry = it->second;
+        // Defensive arity check (full Python-boundary validation is a later slice).
+        if (static_cast<std::size_t>(py::len(args)) != entry.init_arg_types.size())
+            throw std::invalid_argument(
+                "wrong number of init arguments for actor type: " + actor_type);
+        // Marshal init args + build native state SYNCHRONOUSLY, HPX-free, on this
+        // thread, BEFORE the lane exists -- a factory throw here leaves no worker.
+        rayx_runtime::OpArgs init_args =
+            marshal_actor_args(args, "actor '" + actor_type + "' init");
+        std::shared_ptr<rayx_runtime::ActorState> state =
+            entry.factory(init_args);
+        // Lane construction + id + map insert, all on an HPX thread (one hop).
+        return hpx::run_as_hpx_thread(
+            [this, &state, &actor_type]() -> std::string {
+                auto lane =
+                    std::make_unique<rayx_runtime::RuntimeLane>("rt-act-");
+                // Worker is live: any throw below must stop_and_join `lane` before
+                // it (and its inert dtor) is destroyed during unwind.
+                try {
+                    const std::string id = lane->actor_id();
+                    std::string atype = actor_type;  // copy now (may throw safely)
+                    if (actors_.find(id) != actors_.end())
+                        throw std::runtime_error(
+                            "actor_id collision on create_actor: " + id);
+                    // Only throwing step from here: inserting the empty record
+                    // (node allocation). `lane` still owns the worker, so the catch
+                    // can join it on failure.
+                    ActorRecord& rec = actors_[id];
+                    // From here, NOEXCEPT moves only -- nothing can strand the lane.
+                    rec.state = std::move(state);
+                    rec.actor_type = std::move(atype);
+                    rec.lane = std::move(lane);
+                    return id;
+                } catch (...) {
+                    if (lane) lane->stop_and_join();  // join before unwind
+                    throw;
+                }
+            });
+    }
+
+    // Dispatch one registered method on an existing actor, returning a _RuntimeFuture
+    // (the SAME type op submissions return, so get/wait/as_completed/cancel work
+    // unchanged) or Python None when the actor lane is full under a per-lane cap (the
+    // facade would raise QueueFullError -- not wired in C1b). Reuses the actor lane's
+    // existing submit/try_submit + RuntimeCancelToken machinery; the method body is
+    // packaged by make_method_task (capturing the actor's shared_ptr<ActorState> by
+    // value) and enqueued on the actor's dedicated lane via run_as_hpx_thread,
+    // mirroring submit_operation's submit path exactly.
+    py::object call_actor_method(const std::string& actor_id,
+                                 const std::string& method_id,
+                                 const py::sequence& args) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        auto ait = actors_.find(actor_id);
+        if (ait == actors_.end())
+            throw std::invalid_argument("unknown actor_id: " + actor_id);
+        ActorRecord& rec = ait->second;
+        const rayx_runtime::ActorTypeEntry& entry =
+            rayx_runtime::actor_registry().at(rec.actor_type);  // type known-valid
+        auto mit = entry.methods.find(method_id);
+        if (mit == entry.methods.end())
+            throw std::invalid_argument(
+                "unknown method '" + method_id + "' for actor type '" +
+                rec.actor_type + "'");
+        const rayx_runtime::MethodEntry& method = mit->second;
+        // Defensive arity check (full Python-boundary validation is a later slice).
+        if (static_cast<int>(py::len(args)) != method.arity)
+            throw std::invalid_argument(
+                "wrong number of arguments for method '" + method_id + "'");
+        rayx_runtime::OpArgs targs =
+            marshal_actor_args(args, "method '" + method_id + "'");
+        const int checkpoint_count = method.checkpoint_count(targs);
+        rayx_runtime::MethodFn fn = method.fn;  // copied into the closure
+        rayx_runtime::RuntimeLane& lane = *rec.lane;
+        // Capture-by-value contract (make_method_task): rec.state is copied (refcount
+        // ++), then moved into the closure -- the body holds its own shared_ptr.
+        rayx_runtime::RuntimeLane::OpTask task =
+            make_method_task(std::move(fn), rec.state, std::move(targs),
+                             lane.actor_id());
+        std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok;
+        if (max_qd_per_lane_ >= 0) {
+            std::optional<hpx::future<rayx_runtime::RuntimeResult>> fut =
+                hpx::run_as_hpx_thread(
+                    [&lane, &task, checkpoint_count, &tok, this]() {
+                        return lane.try_submit(std::move(task), max_qd_per_lane_,
+                                               checkpoint_count, &tok);
+                    });
+            if (!fut) return py::none();  // rejected: no row/future/token created
             return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
                             py::return_value_policy::move);
         }
@@ -1165,9 +1423,22 @@ public:
         // the drain may block on a checkpoint; the hop locks each lane's hpx::mutex
         // / joins its hpx::thread, so it runs on an HPX thread while HPX is still up.
         // Lanes are cleared BEFORE stop_process_hpx(); the guard is cleared LAST.
-        if (!lanes_.empty()) {
+        if (!actors_.empty() || !lanes_.empty()) {
             py::gil_scoped_release release;
             hpx::run_as_hpx_thread([this]() {
+                // Actor lanes FIRST (before the op lanes, before stop_process_hpx):
+                // cancel every queued/in-flight method, stop+join each actor lane,
+                // THEN drop the records. actors_.clear() releases each ActorRecord's
+                // shared_ptr<ActorState>; doing it ONLY after every actor worker has
+                // joined means no in-flight method body can touch freed state (the
+                // body also holds its own shared_ptr copy, so the order is safe even
+                // mid-drain). Same cancel-then-drain teardown the op lanes use.
+                for (auto& kv : actors_)
+                    if (kv.second.lane) kv.second.lane->cancel_pending();
+                for (auto& kv : actors_)
+                    if (kv.second.lane) kv.second.lane->stop_and_join();
+                actors_.clear();
+                // Then the op lanes (existing behavior, unchanged).
                 for (auto& lane : lanes_)
                     if (lane) lane->cancel_pending();
                 for (auto& lane : lanes_)
@@ -1186,6 +1457,19 @@ private:
     // queued-but-not-started requests admitted per lane (see submit_operation).
     int max_qd_per_lane_ = -1;
     bool running_ = false;
+
+    // ---- local native actors (C1b) ----------------------------------------
+    // One dedicated RuntimeLane per actor (the lane IS the actor's FIFO mailbox /
+    // serialization domain), the actor's native state, and its registered type id.
+    // SINGLE-DRIVER assumption (same as the rest of the runtime): the map is
+    // read/written WITHOUT an internal lock; concurrent create_actor / call /
+    // shutdown from multiple Python threads is NOT supported and not claimed.
+    struct ActorRecord {
+        std::unique_ptr<rayx_runtime::RuntimeLane> lane;
+        std::shared_ptr<rayx_runtime::ActorState> state;
+        std::string actor_type;
+    };
+    std::unordered_map<std::string, ActorRecord> actors_;
 };
 
 // ---- hpx_smoke (retained debug helper) ----------------------------------
@@ -1309,6 +1593,17 @@ PYBIND11_MODULE(_rayx, m) {
              "Dispatch one registered native operation through a round-robin "
              "RuntimeLane (HPX-native FIFO: the lane worker runs the op via "
              "hpx::async(exec_, ...).get()); returns a _RuntimeFuture.")
+        .def("create_actor", &RuntimeEngine::create_actor,
+             py::arg("actor_type"), py::arg("args"),
+             "Create one local stateful native actor of a registered type over a "
+             "dedicated HPX-native FIFO RuntimeLane; returns its opaque actor_id "
+             "(rt-act- prefix). Native plumbing only (no Python ActorHandle / "
+             "boundary validation yet).")
+        .def("call_actor_method", &RuntimeEngine::call_actor_method,
+             py::arg("actor_id"), py::arg("method_id"), py::arg("args"),
+             "Dispatch one registered method on an existing actor onto its "
+             "dedicated lane; returns a _RuntimeFuture (or None if a per-lane cap "
+             "is set and the lane is full). Reuses the lane/cancel-token machinery.")
         .def("wait", &RuntimeEngine::wait, py::arg("futures"),
              py::arg("num_returns"),
              "Block (GIL released) via hpx::wait_some until at least num_returns "
@@ -1325,11 +1620,65 @@ PYBIND11_MODULE(_rayx, m) {
         .def("shutdown", &RuntimeEngine::shutdown);
 
     m.def("runtime_op_table", []() {
+        // Typed signatures (value-model V1): {op_id: {"arg_types": [str, ...],
+        // "result_type": str}}. Merge the HPX-free core registry
+        // (square/add/boom/busy_sum) with the HPX-side composed-op registry
+        // (fanout_sum) so the Python boundary validates every registered op id, its
+        // arity (== len(arg_types)), and each arg's declared type uniformly. V1 ships
+        // int64 only; the value channel is unchanged (still int64).
         py::dict d;
-        for (const auto& kv : rayx_runtime::op_arities()) {
-            d[py::str(kv.first)] = kv.second;
-        }
+        auto add = [&d](const std::unordered_map<std::string,
+                                                  rayx_runtime::OpEntry>& reg) {
+            for (const auto& kv : reg) {
+                py::list arg_types;
+                for (rayx_runtime::OpType t : kv.second.arg_types)
+                    arg_types.append(py::str(rayx_runtime::op_type_name(t)));
+                py::dict sig;
+                sig["arg_types"] = arg_types;
+                sig["result_type"] =
+                    py::str(rayx_runtime::op_type_name(kv.second.result_type));
+                d[py::str(kv.first)] = sig;
+            }
+        };
+        add(rayx_runtime::registry());
+        add(rayx_runtime::hpx_registry());
         return d;
-    }, "Return {op_id: arity} for the fixed Phase 1 operation registry "
-       "(used by rayx.runtime for Python-boundary validation).");
+    }, "Return {op_id: {arg_types, result_type}} typed signatures for the fixed "
+       "runtime operation registry (core + HPX-side composed ops; used by "
+       "rayx.runtime for Python-boundary type validation).");
+
+    m.def("runtime_actor_table", []() {
+        // Typed metadata for the fixed actor registry (rayx_runtime::actor_registry):
+        // {actor_type: {"init_arg_types": [str, ...],
+        //               "methods": {method_id: {"arg_types": [str, ...],
+        //                                        "result_type": str}}}}.
+        // Mirrors runtime_op_table()'s shape so a future Python boundary can validate
+        // actor create/call (unknown type/method, arity, per-arg type) -- NOT wired
+        // into the rayx.runtime Python layer yet (C1b is native plumbing only).
+        py::dict out;
+        for (const auto& kv : rayx_runtime::actor_registry()) {
+            const rayx_runtime::ActorTypeEntry& entry = kv.second;
+            py::list init_types;
+            for (rayx_runtime::OpType t : entry.init_arg_types)
+                init_types.append(py::str(rayx_runtime::op_type_name(t)));
+            py::dict methods;
+            for (const auto& mkv : entry.methods) {
+                py::list arg_types;
+                for (rayx_runtime::OpType t : mkv.second.arg_types)
+                    arg_types.append(py::str(rayx_runtime::op_type_name(t)));
+                py::dict sig;
+                sig["arg_types"] = arg_types;
+                sig["result_type"] =
+                    py::str(rayx_runtime::op_type_name(mkv.second.result_type));
+                methods[py::str(mkv.first)] = sig;
+            }
+            py::dict type_entry;
+            type_entry["init_arg_types"] = init_types;
+            type_entry["methods"] = methods;
+            out[py::str(kv.first)] = type_entry;
+        }
+        return out;
+    }, "Return {actor_type: {init_arg_types, methods: {method_id: {arg_types, "
+       "result_type}}}} typed metadata for the fixed runtime actor registry "
+       "(counter add/get/reset). Not wired into the rayx.runtime Python layer yet.");
 }

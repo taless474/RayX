@@ -78,8 +78,14 @@ public:
     // actor_id is generated BEFORE the worker is spawned; the hpx::thread is the
     // LAST thing the ctor touches, so nothing can throw after a joinable worker
     // exists (a joinable hpx::thread destroyed during ctor unwind would terminate).
-    RuntimeLane() {
-        actor_id_ = make_runtime_actor_id();
+    //
+    // id_prefix is ADDITIVE and DEFAULTS to "rt-hpx-", so the no-arg RuntimeLane()
+    // operation lanes keep their exact "rt-hpx-" + 8-hex ids. A future local-actor
+    // lane (Slice B) will construct RuntimeLane("rt-act-") to get a distinct id
+    // namespace; the lane mechanism (queue / worker / cancellation / admission) is
+    // otherwise unchanged -- only id generation gains the parameter.
+    explicit RuntimeLane(const std::string& id_prefix = "rt-hpx-") {
+        actor_id_ = make_runtime_actor_id(id_prefix);
         worker_ = hpx::thread([this]() { run(); });
     }
 

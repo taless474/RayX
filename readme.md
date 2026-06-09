@@ -32,8 +32,9 @@ replacement.
 * Not modifying Ray Core internals; not Ray Serve / Ray Train / Ray object store.
 * The `Engine` / `SyntheticActor` harness runs synthetic C++ work only, and the
   experimental `rayx.runtime` prototype runs only fixed registered native
-  operations — neither runs arbitrary Python functions remotely, and neither has
-  an object store / `ObjectRef`, Ray task semantics, or real model inference.
+  operations and fixed registered native actor methods — neither runs arbitrary
+  Python functions remotely, and neither has an object store / `ObjectRef`, Ray
+  task semantics, or real model inference.
 * Not benchmarking real model inference yet.
 
 ## Current status
@@ -199,13 +200,15 @@ the lane `actor_id` prefix (`act-hpx-` vs `act-hpxl-`). For a focused look at
 [examples/rayx_bounded_admission.py](examples/rayx_bounded_admission.py) — an API
 example (not a benchmark) showing local **per-lane admission by rejection**
 (rejected submits raise immediately and produce no Future/row), which is not Ray
-Serve backpressure, not distributed flow control, and not a global cap. For the
-experimental `rayx.runtime` prototype, see
+Serve backpressure, not distributed flow control, and not a global cap. For the experimental `rayx.runtime` prototype, see
 [examples/rayx_runtime_basic.py](examples/rayx_runtime_basic.py) — an API/semantics
-example (not a benchmark) that demonstrates `rayx.runtime` value+row separation, the
-fixed native operations (`square`/`add`/`boom`/`busy_sum`), cancellation, `lane_stats`
-observability, and the `get`/`as_completed` collection APIs over HPX-native FIFO
-RuntimeLanes (not Ray, not an object store, not arbitrary remote Python).
+example (not a benchmark) that demonstrates value+row separation, the fixed
+registered native operations (`square` / `add` / `boom` / `busy_sum` /
+`fanout_sum` / `scale_double`), typed `int64` / `double` values, cancellation,
+`lane_stats` observability, `get` / `wait` / `as_completed` over HPX-native FIFO
+`RuntimeLane`s, and the local native `CounterActor` MVP via
+`Runtime.create_actor("counter", initial)` / `ActorHandle.call(...)` (not Ray,
+not an object store, not arbitrary remote Python).
 
 To run the available local smoke/golden gates in one step, use the stdlib-only
 aggregator [bench/smoke_local.py](bench/smoke_local.py): `python
@@ -267,8 +270,9 @@ there.
 ### Experimental: `rayx.runtime` prototype (design notes)
 
 A separate, **exploratory** workstream from the shipped comparison harness above.
-`rayx.runtime` runs **registered native C++ operations** that return a user
-**value** plus a measurement **row** (kept strictly separate), over HPX-native FIFO
+`rayx.runtime` runs **registered native C++ operations** and fixed registered
+local native actor methods that return a user **value** plus a measurement
+**row** (kept strictly separate), over HPX-native FIFO
 `RuntimeLane`s. It is experimental and **not** part of the benchmark corpus — it
 emits no JSONL, has no analyzer rollup, and makes no performance claim — and it
 keeps the same honest boundaries as the harness (not Ray, no object store /
@@ -277,7 +281,11 @@ locality). Runnable tour: [examples/rayx_runtime_basic.py](examples/rayx_runtime
 
 * [docs/design/rayx_runtime_problem_model.md](docs/design/rayx_runtime_problem_model.md) — the runtime problem model: the settled goal / non-goals, and why a value-producing runtime is kept separate from the frozen `Future → measurement row` harness world.
 * [docs/design/rayx_runtime_hpx_design_principles.md](docs/design/rayx_runtime_hpx_design_principles.md) — HPX-native design principles for the runtime (HPX futures / async / continuations / executors / cooperative scheduling), distinct from the Ray-shaped actor mapping.
-* [docs/design/rayx_phase1_registered_operation_api.md](docs/design/rayx_phase1_registered_operation_api.md) — the Phase 1 registered-operation API contract: `Runtime` / `RuntimeFuture` / `OperationResult`, the fixed native registry (`square` / `add` / `boom` / `busy_sum`), the value/row model, cooperative cancellation, bounded admission, and the `get` / `wait` / `as_completed` collection APIs.
+* [docs/design/rayx_phase1_registered_operation_api.md](docs/design/rayx_phase1_registered_operation_api.md) — the Phase 1 registered-operation API contract: `Runtime` / `RuntimeFuture` / `OperationResult`, the original fixed native registry (`square` / `add` / `boom` / `busy_sum`), the value/row model, cooperative cancellation, bounded admission, and the `get` / `wait` / `as_completed` collection APIs.
+* [docs/design/rayx_runtime_phase1_summary.md](docs/design/rayx_runtime_phase1_summary.md) — a concise, stable summary of the completed Phase 1 milestone (commit `9143d2d`): what was added, why the runtime is kept separate from the synthetic harness, the HPX relationship, the intentional non-goals, and the tests/CI that protect it.
+* [docs/design/rayx_runtime_internal_composition_note.md](docs/design/rayx_runtime_internal_composition_note.md) — the design rationale for internal HPX composition under one public runtime future/row, now represented by the registered native `fanout_sum` operation; it exposes no child futures/rows or new Python surface, is separate from actors and any future public composition fork, and makes no performance claim.
+* [docs/design/rayx_runtime_value_model.md](docs/design/rayx_runtime_value_model.md) — the design rationale for the closed, typed runtime value model, now implemented for `int64` and strict finite `double` values with typed registry signatures and boundary validation; bounded `bytes` remains deferred, and the value/row split is preserved with no `ObjectRef`/object store, no arbitrary Python/pickle, no schema change, and no performance claim.
+* [docs/design/rayx_runtime_local_native_actors.md](docs/design/rayx_runtime_local_native_actors.md) — the design note for local stateful native actors, now **implemented as an experimental MVP** (`Runtime.create_actor("counter", initial)` / `ActorHandle.call("add" | "get" | "reset", ...)`): fixed registered actor types (a native `CounterActor`) with registered native methods over a dedicated per-actor HPX-native FIFO lane, reusing the existing `RuntimeFuture` / value+row model and the exact 9-field row (`rt-act-` ids); weighs the lane vs `.then`-chain vs `async_rw_mutex` HPX mechanisms and pins the dynamic-lane lifecycle and one-at-a-time state-race-freedom contracts; explicitly local-only native state, no arbitrary Python methods, no `ObjectRef`/object store, no HPX actions/components/localities, no schema change, and no performance claim.
 
 ### Main benchmark arc (benchmarks 01–10)
 

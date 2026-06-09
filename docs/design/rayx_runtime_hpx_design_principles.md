@@ -7,6 +7,16 @@ commitment, and is **not** a Ray-compatibility claim. It lives under
 `docs/design/` (exploratory) deliberately apart from `docs/reference/` (stable
 contracts for shipped APIs). Nothing here is shipped.
 
+> **Supersession note (Phase 1 shipped).** The Phase-1 mechanisms these principles
+> constrain — P1 (function registry + `hpx::async`), P7 (cooperative cancellation),
+> P8 (errors via future exception propagation), P9 (rows separate from values) —
+> have since shipped as an *experimental* prototype in commit `9143d2d`; see
+> [rayx_runtime_phase1_summary.md](rayx_runtime_phase1_summary.md). The "nothing
+> here is shipped" framing now applies to the **Phase 2–5** mechanisms (actions,
+> components, AGAS, distributed serialization, the dependency-composition fork).
+> These principles are preserved as **provenance**; `docs/design/` stays
+> **exploratory** and the runtime stays experimental.
+
 Its purpose: ensure the runtime is designed with HPX's own mechanisms as the
 primary tools, rather than Ray-shaped concepts mapped onto HPX. Where a Ray
 instinct and an HPX mechanism diverge, this document records which to prefer and
@@ -61,6 +71,18 @@ result delivered through an `hpx::future`. This is the dispatch floor HPX is bui
 for (cf. the `hpx::async` floor in
 `../../experiments/15_hpx_native_lane_feasibility/`). No action/component
 machinery is required locally.
+
+**Mechanism currency note (futures/`hpx::async` vs senders/receivers).** The
+shipped Phase-1 runtime uses HPX **futures** + `hpx::async` because that is the
+**stable, implemented HPX path** and the one the lane, cancellation, and
+collection APIs are built on. HPX also offers a newer **sender/receiver** layer
+(`hpx::execution::experimental`, aligned with the P2300 / `std::execution`
+direction: schedulers, `schedule`, `then`, `let_value`, `when_all`, `bulk`,
+`async_rw_mutex`), which is the more *current* HPX/C++ async idiom and a plausible
+**future mechanism axis** for a later runtime revision. This is recorded as a
+direction only: **Phase 1 should not be rewritten around senders now** — it is a
+mechanism-currency note, not a delivery promise or a roadmap expansion, and it
+makes no performance claim about either model.
 
 ### P2 — Actions and components are remote machinery
 Do not model local operations as HPX actions, or local actors as HPX components,
@@ -177,10 +199,29 @@ cost from operation cost. (This restates at the operation level the harness's
 existing micro-timing caveat; cf. P9 and the adapter-hop cost evidence in
 `../../experiments/23_rayx_hpxlane_adapter_hop_cost/`.)
 
+### P11 — Registered native operations keep HPX workers GIL-free
+The registered-native-operation choice (problem-model D2) is **not only** an
+API-narrowness guardrail; it is what keeps the HPX+Python integration sound.
+Because operation bodies are pure native code with **no Python callback**, the HPX
+worker threads that run them **never acquire the GIL**. Arbitrary Python executing
+on an HPX worker would serialize on the GIL and **undermine HPX's M:N scheduling**
+(many user-level HPX threads multiplexed over `hpx_threads` OS workers) — the GIL
+would collapse that concurrency back to one-at-a-time. So "no arbitrary Python" is
+a *load-bearing* part of the HPX design, alongside the cooperative-cancellation
+reason (P7: a non-cooperative arbitrary-Python body could neither be safely
+force-killed nor yield the worker). The only place Python and HPX meet is the
+narrow, GIL-aware boundary — the submit crossing and the GIL-released blocking
+waits — never inside an operation body.
+
 ## Per-phase HPX mechanism table
 
 Phases describe *what each step would need to design*, not commitments. The
 primary path is the serving-control runtime; Phase 3 is an explicit fork.
+**Status:** the *current* near-term axis ordering is re-ranked in the problem
+model's "Current strategic target (post-Phase-1)" note — the target is a
+single-locality, many-core, GIL-free native runtime; the next serious axis is the
+closed value/type model; distribution (the rows below for Phase 5) is design-only
+and much later. This table is preserved as provenance.
 
 | Phase | What | Primary HPX mechanism | Explicitly NOT |
 |---|---|---|---|

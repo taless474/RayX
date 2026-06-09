@@ -41,9 +41,46 @@ def errors():
 
 @pytest.fixture
 def op_table():
-    """A representative ``{op_id: arity}`` table mirroring the native registry.
+    """A representative typed-signature table mirroring the native registry.
 
+    Shape matches ``_rayx.runtime_op_table()`` (value-model V1):
+    ``{op_id: {"arg_types": [type, ...], "result_type": type}}``, int64 only.
     validate_call() takes the table as a parameter, so the pure unit tests need no
     access to the real C++ registry.
     """
-    return {"square": 1, "add": 2, "boom": 0, "busy_sum": 1}
+    def sig(*arg_types):
+        return {"arg_types": list(arg_types), "result_type": "int64"}
+
+    def sig_d(*arg_types):
+        return {"arg_types": list(arg_types), "result_type": "double"}
+
+    return {
+        "square": sig("int64"),
+        "add": sig("int64", "int64"),
+        "boom": sig(),
+        "busy_sum": sig("int64"),
+        "fanout_sum": sig("int64", "int64"),
+        "scale_double": sig_d("double", "double"),
+    }
+
+
+@pytest.fixture
+def actor_table():
+    """A representative typed actor-metadata table mirroring the native registry.
+
+    Shape matches ``_rayx.runtime_actor_table()``:
+    ``{actor_type: {"init_arg_types": [type, ...], "methods": {method_id:
+    {"arg_types": [type, ...], "result_type": type}}}}``. validate_actor_create /
+    validate_actor_call take the table as a parameter, so the pure unit tests need no
+    access to the real C++ actor registry.
+    """
+    return {
+        "counter": {
+            "init_arg_types": ["int64"],
+            "methods": {
+                "add": {"arg_types": ["int64"], "result_type": "int64"},
+                "get": {"arg_types": [], "result_type": "int64"},
+                "reset": {"arg_types": ["int64"], "result_type": "int64"},
+            },
+        }
+    }

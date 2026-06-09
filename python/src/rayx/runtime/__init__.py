@@ -9,7 +9,8 @@ returns a user **value** plus a measurement **row** as two SEPARATE things
 Python, and makes no performance / "HPX beats Ray" claim.
 
 **Slice 2a/2b scope.** ``Runtime`` + a fixed C++ operation registry
-(``square`` / ``add`` / ``boom`` / ``busy_sum``) + ``RuntimeFuture`` +
+(``square`` / ``add`` / ``boom`` / ``busy_sum``, plus the internally-composed
+``fanout_sum``) + ``RuntimeFuture`` +
 ``OperationResult`` + the error classes + a shared process-runtime guard (mutually
 exclusive with the harness ``Engine``) + ``num_lanes`` HPX-native FIFO
 ``RuntimeLane`` workers with round-robin selection, per-lane ``rt-hpx-`` ids, and
@@ -36,7 +37,12 @@ import time
 # Requires the built _rayx extension. Importing the rayx parent package already
 # raises a build-actionable error if _rayx is missing, so a plain import here is
 # enough (and surfaces the same loader error otherwise).
-from .._rayx import _RuntimeEngine, _RuntimeFuture, runtime_op_table
+from .._rayx import (
+    _RuntimeEngine,
+    _RuntimeFuture,
+    runtime_actor_table,
+    runtime_op_table,
+)
 
 # Pure, import-light pieces live in sibling submodules so they can be unit-tested
 # WITHOUT the _rayx extension (see _errors.py / _validate.py). Re-exported below so
@@ -47,23 +53,41 @@ from ._errors import (
     QueueFullError,
     RuntimeOperationError,
 )
-from ._validate import ROW_FIELDS, validate_call, validate_timeout
+from ._validate import (
+    ROW_FIELDS,
+    validate_actor_call,
+    validate_actor_create,
+    validate_call,
+    validate_timeout,
+)
 
 __all__ = [
     "Runtime",
     "RuntimeFuture",
     "OperationResult",
+    "ActorHandle",
     "RuntimeOperationError",
     "OperationFailedError",
     "OperationCancelledError",
     "QueueFullError",
 ]
 
-# {op_id: arity} snapshot of the fixed C++ registry, read once at import. Passed to
-# validate_call() to check op id + arity at the Python boundary BEFORE the C++
+# Typed-signature snapshot of the fixed C++ registry, read once at import:
+# {op_id: {"arg_types": [type, ...], "result_type": type}} (value-model V1; int64
+# only). Passed to validate_call() to check op id, arity (== len(arg_types)), and
+# each arg's declared type + int64 range at the Python boundary BEFORE the C++
 # crossing. (validate_call lives in _validate.py and takes the table as a parameter
 # so it stays unit-testable without the native registry.)
 _OP_TABLE = dict(runtime_op_table())
+
+# Typed-metadata snapshot of the fixed C++ actor registry, read once at import (the
+# actor analogue of _OP_TABLE): {actor_type: {"init_arg_types": [type, ...],
+# "methods": {method_id: {"arg_types": [type, ...], "result_type": type}}}}. Passed
+# to validate_actor_create / validate_actor_call to check actor type, method id,
+# arity, and each arg's declared type + int64 range at the Python boundary BEFORE the
+# native crossing. (The validators take the table as a parameter so they stay
+# unit-testable without the native registry.)
+_ACTOR_TABLE = dict(runtime_actor_table())
 
 
 class OperationResult:
@@ -204,6 +228,72 @@ class RuntimeFuture:
         return f"<rayx.runtime.RuntimeFuture {state} submit_ns={self._submit_ns}>"
 
 
+class ActorHandle:
+    """Handle to one local stateful native actor (experimental ``rayx.runtime``).
+
+    Created by :meth:`Runtime.create_actor`. Holds the actor's opaque ``actor_id``
+    and registered ``actor_type`` plus a back-reference to its :class:`Runtime`.
+    Methods are dispatched by **explicit registered id** via :meth:`call` over a
+    *fixed* native method set -- there is deliberately **no** ``.remote()`` and **no**
+    attribute-style ``actor.method(...)`` (which would imply an open/arbitrary method
+    set). A method call returns the same :class:`RuntimeFuture` as an operation, so
+    :meth:`Runtime.get` / :meth:`Runtime.wait` / :meth:`Runtime.as_completed` and
+    cancellation all work on actor-method futures unchanged. This is **not** a Ray
+    actor handle: no object store, no ``.remote()``, no arbitrary Python methods.
+    """
+
+    __slots__ = ("_runtime", "_actor_id", "_actor_type")
+
+    def __init__(self, runtime, actor_id, actor_type):
+        self._runtime = runtime
+        self._actor_id = actor_id
+        self._actor_type = actor_type
+
+    @property
+    def actor_id(self):
+        """The actor's opaque ``rt-act-`` id (also stamped on each method row)."""
+        return self._actor_id
+
+    @property
+    def actor_type(self):
+        """The actor's registered type id (e.g. ``"counter"``)."""
+        return self._actor_type
+
+    def call(self, method_id, *args):
+        """Dispatch a registered method on this actor; return a :class:`RuntimeFuture`.
+
+        ``method_id`` is a registered method of this actor's type (e.g. ``"add"`` /
+        ``"get"`` / ``"reset"`` for ``"counter"``); ``*args`` are its typed arguments,
+        validated at the Python boundary against the actor table BEFORE the native
+        crossing (unknown method / wrong arity -> ``ValueError``; wrong type ->
+        ``TypeError``; ``int64`` out of range -> ``ValueError``), capturing
+        ``submit_ns`` like :meth:`Runtime.submit_operation`. A full actor lane makes
+        the call raise :class:`QueueFullError`. The returned future is an ordinary
+        :class:`RuntimeFuture` (FIFO per actor; cancelable -- queued always; the MVP
+        methods are instantaneous, so running-cancel does not apply). Raises if the
+        owning runtime is shut down.
+        """
+        if self._runtime._closed:
+            raise RuntimeError("Runtime is shut down")
+        validated = validate_actor_call(self._actor_type, method_id, args,
+                                        _ACTOR_TABLE)
+        submit_ns = time.perf_counter_ns()
+        rf = self._runtime._engine.call_actor_method(self._actor_id, method_id,
+                                                     validated)
+        # Bounded admission: the capped native path returns None when the actor lane
+        # is full (no future/token/promise created). Mirror submit_operation: raise
+        # the runtime QueueFullError here.
+        if rf is None:
+            raise QueueFullError(
+                "actor lane is full (max_queue_depth_per_lane reached); "
+                "the call was rejected and created no future")
+        return RuntimeFuture(rf, submit_ns)
+
+    def __repr__(self):
+        return (f"<rayx.runtime.ActorHandle actor_type={self._actor_type!r} "
+                f"actor_id={self._actor_id!r}>")
+
+
 class Runtime:
     """Explicit, process-singleton HPX-native runtime for registered operations.
 
@@ -256,12 +346,20 @@ class Runtime:
         """Submit one registered native operation; returns a :class:`RuntimeFuture`.
 
         ``op_id`` is a registered native operation name (``"square"`` / ``"add"``
-        / ``"boom"`` / ``"busy_sum"``); ``*args`` are its typed ``int`` arguments.
-        Validates at the Python boundary (unknown id / wrong arity -> ``ValueError``;
-        non-int -> ``TypeError``; ``busy_sum`` requires ``n >= 0`` -> ``ValueError``)
-        before the single Python->C++ crossing, capturing ``submit_ns`` like the
-        harness ``Engine.submit``. The returned :class:`RuntimeFuture` is cancelable
-        (queued always; running only for checkpointed ops such as ``busy_sum``).
+        / ``"boom"`` / ``"busy_sum"`` / ``"fanout_sum"`` -> ``int64``; ``"scale_double"``
+        -> ``double``); ``*args`` are its typed arguments, whose accepted Python type
+        is per the op's declared signature: ``int64`` args take a Python ``int``
+        (``bool`` rejected; out of ``[-2**63, 2**63-1]`` -> ``ValueError``), and
+        ``double`` args take a strict Python ``float`` (``bool``/``int`` rejected --
+        no implicit widening; ``NaN``/``inf`` -> ``ValueError``). Validates at the
+        Python boundary (unknown id / wrong arity -> ``ValueError``; wrong type ->
+        ``TypeError``; ``busy_sum`` requires ``n >= 0``; ``fanout_sum`` requires
+        ``n >= 0`` and ``1 <= parts <= 1024`` -> ``ValueError``) before the single
+        Python->C++ crossing, capturing ``submit_ns`` like the harness
+        ``Engine.submit``. The returned :class:`RuntimeFuture` is cancelable (queued
+        always; running only for checkpointed ops such as ``busy_sum`` -- the
+        launch-all ``fanout_sum`` and the instantaneous ``scale_double`` are
+        queued-cancelable only).
         """
         if self._closed:
             raise RuntimeError("Runtime is shut down")
@@ -276,6 +374,28 @@ class Runtime:
                 "target lane is full (max_queue_depth_per_lane reached); "
                 "the submit was rejected and created no future")
         return RuntimeFuture(rf, submit_ns)
+
+    def create_actor(self, actor_type, *args):
+        """Create a local stateful native actor; return an :class:`ActorHandle`.
+
+        ``actor_type`` is a registered native actor type (``"counter"`` -> state
+        ``int64`` with methods ``add`` / ``get`` / ``reset``); ``*args`` are its init
+        arguments, validated at the Python boundary against the actor table BEFORE the
+        native crossing (unknown type / wrong init arity -> ``ValueError``; wrong type
+        -> ``TypeError``; ``int64`` out of range -> ``ValueError``). Actor creation
+        itself returns **no** future / row -- it builds the actor's native state and
+        its dedicated HPX-native FIFO lane and returns a handle whose
+        :meth:`ActorHandle.call` dispatches registered methods (each returning an
+        ordinary :class:`RuntimeFuture`). The actor lives for the runtime's lifetime
+        (there is no per-actor release in this slice) and is torn down at
+        :meth:`shutdown`. It is **not** a Ray actor: no object store, no ``.remote()``,
+        no arbitrary Python methods.
+        """
+        if self._closed:
+            raise RuntimeError("Runtime is shut down")
+        validated = validate_actor_create(actor_type, args, _ACTOR_TABLE)
+        actor_id = self._engine.create_actor(actor_type, validated)
+        return ActorHandle(self, actor_id, actor_type)
 
     def wait(self, futures, num_returns=1, timeout=None):
         """Partition ``futures`` into ``(ready, not_ready)`` by readiness.

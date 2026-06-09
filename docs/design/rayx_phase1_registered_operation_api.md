@@ -8,6 +8,18 @@ apart from `docs/reference/` (stable contracts for shipped APIs). Nothing here i
 implemented. All Python names below are **provisional design names**, not a
 shipped surface.
 
+> **Supersession note (Phase 1 shipped).** Phase 1 has since shipped as an
+> *experimental* prototype in commit `9143d2d` — see
+> [rayx_runtime_phase1_summary.md](rayx_runtime_phase1_summary.md). The "nothing
+> here is implemented" / "provisional design names, not a shipped surface" framing
+> is now **historical**: the design below was built essentially as specified, and
+> the provisional names (`Runtime`, `RuntimeFuture`, `OperationResult`, the error
+> classes, `submit_operation` / `get` / `wait` / `as_completed` / `lane_stats`)
+> became the **actual shipped `rayx.runtime` surface**. This doc is preserved as
+> **provenance** (the precise contract that was implemented), not rewritten.
+> `docs/design/` stays **exploratory**; shipping Phase 1 does **not** promote this
+> doc into a stable `docs/reference/` contract, and the runtime stays experimental.
+
 This doc makes **no** Ray-replacement claim, **no** "HPX beats Ray" claim, and
 **no** performance-superiority claim. The HPX mechanisms it chooses are chosen for
 *fit*, not asserted as superior.
@@ -227,6 +239,19 @@ global default runtime, and **no** `@rayx.remote`-style decorator (D5, D10, §14
       n_chunks - 1)` *before* the chunk's work; the final boundary clears
       cancellability before the last segment. On an honored stop it returns a
       `cancelled` outcome with no value.
+* **Added after Phase 1 — `fanout_sum(int n, int parts) -> int`** (first
+  internal-composition op). Value equals `busy_sum(n)` (`(n*(n-1)/2) mod 2³¹`),
+  independent of `parts`; the body splits `[0, n)` into `parts` contiguous ranges,
+  launches each masked partial with `hpx::async`, and combines with
+  `hpx::when_all(...).get()` + a masked fold (P1 launch-all). Validation:
+  `n >= 0`, `1 <= parts <= 1024` (`FANOUT_PARTS_MAX`); `parts > n` is allowed (empty
+  trailing ranges contribute 0). Because it uses HPX in its body, its entry lives in
+  a new HPX-side header `runtime_ops_hpx.hpp` (the HPX-free `runtime_ops.hpp` keeps
+  only pure helpers — `FANOUT_PARTS_MAX`, `masked_range_sum`, `fanout_sum_checkpoints`),
+  and `_rayx.cpp` merges `op_arities()` with `hpx_op_arities()` for the Python table.
+  `checkpoint_count == 1`, so it is **queued-cancelable only** (an active `cancel()`
+  returns `False`). See
+  [rayx_runtime_internal_composition_note.md](rayx_runtime_internal_composition_note.md).
 * **No Python-side registration, no Python callables.** There is **no** code path
   that accepts a Python callable, lambda, pickled closure, or source string into
   the registry. Only a `str` op id and scalar args cross the boundary; the
@@ -609,23 +634,52 @@ efficiency comparison would need its own measured slice.
 
 * **Executor choice.** The lane's current executor is, in Phase 1, **mostly that
   seam** rather than real placement isolation — a single serialized slot does not
-  need a parallel executor's bulk-spawn behavior. If/when resource partitioning
-  becomes real (named control vs work pools), a **pool-specific executor** may
-  replace the current default. Phase 1 does not change this yet, and this note does
-  not motivate a source change on its own.
+  need a parallel executor's bulk-spawn behavior. **Be honest about what the seam is
+  not yet:** with the default executor, the `hpx::async(exec_, task).get()` hop is
+  **not real resource isolation** — the op body and the lane-control work run on the
+  **same** pool, so the hop currently buys an option (a place to later steer the body
+  onto a distinct pool), not isolation. Crucially, that option is **not free per
+  `Runtime()`**: HPX **resource partitioning (named pools) is configured at HPX
+  initialization** via the resource partitioner, **not** at `Runtime()` construction
+  time — and the runtime **shares the one process HPX bootstrap** (possibly booted by
+  the harness `Engine`; see §6, §15). So distinct `control` / `work` pools only
+  become available if the **shared HPX bootstrap declares them at init**; the seam
+  cannot conjure isolation on its own. If/when resource partitioning becomes real
+  (named control vs work pools declared at bootstrap), a **pool-specific executor**
+  may replace the current default. Phase 1 does not change this yet; the
+  inline-dispatch-vs-async-dispatch question is a **future measured mechanism slice
+  (not a cleanup)** — see the inline bullet above — and this note motivates **no**
+  source change on its own and makes **no** performance claim.
 
 * **`async_rw_mutex` / continuation-chain lane.** A more HPX-native way to serialize
   a lane is a **continuation chain** (e.g. extending a tail future per submit, or
   serializing via `hpx::experimental::async_rw_mutex`): no worker thread, no
-  condition variable — serialization falls out of the dataflow dependency. This is
-  the right shape for **fine-grained task graphs**. RayX does **not** use it in
-  Phase 1 because a serving-control lane needs an **owned queue**: a coherent
-  `lane_stats()` `queue_depth` / `active` snapshot, a real structure to run
-  **bounded admission** against, and a queue position to apply **queued-cancel skip**
-  to *before* an item starts. A continuation chain has no owned queue and models a
-  **task-graph dependency edge**, not a serving-control lane — the exact conflation
-  this project keeps separate. The full rationale is in §11a; `async_rw_mutex` is the
-  same trade-off under a different HPX primitive.
+  condition variable — serialization falls out of the dataflow dependency.
+  **To be precise: HPX async primitives can serialize access** — `async_rw_mutex`
+  in particular is a *serialized exclusive-access* primitive (each write-access
+  continuation runs after the previous one completes), which is genuinely lane-like,
+  not merely a fine-grained task-graph edge. So the reason RayX uses an explicit
+  worker+queue lane in Phase 1 is **not** that async primitives are incapable of
+  serialization; it is the lane's **serving-control properties**, which an
+  owned, inspectable queue provides and a bare continuation/`async_rw_mutex` chain
+  does not:
+  * **bounded admission against the real queue size** (check-and-push under the
+    lane mutex), not against a notional side counter;
+  * **`lane_stats()` `queue_depth` / `active` observability** as a coherent snapshot
+    of the owned deque;
+  * **queued-cancel *before start*** — skipping an item that is still sitting in the
+    queue, which a chain (already handed to the scheduler) cannot cleanly do;
+  * **FIFO lane semantics visible to the runtime** (a real queue position), which is
+    the serving-control contract the project keeps separate from task-graph
+    dependency edges.
+  A pure continuation chain has no owned queue, so it cannot offer these; that is the
+  serving-control gap, distinct from the (real) fact that it serializes. The full
+  rationale is in §11a; `async_rw_mutex` narrows the gap (it is a serialization
+  primitive, not just an edge) but still lacks the owned, inspectable queue. An
+  `async_rw_mutex`- or sender-based lane that *adds* an explicit admission/observable
+  queue in front of the serialization primitive remains a possible later mechanism
+  variant (see the senders note in the principles doc), evaluated separately, not a
+  Phase-1 change.
 
 * **`hpx::stop_token` / `hpx::stop_source` for cancellation.** HPX offers a
   first-class `std::stop_token`-style cancellation primitive, and it is the idiomatic
@@ -638,7 +692,14 @@ efficiency comparison would need its own measured slice.
   boundary), and a **value/row result contract** that is RayX-specific. A
   `stop_token`-based rewrite would have to re-encode all of that around a primitive
   that has no race-winner return; the custom token is a deliberate fit to the
-  contract, not a reinvention to avoid.
+  contract, not a reinvention to avoid. **Recorded tradeoff:** the custom
+  `RuntimeCancelToken` buys RayX-specific *who-won* cancellation and immediate
+  `status="cancelled"` row fulfillment, **but** it forgoes integration with HPX's
+  structured cancellation — so if a future **sender/receiver-based** design (see the
+  senders note in the principles doc) wanted cancellation to flow through
+  `hpx::stop_token` / `get_stop_token`, the custom token would become a **migration
+  cost**. This is a noted forward cost of the Phase-1 fit, not a reason to redesign
+  cancellation now.
 
 **Guardrails for this note.** These alternatives change *mechanism*, not the project
 framing: nothing here is a Ray-replacement claim, an “HPX beats Ray” claim, or any

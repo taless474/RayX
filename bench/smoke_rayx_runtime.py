@@ -98,7 +98,7 @@ def _wait_until(pred, timeout_s=5.0, where="condition"):
     _fail(f"timed out after {timeout_s}s waiting for {where}")
 
 
-def _check_runtime_row(row, where):
+def _check_runtime_row(row, where, prefix="rt-hpx-"):
     if set(row) != RUNTIME_ROW_FIELDS:
         _fail(f"{where}: row keys {sorted(row)} != "
               f"{sorted(RUNTIME_ROW_FIELDS)}")
@@ -108,13 +108,13 @@ def _check_runtime_row(row, where):
         if echo in row:
             _fail(f"{where}: row must not contain harness echo field {echo!r}")
     aid = row["actor_id"]
-    if not aid.startswith("rt-hpx-"):
-        _fail(f"{where}: actor_id {aid!r} must start with 'rt-hpx-'")
+    if not aid.startswith(prefix):
+        _fail(f"{where}: actor_id {aid!r} must start with {prefix!r}")
     if aid.startswith("act-"):
         _fail(f"{where}: actor_id {aid!r} must NOT start with 'act-'")
-    suffix = aid[len("rt-hpx-"):]
-    if len(suffix) != 8 or any(c not in HEX for c in suffix):
-        _fail(f"{where}: actor_id suffix {suffix!r} must be 8 lowercase hex")
+    suffix = aid[len(prefix):]
+    if len(suffix) != 16 or any(c not in HEX for c in suffix):
+        _fail(f"{where}: actor_id suffix {suffix!r} must be 16 lowercase hex")
 
 
 def section_value_path_and_contract():
@@ -251,8 +251,8 @@ def _check_lane_stat(s, where):
     if aid.startswith("act-"):
         _fail(f"{where}: lane actor_id {aid!r} must NOT start with 'act-'")
     suffix = aid[len("rt-hpx-"):]
-    if len(suffix) != 8 or any(c not in HEX for c in suffix):
-        _fail(f"{where}: lane actor_id suffix {suffix!r} must be 8 lowercase hex")
+    if len(suffix) != 16 or any(c not in HEX for c in suffix):
+        _fail(f"{where}: lane actor_id suffix {suffix!r} must be 16 lowercase hex")
 
 
 def section_round_robin_and_stats():
@@ -370,6 +370,168 @@ def section_busy_sum_value():
         _expect(TypeError, lambda: rt.submit_operation("busy_sum", True),
                 "busy_sum(bool)")
     print("PASS: busy_sum value ((n*(n-1)/2) mod 2^31; n>=0 boundary; 9-field row)")
+
+
+def section_typed_signatures_and_int64_range():
+    # Value-model V1/V3: the registry view is the typed-signature shape
+    # {op_id: {"arg_types": [...], "result_type": ...}}; the int64 ops are int64 and
+    # scale_double is double (V3). An int that does not fit int64 is rejected at the
+    # Python boundary (ValueError) BEFORE any future.
+    from rayx._rayx import runtime_op_table
+    tbl = runtime_op_table()
+    expected = {
+        "square": (["int64"], "int64"),
+        "add": (["int64", "int64"], "int64"),
+        "boom": ([], "int64"),
+        "busy_sum": (["int64"], "int64"),
+        "fanout_sum": (["int64", "int64"], "int64"),
+        "scale_double": (["double", "double"], "double"),
+    }
+    if set(tbl) != set(expected):
+        _fail(f"runtime_op_table ops {sorted(tbl)} != {sorted(expected)}")
+    for op, (arg_types, result_type) in expected.items():
+        sig = tbl[op]
+        if set(sig) != {"arg_types", "result_type"}:
+            _fail(f"{op} signature keys {sorted(sig)} != ['arg_types','result_type']")
+        if sig["arg_types"] != arg_types:
+            _fail(f"{op} arg_types {sig['arg_types']!r} != {arg_types!r}")
+        if sig["result_type"] != result_type:
+            _fail(f"{op} result_type {sig['result_type']!r} != {result_type!r}")
+    int64_max = 2 ** 63 - 1
+    int64_min = -(2 ** 63)
+    with Runtime(num_lanes=1) as rt:
+        # Out-of-range rejected at the boundary, no RuntimeFuture created.
+        _expect(ValueError, lambda: rt.submit_operation("square", int64_max + 1),
+                "square(INT64_MAX+1)")
+        _expect(ValueError, lambda: rt.submit_operation("add", 1, int64_min - 1),
+                "add(_, INT64_MIN-1)")
+        # Inclusive endpoints accepted; value channel unchanged (int64 in -> int out).
+        if rt.submit_operation("add", int64_min, 0).result().value != int64_min:
+            _fail("add(INT64_MIN, 0) should pass int64 endpoints through unchanged")
+        if rt.submit_operation("square", 0).result().value != 0:
+            _fail("square(0) should be 0")
+    print("PASS: typed signatures + int64 range (op_table arg_types/result_type: "
+          "int64 ops + scale_double double; out-of-range int rejected at boundary; "
+          "endpoints pass through)")
+
+
+def section_fanout_sum():
+    # fanout_sum(n, parts): the first internally-composed op (P1 launch-all +
+    # when_all). Value == busy_sum(n) == (n*(n-1)/2) mod 2^31, INDEPENDENT of parts
+    # (incl. parts > n -> empty trailing ranges contribute 0). Queued-cancelable only
+    # (checkpoint_count == 1): an active cancel returns False; only a queued cancel
+    # settles a "cancelled". No timing is asserted (no performance claim).
+    with Runtime(num_lanes=1, hpx_threads=2) as rt:
+        for N, P in [(0, 1), (1, 1), (1, 5), (10, 1), (10, 3), (10, 10),
+                     (10, 1024), (100000, 7), (100000, 1)]:
+            exp = (N * (N - 1) // 2) % (2 ** 31)
+            res = rt.submit_operation("fanout_sum", N, P).result()
+            if res.row["status"] != "completed":
+                _fail(f"fanout_sum({N},{P}) status {res.row['status']!r}, "
+                      "expected completed")
+            if res.value != exp:
+                _fail(f"fanout_sum({N},{P}).value == {res.value!r}, expected {exp}")
+            # same value as busy_sum(N) -- same closed form, different mechanism.
+            if res.value != rt.submit_operation("busy_sum", N).result().value:
+                _fail(f"fanout_sum({N},{P}) != busy_sum({N})")
+            _check_runtime_row(res.row, f"fanout_sum({N},{P})")
+        # value independent of parts for a fixed N. Small N so the sweep can include
+        # parts == N and parts > N within PARTS_MAX (1024); plus a large-N sweep.
+        n = 100
+        vals = {rt.submit_operation("fanout_sum", n, p).result().value
+                for p in (1, 2, 7, n, n + 1, 1024)}
+        if vals != {(n * (n - 1) // 2) % (2 ** 31)}:
+            _fail(f"fanout_sum value not parts-independent: {vals}")
+        big = {rt.submit_operation("fanout_sum", 50000, p).result().value
+               for p in (1, 2, 7, 64, 1024)}
+        if big != {(50000 * 49999 // 2) % (2 ** 31)}:
+            _fail(f"fanout_sum large-N value not parts-independent: {big}")
+        # Boundary validation rejects BEFORE any RuntimeFuture is created.
+        _expect(ValueError, lambda: rt.submit_operation("fanout_sum", 10),
+                "fanout_sum wrong arity")
+        _expect(TypeError, lambda: rt.submit_operation("fanout_sum", 10, True),
+                "fanout_sum bool parts")
+        _expect(ValueError, lambda: rt.submit_operation("fanout_sum", -1, 2),
+                "fanout_sum n<0")
+        _expect(ValueError, lambda: rt.submit_operation("fanout_sum", 10, 0),
+                "fanout_sum parts<1")
+        _expect(ValueError, lambda: rt.submit_operation("fanout_sum", 10, 1025),
+                "fanout_sum parts>1024")
+        # Queued-only cancel invariant: a winning cancel() must mean status ==
+        # "cancelled"; once served, cancel() is False and the op completes. Race
+        # cancel against the instant run; the invariant must never break.
+        exp2 = (20000 * (20000 - 1) // 2) % (2 ** 31)
+        for _ in range(64):
+            f = rt.submit_operation("fanout_sum", 20000, 8)
+            settled = f.cancel()
+            res = f.result()
+            st = res.row["status"]
+            if settled != (st == "cancelled"):
+                _fail(f"fanout_sum queued-only invariant broken: cancel()={settled} "
+                      f"but status={st!r} (must never be True+completed)")
+            if st == "completed" and res.value != exp2:
+                _fail(f"fanout_sum completed value {res.value!r} != {exp2}")
+            elif st == "cancelled":
+                _expect(OperationCancelledError, lambda r=res: r.value,
+                        "fanout_sum cancelled .value")
+        # Deterministic: a served/completed fanout_sum cannot be cancelled afterward.
+        gf = rt.submit_operation("fanout_sum", 20000, 8)
+        gr = gf.result()
+        if gr.row["status"] != "completed" or gr.value != exp2:
+            _fail("fanout_sum should complete with the correct value")
+        if gf.cancel() is not False:
+            _fail("active/terminal fanout_sum cancel() must return False")
+        if gf.cancelled() is not False:
+            _fail("fanout_sum cancelled() must be False for a completed op")
+    # Bounded admission is unaffected by the new op: a full lane rejects a
+    # fanout_sum submit with QueueFullError, like any other op.
+    with Runtime(num_lanes=1, max_queue_depth_per_lane=1) as rt:
+        hold = rt.submit_operation("busy_sum", 2_000_000_000)  # holds the lane
+        _wait_until(lambda: rt.lane_stats()[0]["active"], 5.0, "holder active")
+        rt.submit_operation("fanout_sum", 1000, 4)             # fills the one slot
+        _wait_until(lambda: rt.lane_stats()[0]["queue_depth"] >= 1, 5.0,
+                    "fanout queued")
+        _expect(QueueFullError, lambda: rt.submit_operation("fanout_sum", 1000, 4),
+                "fanout_sum into a full lane")
+        hold.cancel()
+    print("PASS: fanout_sum (value == busy_sum, parts-independent incl. parts>n; "
+          "9-field row; boundary validation; queued-cancelable only; admission)")
+
+
+def section_scale_double():
+    # Value-model V3: scale_double(x, factor) = x * factor, the first double op.
+    # double in / double out via the internal std::variant<int64,double> channel;
+    # value comes back as a Python float. Exactly representable doubles only (exact
+    # equality, no tolerance, no float-assoc trap). No timing/perf is asserted.
+    with Runtime(num_lanes=1) as rt:
+        for x, f, exp in [(1.5, 2.0, 3.0), (-0.5, 4.0, -2.0), (2.5, 2.0, 5.0),
+                          (123.0, 0.0, 0.0)]:
+            res = rt.submit_operation("scale_double", x, f).result()
+            if res.row["status"] != "completed":
+                _fail(f"scale_double({x},{f}) status {res.row['status']!r}")
+            if res.value != exp or not isinstance(res.value, float):
+                _fail(f"scale_double({x},{f}).value == {res.value!r} "
+                      f"(type {type(res.value).__name__}), expected float {exp}")
+            _check_runtime_row(res.row, f"scale_double({x},{f})")
+        # Boundary validation rejects BEFORE any RuntimeFuture (strict float only).
+        _expect(ValueError, lambda: rt.submit_operation("scale_double", 1.5),
+                "scale_double wrong arity")
+        _expect(TypeError, lambda: rt.submit_operation("scale_double", 2, 2.0),
+                "scale_double int arg (no widening)")
+        _expect(TypeError, lambda: rt.submit_operation("scale_double", True, 2.0),
+                "scale_double bool arg")
+        _expect(ValueError,
+                lambda: rt.submit_operation("scale_double", float("nan"), 2.0),
+                "scale_double NaN")
+        _expect(ValueError,
+                lambda: rt.submit_operation("scale_double", 1.0, float("inf")),
+                "scale_double inf")
+        # Collection compatibility (input order; consume-once).
+        fs = [rt.submit_operation("scale_double", v, 2.0) for v in (1.0, 2.0, 3.0)]
+        if [r.value for r in rt.get(fs)] != [2.0, 4.0, 6.0]:
+            _fail("scale_double get() collection mismatch")
+    print("PASS: scale_double (x*factor; double->Python float; 9-field row; strict-"
+          "float boundary validation incl. NaN/inf; collection compat)")
 
 
 def section_short_busy_sum_cancel_invariant():
@@ -916,6 +1078,50 @@ def section_as_completed():
           "result(); mixed statuses; duplicate/wrong-type raise)")
 
 
+def section_counter_actor():
+    """C2 public actor API: create/add/get/reset state persistence, two independent
+    same-type actors, exact 9-field rt-act- row with no value key. Uses the public
+    Runtime.create_actor / ActorHandle.call surface (no raw _RuntimeEngine)."""
+    from rayx.runtime import ActorHandle  # public surface check (also in __all__)
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        if not isinstance(c, ActorHandle):
+            _fail("create_actor did not return an ActorHandle")
+        if c.actor_type != "counter":
+            _fail(f"actor_type {c.actor_type!r} != 'counter'")
+        if not c.actor_id.startswith("rt-act-"):
+            _fail(f"actor_id {c.actor_id!r} must start with 'rt-act-'")
+        # add / get / reset with state persistence across calls (FIFO per actor).
+        if c.call("add", 5).result().value != 5:
+            _fail("counter add(5) != 5")
+        if c.call("add", 3).result().value != 8:
+            _fail("counter add(3) != 8 (state did not persist)")
+        if c.call("get").result().value != 8:
+            _fail("counter get != 8")
+        if c.call("reset", 2).result().value != 2:
+            _fail("counter reset(2) != 2")
+        if c.call("get").result().value != 2:
+            _fail("counter get != 2 (reset did not persist)")
+        # Exact 9-field row, rt-act- prefix, no value key.
+        res = c.call("add", 1).result()
+        _check_runtime_row(res.row, "counter add row", prefix="rt-act-")
+        if res.row["actor_id"] != c.actor_id:
+            _fail("method row actor_id != handle actor_id")
+        # Two same-type counters are independent instances.
+        a = rt.create_actor("counter", 0)
+        b = rt.create_actor("counter", 100)
+        a.call("add", 1).result()
+        b.call("add", 5).result()
+        if a.call("get").result().value != 1:
+            _fail("counter A not independent (expected 1)")
+        if b.call("get").result().value != 105:
+            _fail("counter B not independent (expected 105)")
+        if a.actor_id == b.actor_id:
+            _fail("two counters share an actor_id")
+    print("PASS: counter actor (create; add/get/reset state persistence; exact "
+          "9-field rt-act- row; no value key; two same-type actors independent)")
+
+
 def main():
     section_namespace_isolation()
     section_error_hierarchy()
@@ -924,6 +1130,9 @@ def main():
     section_round_robin_and_stats()
     section_single_lane_batch()
     section_busy_sum_value()
+    section_typed_signatures_and_int64_range()
+    section_fanout_sum()
+    section_scale_double()
     section_short_busy_sum_cancel_invariant()
     section_running_cancel()
     section_queued_cancel()
@@ -944,6 +1153,7 @@ def main():
     section_unretired_shutdown_and_reinit()
     section_lifecycle()
     section_runtime_blocks_engine()
+    section_counter_actor()
     print("ALL PASS: rayx.runtime Slice 2c smoke")
     return 0
 

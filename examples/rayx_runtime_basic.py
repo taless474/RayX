@@ -20,7 +20,8 @@ WHAT IS THE HPX RELATIONSHIP?
   Runtime``).
 * Underneath, each lane is an HPX-native FIFO ``RuntimeLane``; operations are
   fixed, registered **native C++ operations** (``square`` / ``add`` / ``boom`` /
-  ``busy_sum``).
+  ``busy_sum``, plus the internally-composed ``fanout_sum`` whose body fans out
+  across HPX async sub-tasks and combines with ``when_all``).
 * HPX handles scheduling, futures, and cooperative execution under the hood. The
   Python layer never sees an HPX type -- only ``Runtime`` / ``RuntimeFuture`` /
   ``OperationResult`` and plain Python values/dicts.
@@ -95,13 +96,24 @@ def main():
               "(the value is NOT stored inside the row)")
 
         # (2) MULTIPLE NATIVE OPERATIONS ------------------------------------
-        # The fixed native registry: square / add / boom / busy_sum. These are
-        # compiled C++ operations selected by name -- NOT arbitrary Python.
+        # The fixed native registry: square / add / boom / busy_sum / fanout_sum.
+        # These are compiled C++ operations selected by name -- NOT arbitrary Python.
         print("\n-- (2) the fixed native operation registry --")
         print(f"  square(6)        -> {rt.submit_operation('square', 6).result().value}")
         print(f"  add(3, 4)        -> {rt.submit_operation('add', 3, 4).result().value}")
         bs = rt.submit_operation("busy_sum", 50_000).result()
         print(f"  busy_sum(50000)  -> {bs.value}  (real native iterative work)")
+        # fanout_sum(n, parts): same value as busy_sum(n), but the body internally
+        # fans out across `parts` HPX async sub-tasks and combines with when_all --
+        # composition done INSIDE one op (one value, one row, no child rows).
+        fo = rt.submit_operation("fanout_sum", 50_000, 8).result()
+        print(f"  fanout_sum(50000,8) -> {fo.value}  (== busy_sum(50000); "
+              "internal HPX fan-out)")
+        # scale_double(x, factor) = x * factor: the first double op (value-model V3).
+        # double in / double out -> the value comes back as a Python float.
+        sd = rt.submit_operation("scale_double", 1.5, 2.0).result()
+        print(f"  scale_double(1.5, 2.0) -> {sd.value}  (Python "
+              f"{type(sd.value).__name__}; double in -> float out)")
 
         # (3) FAILURE BEHAVIOR ----------------------------------------------
         # 'boom' is a native operation that throws. The failure is mapped to a
@@ -163,8 +175,24 @@ def main():
             print(f"  lane {st['actor_id']} queue_depth={st['queue_depth']} "
                   f"active={st['active']}")
 
-    # (7) RECAP: the HPX relationship -------------------------------------
-    print("\n-- (7) recap --")
+        # (7) LOCAL NATIVE ACTORS (experimental) ----------------------------
+        # rt.create_actor builds native C++ state behind a dedicated rt-act- FIFO
+        # lane; counter.call("method", *args) dispatches a fixed REGISTERED method
+        # (add / get / reset only -- no .remote(), no Python state, no object store)
+        # and returns the SAME RuntimeFuture as an operation, so the value+row split
+        # and get/wait/as_completed all apply. State persists across calls (FIFO).
+        print("\n-- (7) local native actors --")
+        counter = rt.create_actor("counter", 0)
+        r1 = counter.call("add", 5).result()
+        r2 = counter.call("get").result()
+        print(f"  counter.call('add', 5).value = {r1.value}; "
+              f"counter.call('get').value = {r2.value}")
+        assert r1.value == 5 and r2.value == 5
+        assert counter.actor_id.startswith("rt-act-"), counter.actor_id
+        assert r1.row["actor_id"] == counter.actor_id and "value" not in r1.row
+
+    # (8) RECAP: the HPX relationship -------------------------------------
+    print("\n-- (8) recap --")
     print("  Python API: rayx.runtime.Runtime; underneath, HPX-native FIFO "
           "RuntimeLanes run")
     print("  registered native C++ operations. HPX handles scheduling / futures / "

@@ -24,26 +24,79 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <random>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <variant>
 #include <vector>
 
 namespace rayx_runtime {
 
-// Phase 1 closed value type: int only (int64). float / bytes are a later (P6)
-// extension, not Phase-1 surface.
-using OpValue = std::int64_t;
+// Closed value channel (value-model V3): int64 OR double. The variant is the
+// INTERNAL representation only -- args are marshalled into it C++-side from Python
+// ints/floats (see _rayx.cpp), and results are converted back to Python int/float in
+// RuntimeFuture.result() on the Python thread. It is NEVER serialized or exposed as a
+// std::variant across pybind or any ABI. bytes is deliberately NOT an alternative
+// (gated hardest -- a heap payload + object-store-drift risk).
+using OpValue = std::variant<std::int64_t, double>;
+using OpArgs = std::vector<OpValue>;
+
+// Closed argument/result type tag. The enum lets the registry carry typed signatures
+// (arg_types/result_type) so the Python boundary validates per-arg types. Tags are
+// APPEND-ONLY (ABI-shaped): never renumber. V3 ships Int64 + Double; Bytes stays
+// reserved (not defined, so no op can declare it).
+enum class OpType : std::uint8_t {
+    Int64 = 0,
+    Double = 1,
+    // Bytes = 2,  // reserved -- gated hardest; not shipped
+};
+
+// Stable string name for an OpType, used to serialize typed signatures to Python in
+// runtime_op_table(). Names are part of the Python-boundary contract -- keep stable.
+inline const char* op_type_name(OpType t) {
+    switch (t) {
+        case OpType::Int64: return "int64";
+        case OpType::Double: return "double";
+    }
+    return "unknown";  // unreachable for shipped tags; defensive only
+}
+
+// Typed argument extraction (value-model V3). The PUBLIC path is type-validated at
+// the Python boundary, so these always succeed there; they are the NATIVE defensive
+// backstop for the private/raw-_RuntimeEngine bypass. A wrong tag throws
+// std::invalid_argument, which make_op_task maps to a status="failed" row (never a
+// crash) -- same posture as the fanout_sum defensive guard. is_int64/is_double are
+// non-throwing predicates used by the defensive checkpoint_count lambdas (which run
+// BEFORE the task/future exist and therefore cannot rely on failed-row mapping).
+inline bool is_int64(const OpArgs& a, std::size_t i) {
+    return i < a.size() && std::holds_alternative<std::int64_t>(a[i]);
+}
+inline bool is_double(const OpArgs& a, std::size_t i) {
+    return i < a.size() && std::holds_alternative<double>(a[i]);
+}
+inline std::int64_t as_int64(const OpArgs& a, std::size_t i, const char* op) {
+    if (!is_int64(a, i))
+        throw std::invalid_argument(std::string("operation '") + op +
+            "' argument " + std::to_string(i) + " must be int64");
+    return std::get<std::int64_t>(a[i]);
+}
+inline double as_double(const OpArgs& a, std::size_t i, const char* op) {
+    if (!is_double(a, i))
+        throw std::invalid_argument(std::string("operation '") + op +
+            "' argument " + std::to_string(i) + " must be double");
+    return std::get<double>(a[i]);
+}
 
 // One operation outcome: a value (when has_value) plus a row-status/error. A
 // native operation that throws is mapped (in _rayx.cpp) to status="failed" with
 // has_value=false; a checkpointed op (busy_sum) that honors a cooperative running
 // cancel returns status="cancelled", has_value=false.
 struct OpOutcome {
-    OpValue value = 0;
+    OpValue value{};  // default: int64{0}; meaningful only when has_value
     bool has_value = false;
     std::string status = "completed";  // "completed" | "failed" | "cancelled"
     std::string error;                 // empty == null
@@ -72,10 +125,44 @@ inline int busy_sum_checkpoints(std::int64_t n) {
     return c > static_cast<std::int64_t>(INT_MAX) ? INT_MAX : static_cast<int>(c);
 }
 
-// Slice 2a operation signature: validated int args + a lane-bound StopCheckpoint
-// in, OpOutcome out. Args are arity/type-validated at the Python boundary; a
-// defensive arity re-check happens in _rayx.cpp. Non-checkpointed ops ignore stop.
-using OpFn = std::function<OpOutcome(const std::vector<std::int64_t>& args,
+// --- fanout_sum HPX-free metadata/kernel (body lives in runtime_ops_hpx.hpp) ---
+//
+// fanout_sum(n, parts) is the first internally-composed op (see
+// docs/design/rayx_runtime_internal_composition_note.md, Candidate B / P1). The
+// HPX composition (hpx::async per part + when_all) lives HPX-side in
+// runtime_ops_hpx.hpp; only these PURE, HPX-free pieces live here so the registry
+// header stays HPX-free.
+
+// Upper bound on `parts`, enforced at the Python boundary (mirror: PARTS_MAX in
+// runtime/_validate.py). Bounds the internal hpx::async fan-out so an absurd part
+// count cannot spawn an unbounded number of tasks.
+inline constexpr int FANOUT_PARTS_MAX = 1024;
+
+// Masked partial sum over a half-open range: (Σ_{i=begin}^{end-1} i) with the same
+// per-step BUSY_SUM_MASK as busy_sum, so a disjoint contiguous cover of [0, n)
+// folds (under the mask) to exactly busy_sum(n). An empty range (begin >= end,
+// e.g. when parts > n) contributes 0. Pure/HPX-free: the HPX body just schedules
+// these across parts and combines the results.
+inline std::uint64_t masked_range_sum(std::int64_t begin, std::int64_t end) {
+    std::uint64_t acc = 0;
+    for (std::int64_t i = begin; i < end; ++i)
+        acc = (acc + static_cast<std::uint64_t>(i)) & BUSY_SUM_MASK;
+    return acc;
+}
+
+// Checkpoint count for fanout_sum. P1 design is launch-all + when_all, so the op is
+// QUEUED-cancelable only: there is no honest running-cancel boundary once every part
+// has been launched. Always 1 -> begin_service never arms running-cancellability, so
+// an active cancel() returns false (see the design note's P1 cancellation story). A
+// future P2 bounded-wave variant would instead return ceil(parts / FANOUT_WAVE_SIZE).
+inline int fanout_sum_checkpoints(std::int64_t /*parts*/) { return 1; }
+
+// Operation signature: typed args (OpArgs = vector<variant<int64,double>>) + a
+// lane-bound StopCheckpoint in, OpOutcome out. Args are arity/type-validated at the
+// Python boundary and marshalled into OpArgs in _rayx.cpp; the op body extracts each
+// arg with as_int64/as_double (defensive backstop for the raw bypass). A defensive
+// arity re-check also happens in _rayx.cpp. Non-checkpointed ops ignore stop.
+using OpFn = std::function<OpOutcome(const OpArgs& args,
                                      const StopCheckpoint& stop)>;
 
 struct OpEntry {
@@ -84,12 +171,23 @@ struct OpEntry {
     // Number of cancellation checkpoints this call will reach, from its args. The
     // engine passes it to RuntimeCancelToken::begin_service so running-cancel is
     // armed only when the op actually has a boundary to stop at (> 1). Instantaneous
-    // ops are always 1.
-    std::function<int(const std::vector<std::int64_t>& args)> checkpoint_count;
+    // ops are always 1. This runs BEFORE the task/future exist, so a checkpointed op
+    // must read its args DEFENSIVELY (is_int64/is_double -> real count, else 1) and
+    // let the op body produce the failed row on a wrong tag.
+    std::function<int(const OpArgs& args)> checkpoint_count;
+    // Typed signature (value-model V1). arg_types has exactly `arity` entries (all
+    // OpType::Int64 in V1); result_type is the declared result tag (int64 in V1; for
+    // `boom`, which always throws, the declared type is moot but kept int64 for
+    // uniformity). Exposed to Python via runtime_op_table() so the boundary validates
+    // per-arg types + the int64 range. The value CHANNEL is unchanged (still int64);
+    // these are metadata only.
+    std::vector<OpType> arg_types;
+    OpType result_type = OpType::Int64;
 };
 
 // Every instantaneous op reaches exactly one (notional) checkpoint -> count 1.
-inline int one_checkpoint(const std::vector<std::int64_t>&) { return 1; }
+// Ignores args, so it never extracts a typed value (no wrong-tag concern).
+inline int one_checkpoint(const OpArgs&) { return 1; }
 
 // The fixed registry, built once. `square` / `add` are real native operations;
 // `boom` is a tiny throwing operation that exercises the failure-path mapping
@@ -98,28 +196,32 @@ inline int one_checkpoint(const std::vector<std::int64_t>&) { return 1; }
 inline const std::unordered_map<std::string, OpEntry>& registry() {
     static const std::unordered_map<std::string, OpEntry> r = {
         {"square", OpEntry{1,
-             [](const std::vector<std::int64_t>& a, const StopCheckpoint&) {
+             [](const OpArgs& a, const StopCheckpoint&) {
+                 const std::int64_t x = as_int64(a, 0, "square");
                  OpOutcome o;
-                 o.value = a[0] * a[0];
+                 o.value = x * x;  // int64 -> OpValue (variant) via assignment
                  o.has_value = true;
                  return o;
              },
-             one_checkpoint}},
+             one_checkpoint,
+             {OpType::Int64}, OpType::Int64}},
         {"add", OpEntry{2,
-             [](const std::vector<std::int64_t>& a, const StopCheckpoint&) {
+             [](const OpArgs& a, const StopCheckpoint&) {
                  OpOutcome o;
-                 o.value = a[0] + a[1];
+                 o.value = as_int64(a, 0, "add") + as_int64(a, 1, "add");
                  o.has_value = true;
                  return o;
              },
-             one_checkpoint}},
+             one_checkpoint,
+             {OpType::Int64, OpType::Int64}, OpType::Int64}},
         {"boom", OpEntry{0,
-             [](const std::vector<std::int64_t>&, const StopCheckpoint&)
+             [](const OpArgs&, const StopCheckpoint&)
                  -> OpOutcome {
                  throw std::runtime_error(
                      "boom: intentional failure for failure-path testing");
              },
-             one_checkpoint}},
+             one_checkpoint,
+             {}, OpType::Int64}},
         {"busy_sum", OpEntry{1,
              // Real native iterative work: acc = (Σ_{i=0}^{n-1} i) mod 2^31, with
              // per-step masking so acc stays < 2^31 (overflow-safe, deterministic;
@@ -128,9 +230,9 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
              // the chunk's work; the final boundary clears running-cancellability
              // before the last segment. NO sleep -- this is on-core work. n >= 0 is
              // guaranteed by the Python boundary.
-             [](const std::vector<std::int64_t>& a, const StopCheckpoint& stop)
+             [](const OpArgs& a, const StopCheckpoint& stop)
                  -> OpOutcome {
-                 const std::int64_t n = a[0];
+                 const std::int64_t n = as_int64(a, 0, "busy_sum");
                  const int n_chk = busy_sum_checkpoints(n);
                  std::uint64_t acc = 0;
                  for (int c = 0; c < n_chk; ++c) {
@@ -148,27 +250,40 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
                          acc = (acc + static_cast<std::uint64_t>(i)) & BUSY_SUM_MASK;
                  }
                  OpOutcome o;
-                 o.value = static_cast<OpValue>(acc);
+                 o.value = static_cast<std::int64_t>(acc);  // -> OpValue (int64)
                  o.has_value = true;
                  o.status = "completed";
                  return o;
              },
-             [](const std::vector<std::int64_t>& a) {
-                 return busy_sum_checkpoints(a[0]);
-             }}},
+             // Defensive checkpoint_count: runs BEFORE the task/future exist, so it
+             // cannot produce a failed row. On the valid (int64) tag it returns the
+             // real count; on a wrong tag (only reachable via the raw bypass) it
+             // returns 1 (queued-cancelable only) and lets the body's as_int64
+             // produce the failed row -- never a throw-to-Python here.
+             [](const OpArgs& a) {
+                 return is_int64(a, 0)
+                     ? busy_sum_checkpoints(std::get<std::int64_t>(a[0]))
+                     : 1;
+             },
+             {OpType::Int64}, OpType::Int64}},
+        {"scale_double", OpEntry{2,
+             // First double op (value-model V3): scale_double(x, factor) = x * factor,
+             // double in / double out. Instantaneous (one_checkpoint), so it never
+             // extracts a typed arg in checkpoint_count. Deterministic for exactly
+             // representable doubles; no internal HPX fan-out (float sum is not
+             // associative) and no performance intent.
+             [](const OpArgs& a, const StopCheckpoint&) {
+                 const double x = as_double(a, 0, "scale_double");
+                 const double factor = as_double(a, 1, "scale_double");
+                 OpOutcome o;
+                 o.value = x * factor;  // double -> OpValue (variant)
+                 o.has_value = true;
+                 return o;
+             },
+             one_checkpoint,
+             {OpType::Double, OpType::Double}, OpType::Double}},
     };
     return r;
-}
-
-// {name: arity} view of the registry, for Python-boundary validation
-// (unknown id / wrong arity rejected before the C++ crossing).
-inline const std::unordered_map<std::string, int>& op_arities() {
-    static const std::unordered_map<std::string, int> a = [] {
-        std::unordered_map<std::string, int> m;
-        for (const auto& kv : registry()) m[kv.first] = kv.second.arity;
-        return m;
-    }();
-    return a;
 }
 
 // The runtime's OWN result struct -- NOT rayhpx::Result (which stays frozen).
@@ -180,22 +295,39 @@ struct RuntimeResult {
     std::int64_t end_ns = 0;
     std::string status = "completed";
     std::string error;  // empty == null
-    OpValue value = 0;
+    OpValue value{};    // default: int64{0}; meaningful only when has_value
     bool has_value = false;
 };
 
-// Runtime actor_id: "rt-hpx-" + 8 lowercase hex chars (e.g. rt-hpx-9f3a1c07).
-// Distinct from the harness "act-hpx-" (ServiceLane) / "act-hpxl-" (HpxLane)
-// prefixes -- the runtime is its own namespace. Own generator because
-// ServiceLane::make_actor_id is private. Stable from Slice 0 (Runtime-level id)
-// into Slice 1 (per-RuntimeLane id).
-inline std::string make_runtime_actor_id() {
+// Runtime actor_id: `prefix` + 16 lowercase hex chars
+// (e.g. rt-hpx-9f3a1c07b2d4e601). The default prefix "rt-hpx-" is the
+// operation-lane id namespace, distinct from the harness "act-hpx-" (ServiceLane) /
+// "act-hpxl-" (HpxLane) prefixes. Own generator because ServiceLane::make_actor_id
+// is private. Stable from Slice 0 (Runtime-level id) into Slice 1 (per-RuntimeLane
+// id).
+//
+// The `prefix` parameter is ADDITIVE and DEFAULTS to "rt-hpx-", so every existing
+// call site (operation lanes) is unchanged byte-for-byte. A future local-actor lane
+// will pass "rt-act-" to give actor method rows / lane_stats a distinct id
+// namespace; no caller passes a non-default prefix yet.
+//
+// Entropy: 16 hex chars carry a REAL 64-bit random value, not 16 chars printed from
+// a 32-bit PRNG seed. We draw two 32-bit std::random_device words and combine them
+// into a std::uint64_t, so the effective id space is 2^64 (birthday-safe well past
+// the realistic actor/lane count) rather than the 2^32 a single-seed mt19937 would
+// have given. Drawing straight from random_device keeps this STATELESS -- no shared
+// mutable PRNG, no global counter, no thread-safety concern -- and is not a UUID.
+inline std::string make_runtime_actor_id(const std::string& prefix = "rt-hpx-") {
     std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> dist(0, 15);
+    const std::uint64_t hi = static_cast<std::uint64_t>(rd());
+    const std::uint64_t lo = static_cast<std::uint64_t>(rd());
+    const std::uint64_t v = (hi << 32) | lo;
     const char* hex = "0123456789abcdef";
-    std::string id = "rt-hpx-";
-    for (int i = 0; i < 8; ++i) id += hex[dist(gen)];
+    std::string id = prefix;
+    // Most-significant nibble first; all 16 nibbles emitted, so the suffix is always
+    // zero-padded to exactly 16 lowercase hex chars.
+    for (int shift = 60; shift >= 0; shift -= 4)
+        id += hex[(v >> shift) & 0xFULL];
     return id;
 }
 
