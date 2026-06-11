@@ -386,6 +386,7 @@ def section_typed_signatures_and_int64_range():
         "busy_sum": (["int64"], "int64"),
         "fanout_sum": (["int64", "int64"], "int64"),
         "scale_double": (["double", "double"], "double"),
+        "park_ms": (["int64"], "int64"),
     }
     if set(tbl) != set(expected):
         _fail(f"runtime_op_table ops {sorted(tbl)} != {sorted(expected)}")
@@ -532,6 +533,42 @@ def section_scale_double():
             _fail("scale_double get() collection mismatch")
     print("PASS: scale_double (x*factor; double->Python float; 9-field row; strict-"
           "float boundary validation incl. NaN/inf; collection compat)")
+
+
+def section_park_ms():
+    """park_ms: PARKED/cooperative-wait synthetic diagnostic (the parked analog of
+    the CPU-bound busy_sum). Structural checks only -- completion echoes ms,
+    boundary validation rejects out-of-domain ms, queued cancel settles, a long
+    parked holder cancels at a chunk boundary. NO timing or performance framing."""
+    with Runtime(num_lanes=1) as rt:
+        res = rt.submit_operation("park_ms", 1).result()
+        if res.row["status"] != "completed" or res.value != 1:
+            _fail("park_ms(1) must complete and echo 1")
+        _check_runtime_row(res.row, "park_ms row")
+        if rt.submit_operation("park_ms", 0).result().value != 0:
+            _fail("park_ms(0) must complete instantly and echo 0")
+        # Boundary domain guards (mirror PARK_MS_MAX in runtime_ops.hpp).
+        _expect(ValueError, lambda: rt.submit_operation("park_ms", -1),
+                "park_ms negative ms")
+        _expect(ValueError, lambda: rt.submit_operation("park_ms", 60_001),
+                "park_ms over PARK_MS_MAX")
+        _expect(TypeError, lambda: rt.submit_operation("park_ms", True),
+                "park_ms bool ms")
+        # Queued cancel behind a long parked holder; cancel the holder too so the
+        # smoke exits at the next chunk boundary, never after the full park.
+        holder = rt.submit_operation("park_ms", 60_000)
+        queued = rt.submit_operation("park_ms", 1)
+        if queued.cancel() is not True:
+            _fail("queued park_ms cancel must settle True")
+        if queued.result().row["status"] != "cancelled":
+            _fail("queued-cancelled park_ms must retire status='cancelled'")
+        if holder.cancel() is not True:
+            _fail("parked holder cancel must settle True")
+        if holder.result().row["status"] != "cancelled":
+            _fail("cancelled parked holder must retire status='cancelled'")
+    print("PASS: park_ms (cooperative parked op: completion echoes ms; domain "
+          "bounds rejected at the boundary; queued cancel; holder cancelled at a "
+          "chunk boundary; no timing assertions)")
 
 
 def section_short_busy_sum_cancel_invariant():
@@ -1080,8 +1117,10 @@ def section_as_completed():
 
 def section_counter_actor():
     """C2 public actor API: create/add/get/reset state persistence, two independent
-    same-type actors, exact 9-field rt-act- row with no value key. Uses the public
-    Runtime.create_actor / ActorHandle.call surface (no raw _RuntimeEngine)."""
+    same-type actors, exact 9-field rt-act- row with no value key, plus the
+    ActorHandle.stats() debug snapshot (read-only observability; no timing, no
+    performance framing). Uses the public Runtime.create_actor / ActorHandle.call
+    surface (no raw _RuntimeEngine)."""
     from rayx.runtime import ActorHandle  # public surface check (also in __all__)
     with Runtime() as rt:
         c = rt.create_actor("counter", 0)
@@ -1118,8 +1157,36 @@ def section_counter_actor():
             _fail("counter B not independent (expected 105)")
         if a.actor_id == b.actor_id:
             _fail("two counters share an actor_id")
+        # ActorHandle.stats(): non-consuming per-actor debug snapshot -- same three
+        # fields as one lane_stats() element, idle here (all calls above retired).
+        s = c.stats()
+        if set(s) != {"actor_id", "queue_depth", "active"}:
+            _fail(f"actor stats keys {sorted(s)} != "
+                  "['active', 'actor_id', 'queue_depth']")
+        if s["actor_id"] != c.actor_id:
+            _fail("actor stats actor_id != handle actor_id")
+        if s["queue_depth"] != 0 or s["active"] is not False:
+            _fail(f"idle actor stats must be queue_depth=0/active=False, got {s}")
+        # Non-consuming: the snapshot changed no call semantics or state.
+        if c.call("get").result().value != 3:
+            _fail("stats() must not consume or perturb actor state (expected 3)")
+        # Runtime.lane_stats() stays op-lanes-only even with actor lanes live.
+        op_stats = rt.lane_stats()
+        if len(op_stats) != rt.num_lanes():
+            _fail("lane_stats() must keep one entry per OP lane only")
+        if not all(x["actor_id"].startswith("rt-hpx-") for x in op_stats):
+            _fail("lane_stats() must not include rt-act- actor lanes")
+    # After shutdown the snapshot raises, consistent with call().
+    try:
+        c.stats()
+    except RuntimeError:
+        pass
+    else:
+        _fail("ActorHandle.stats() after shutdown must raise RuntimeError")
     print("PASS: counter actor (create; add/get/reset state persistence; exact "
-          "9-field rt-act- row; no value key; two same-type actors independent)")
+          "9-field rt-act- row; no value key; two same-type actors independent; "
+          "stats() snapshot non-consuming, op-lanes-only lane_stats, raises after "
+          "shutdown)")
 
 
 def main():
@@ -1133,6 +1200,7 @@ def main():
     section_typed_signatures_and_int64_range()
     section_fanout_sum()
     section_scale_double()
+    section_park_ms()
     section_short_busy_sum_cancel_invariant()
     section_running_cancel()
     section_queued_cancel()

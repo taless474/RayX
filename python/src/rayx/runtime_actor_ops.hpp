@@ -98,7 +98,12 @@ struct ActorTypeEntry {
 // The fixed actor registry, built once. MVP ships exactly one type, `counter`,
 // with init(int64) and methods add/get/reset -- proving state persistence across
 // calls, per-actor FIFO ordering, instance independence, a read method, and two
-// distinct typed mutators. NO Python callable, NO dynamic registration.
+// distinct typed mutators -- plus busy_get(int64), a READ-ONLY CHECKPOINTED method
+// that performs synthetic on-core diagnostic/calibration work (the actor-method
+// analog of the op-level busy_sum) and returns the CURRENT value unchanged. It
+// exercises the armed checkpoint/running-cancel path through actor dispatch without
+// mutating state; it is NOT a benchmark and carries NO performance claim. NO Python
+// callable, NO dynamic registration.
 inline const std::unordered_map<std::string, ActorTypeEntry>& actor_registry() {
     static const std::unordered_map<std::string, ActorTypeEntry> r = {
         {"counter", ActorTypeEntry{
@@ -142,6 +147,55 @@ inline const std::unordered_map<std::string, ActorTypeEntry>& actor_registry() {
                           OpOutcome o;
                           o.value = c.v;
                           o.has_value = true;
+                          return o;
+                      }}},
+                 // busy_get(int64 work_n) -> int64: READ-ONLY synthetic on-core
+                 // diagnostic/calibration work (the actor-method analog of the
+                 // op-level busy_sum), then return the CURRENT counter value
+                 // UNCHANGED. The work is the SHARED run_masked_checkpoint_loop
+                 // from runtime_ops.hpp -- the same loop busy_sum runs (same
+                 // BUSY_SUM_STRIDE / busy_sum_checkpoints / per-chunk StopCheckpoint
+                 // poll, with the lane providing the cooperative yield), so a
+                 // work_n > BUSY_SUM_STRIDE arms running-cancellability
+                 // (checkpoint_count > 1) through the actor dispatch path. It NEVER
+                 // writes c.v: the loop's masked accumulator is discarded into a
+                 // volatile sink purely so the read-only work cannot be elided, and
+                 // the RESULT is always c.v. A running cancel returns
+                 // status="cancelled" with no value and leaves c.v untouched. NO
+                 // sleep, NO state mutation, NO performance claim. work_n >= 0 is
+                 // guaranteed by the Python boundary (validate_actor_call).
+                 {"busy_get", MethodEntry{1,
+                      {OpType::Int64}, OpType::Int64,
+                      // Defensive checkpoint_count (runs BEFORE the task/future
+                      // exist, so it cannot produce a failed row): the real count on
+                      // the valid int64 tag, else 1 (queued-cancelable only), letting
+                      // the body's as_int64 produce the failed row on a wrong tag.
+                      // Mirrors busy_sum's checkpoint_count lambda.
+                      [](const OpArgs& a) {
+                          return is_int64(a, 0)
+                              ? busy_sum_checkpoints(std::get<std::int64_t>(a[0]))
+                              : 1;
+                      },
+                      [](ActorState& st, const OpArgs& a, const StopCheckpoint& stop)
+                          -> OpOutcome {
+                          CounterState& c = as_counter(st, "busy_get");
+                          const std::int64_t n = as_int64(a, 0, "busy_get");
+                          std::uint64_t acc = 0;
+                          if (!run_masked_checkpoint_loop(n, stop, acc)) {
+                              OpOutcome o;  // honored running cancel at boundary
+                              o.has_value = false;
+                              o.status = "cancelled";
+                              return o;     // c.v untouched -- read-only
+                          }
+                          // Discard the synthetic work so the read-only loop is
+                          // genuine on-core work (not dead-code-eliminated); the
+                          // RESULT is the CURRENT counter value, never acc.
+                          volatile std::uint64_t sink = acc;
+                          (void)sink;
+                          OpOutcome o;
+                          o.value = c.v;  // read current state, UNCHANGED
+                          o.has_value = true;
+                          o.status = "completed";
                           return o;
                       }}},
              }}},

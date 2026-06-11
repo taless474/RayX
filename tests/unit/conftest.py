@@ -43,8 +43,8 @@ def errors():
 def op_table():
     """A representative typed-signature table mirroring the native registry.
 
-    Shape matches ``_rayx.runtime_op_table()`` (value-model V1):
-    ``{op_id: {"arg_types": [type, ...], "result_type": type}}``, int64 only.
+    Shape matches ``_rayx.runtime_op_table()`` (closed value model: int64 /
+    finite double): ``{op_id: {"arg_types": [type, ...], "result_type": type}}``.
     validate_call() takes the table as a parameter, so the pure unit tests need no
     access to the real C++ registry.
     """
@@ -61,6 +61,7 @@ def op_table():
         "busy_sum": sig("int64"),
         "fanout_sum": sig("int64", "int64"),
         "scale_double": sig_d("double", "double"),
+        "park_ms": sig("int64"),
     }
 
 
@@ -81,6 +82,7 @@ def actor_table():
                 "add": {"arg_types": ["int64"], "result_type": "int64"},
                 "get": {"arg_types": [], "result_type": "int64"},
                 "reset": {"arg_types": ["int64"], "result_type": "int64"},
+                "busy_get": {"arg_types": ["int64"], "result_type": "int64"},
             },
         }
     }

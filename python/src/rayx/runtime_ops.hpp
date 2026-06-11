@@ -119,9 +119,68 @@ inline constexpr std::uint64_t BUSY_SUM_MASK = 0x7FFFFFFFULL;
 // Checkpoint count for a busy_sum over `n` steps: ceil(n / STRIDE), at least 1.
 // A count of 1 means "not running-cancellable" (no chunk boundary): begin_service
 // arms cancellable_ = (count > 1). Clamped to INT_MAX defensively for huge n.
+// Ceil is computed as (n - 1) / STRIDE + 1 (n > STRIDE here, so n - 1 is safe):
+// the naive (n + STRIDE - 1) / STRIDE overflows int64 for n near INT64_MAX,
+// which IS reachable from Python (any int64 n >= 0 passes validation, and this
+// runs at submit time).
 inline int busy_sum_checkpoints(std::int64_t n) {
     if (n <= BUSY_SUM_STRIDE) return 1;
-    const std::int64_t c = (n + BUSY_SUM_STRIDE - 1) / BUSY_SUM_STRIDE;
+    const std::int64_t c = (n - 1) / BUSY_SUM_STRIDE + 1;
+    return c > static_cast<std::int64_t>(INT_MAX) ? INT_MAX : static_cast<int>(c);
+}
+
+// Shared masked checkpoint loop for busy_sum (op) and busy_get (actor method):
+// the single source of truth for the chunked on-core work both use, so the two
+// cannot drift. Accumulates acc = (Σ_{i=0}^{n-1} i) & BUSY_SUM_MASK in
+// BUSY_SUM_STRIDE-sized chunks, polling stop(next_is_final) BEFORE each chunk
+// except the first (k > 0), with next_is_final = (k == n_chk - 1) clearing
+// running-cancellability before the last segment. Returns false on an honored
+// running cancel (acc is then meaningless), true on completion. NO sleep --
+// genuine on-core work; n >= 0 is guaranteed by the Python boundary.
+inline bool run_masked_checkpoint_loop(std::int64_t n, const StopCheckpoint& stop,
+                                       std::uint64_t& acc) {
+    const int n_chk = busy_sum_checkpoints(n);
+    acc = 0;
+    for (int k = 0; k < n_chk; ++k) {
+        if (k > 0 && stop(/*next_is_final=*/k == n_chk - 1))
+            return false;  // honored running cancel at this chunk boundary
+        const std::int64_t begin =
+            static_cast<std::int64_t>(k) * BUSY_SUM_STRIDE;
+        const std::int64_t end = std::min<std::int64_t>(begin + BUSY_SUM_STRIDE, n);
+        for (std::int64_t i = begin; i < end; ++i)
+            acc = (acc + static_cast<std::uint64_t>(i)) & BUSY_SUM_MASK;
+    }
+    return true;
+}
+
+// --- park_ms HPX-free metadata (body lives in runtime_ops_hpx.hpp) -----------
+//
+// park_ms(ms) is the PARKED / cooperative-wait work shape: the parked analog of
+// the CPU-bound busy_sum diagnostic. The HPX body (chunked cooperative
+// hpx::this_thread::sleep_for) lives HPX-side in runtime_ops_hpx.hpp; only the
+// pure bounds/checkpoint metadata lives here so this registry header stays
+// HPX-free. Synthetic diagnostic work only -- NOT real I/O, NOT inference, NOT a
+// serving claim, and NO performance claim.
+
+// Upper bound on `ms`, enforced at the Python boundary (mirror: PARK_MS_MAX in
+// runtime/_validate.py -- keep the two in sync). Generous for tests/demos while
+// keeping any parked lane bounded by construction.
+inline constexpr std::int64_t PARK_MS_MAX = 60'000;  // 60 s
+
+// Chunk stride for the cooperative park: the body parks in PARK_MS_STRIDE-ms
+// chunks, polling the StopCheckpoint before each chunk after the first, so a
+// running cancel (and shutdown's cancel_pending) stops a park at the NEXT chunk
+// boundary -- bounding cancel/shutdown latency to one chunk, never the full park.
+inline constexpr std::int64_t PARK_MS_STRIDE = 10;
+
+// Checkpoint count for a park over `ms` milliseconds: ceil(ms / STRIDE), at
+// least 1 (ms <= STRIDE -> 1 -> queued-cancelable only; ms = 0 parks nothing).
+// Same overflow-safe (ms - 1) / STRIDE + 1 ceil form as busy_sum_checkpoints.
+// The Python boundary caps ms at PARK_MS_MAX so the count stays small; the form
+// stays overflow-safe for raw-bypass inputs anyway.
+inline int park_ms_checkpoints(std::int64_t ms) {
+    if (ms <= PARK_MS_STRIDE) return 1;
+    const std::int64_t c = (ms - 1) / PARK_MS_STRIDE + 1;
     return c > static_cast<std::int64_t>(INT_MAX) ? INT_MAX : static_cast<int>(c);
 }
 
@@ -175,12 +234,13 @@ struct OpEntry {
     // must read its args DEFENSIVELY (is_int64/is_double -> real count, else 1) and
     // let the op body produce the failed row on a wrong tag.
     std::function<int(const OpArgs& args)> checkpoint_count;
-    // Typed signature (value-model V1). arg_types has exactly `arity` entries (all
-    // OpType::Int64 in V1); result_type is the declared result tag (int64 in V1; for
-    // `boom`, which always throws, the declared type is moot but kept int64 for
-    // uniformity). Exposed to Python via runtime_op_table() so the boundary validates
-    // per-arg types + the int64 range. The value CHANNEL is unchanged (still int64);
-    // these are metadata only.
+    // Typed signature (closed value model: int64 / finite double). arg_types has
+    // exactly `arity` entries; result_type is the declared result tag (for `boom`,
+    // which always throws, the declared type is moot but kept int64 for
+    // uniformity). Exposed to Python via runtime_op_table() so the boundary
+    // validates per-arg types + domains (int64 range; double strict-float
+    // finiteness) BEFORE the crossing. These are metadata only -- the closed
+    // OpValue variant is the value channel.
     std::vector<OpType> arg_types;
     OpType result_type = OpType::Int64;
 };
@@ -225,29 +285,21 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
         {"busy_sum", OpEntry{1,
              // Real native iterative work: acc = (Σ_{i=0}^{n-1} i) mod 2^31, with
              // per-step masking so acc stays < 2^31 (overflow-safe, deterministic;
-             // equals (n*(n-1)/2) mod 2^31). The loop mirrors the harness chunk
-             // loop: for each STRIDE-sized chunk, poll stop(next_is_final) BEFORE
-             // the chunk's work; the final boundary clears running-cancellability
-             // before the last segment. NO sleep -- this is on-core work. n >= 0 is
+             // equals (n*(n-1)/2) mod 2^31). The chunk loop is the shared
+             // run_masked_checkpoint_loop above (also used by the actor busy_get):
+             // per STRIDE-sized chunk, poll stop(next_is_final) BEFORE the chunk's
+             // work; the final boundary clears running-cancellability before the
+             // last segment. NO sleep -- this is on-core work. n >= 0 is
              // guaranteed by the Python boundary.
              [](const OpArgs& a, const StopCheckpoint& stop)
                  -> OpOutcome {
                  const std::int64_t n = as_int64(a, 0, "busy_sum");
-                 const int n_chk = busy_sum_checkpoints(n);
                  std::uint64_t acc = 0;
-                 for (int c = 0; c < n_chk; ++c) {
-                     if (c > 0 && stop(/*next_is_final=*/c == n_chk - 1)) {
-                         OpOutcome o;  // honored running cancel at this boundary
-                         o.has_value = false;
-                         o.status = "cancelled";
-                         return o;
-                     }
-                     const std::int64_t begin =
-                         static_cast<std::int64_t>(c) * BUSY_SUM_STRIDE;
-                     const std::int64_t end =
-                         std::min<std::int64_t>(begin + BUSY_SUM_STRIDE, n);
-                     for (std::int64_t i = begin; i < end; ++i)
-                         acc = (acc + static_cast<std::uint64_t>(i)) & BUSY_SUM_MASK;
+                 if (!run_masked_checkpoint_loop(n, stop, acc)) {
+                     OpOutcome o;  // honored running cancel at a chunk boundary
+                     o.has_value = false;
+                     o.status = "cancelled";
+                     return o;
                  }
                  OpOutcome o;
                  o.value = static_cast<std::int64_t>(acc);  // -> OpValue (int64)

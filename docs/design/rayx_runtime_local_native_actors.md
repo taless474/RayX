@@ -14,9 +14,11 @@ experimental.
 **Implemented MVP (through C2):**
 
 * `Runtime.create_actor("counter", initial) -> ActorHandle` and
-  `ActorHandle.call("add" | "get" | "reset", *args) -> RuntimeFuture`;
-* the native `CounterActor` (`int64` state; `add` / `get` / `reset`) over a
-  dedicated per-actor HPX-native FIFO `RuntimeLane`;
+  `ActorHandle.call("add" | "get" | "reset" | "busy_get", *args) -> RuntimeFuture`
+  (`busy_get` added in C5);
+* the native `CounterActor` (`int64` state; `add` / `get` / `reset`, plus the
+  read-only checkpointed `busy_get`) over a dedicated per-actor HPX-native FIFO
+  `RuntimeLane`;
 * `rt-act-<16 hex>` actor ids (real 64-bit entropy), stamped on the result row;
 * Python-boundary validation (`validate_actor_create` / `validate_actor_call`):
   unknown type/method → `ValueError`, wrong arity → `ValueError`, wrong type →
@@ -24,14 +26,21 @@ experimental.
 * full reuse of `RuntimeFuture` / `OperationResult` and the `get` / `wait` /
   `as_completed` collection APIs (actor and op futures interoperate);
 * the **exact 9-field row** preserved (no `value` key, no `actor_type` / `method`
-  field).
+  field);
+* `ActorHandle.stats()` — a per-actor **read-only observability snapshot**
+  (`{actor_id, queue_depth, active}`, the actor analogue of one
+  `Runtime.lane_stats()` element; added after C5 — see the per-actor
+  observability section below).
 
 **Still out (unchanged limitations):** local-only; a fixed native actor
 type/method registry (no arbitrary Python methods, no dynamic registration); no
 `.remote()`; no Python object state; no `ObjectRef` / object store; no `release()`
-/ `kill()`; no per-actor `lane_stats` surface yet; no running-cancel of state
-mutation (the MVP methods are atomic, queued-cancel only); and **no performance
-claim**.
+/ `kill()`; no actor lanes in `Runtime.lane_stats()` (it stays **op-lanes-only**;
+per-actor observability is only the per-handle `ActorHandle.stats()` snapshot, with
+no all-actors enumeration and no counters); no running-cancel of state
+*mutation* (`add` / `get` / `reset` are atomic, queued-cancel only; the C5
+`busy_get` is running-cancellable but **read-only**, so it never mutates state); and
+**no performance claim**.
 
 It depends on, and does not relitigate, the shipped Phase 1 runtime
 ([rayx_runtime_phase1_summary.md](rayx_runtime_phase1_summary.md)) and the closed
@@ -343,6 +352,7 @@ init(int64 initial)
 add(int64 delta) -> int64     # mutate state, return the NEW value
 get()            -> int64     # read current state
 reset(int64 value) -> int64   # overwrite state, return the new value
+busy_get(int64 work_n) -> int64   # READ-ONLY checkpointed on-core work, then current value
 ```
 
 Why `CounterActor`:
@@ -359,7 +369,17 @@ Why `CounterActor`:
   channel rather than the *new* state axis; it is an easy follow-up once the state
   model is proven, not the first type.
 
-All MVP methods are **instantaneous, single-mutation** (see cancellation below).
+`add` / `get` / `reset` are **instantaneous, single-mutation** (see cancellation
+below). `busy_get(work_n)` is the one **checkpointed, READ-ONLY** method (C5): it
+performs synthetic on-core diagnostic/calibration work — the actor-method analog of
+the op-level `busy_sum`, reusing `BUSY_SUM_STRIDE` / `busy_sum_checkpoints` / the
+masked chunk loop / the lane-bound `StopCheckpoint` and its cooperative yield — and
+then returns the **current counter value unchanged**. With `work_n > BUSY_SUM_STRIDE`
+its `checkpoint_count > 1`, so it is **running-cancellable through the actor dispatch
+path**. It exists to exercise that armed checkpoint/cancel path and to occupy the
+service slot for in-flight-shutdown coverage; it is purely synthetic, mutates
+nothing, and carries **no performance claim**. `work_n >= 0` is validated at the
+Python boundary (mirroring the op-level `busy_sum` guard).
 
 ## Type/value model interaction
 
@@ -384,17 +404,65 @@ All MVP methods are **instantaneous, single-mutation** (see cancellation below).
   untouched** (the body never runs). Once a method is **active**, `cancel()` returns
   `False` — there is no boundary to stop at. This is the same honest posture as
   `scale_double` / `fanout_sum`-P1.
-* **No running-cancel of checkpointed state mutation in the first slice.** A
-  checkpointed mutator that running-cancels mid-body could leave **partial state**,
-  which needs transactional semantics. Keeping MVP methods atomic single-mutations
-  means cancellation can never corrupt state. Stateful checkpointed methods are a
-  deliberately deferred, separately-designed concern.
+* **No running-cancel of checkpointed state *mutation*.** A checkpointed mutator that
+  running-cancels mid-body could leave **partial state**, which needs transactional
+  semantics, so no such method is shipped. `busy_get` (C5) is checkpointed and
+  running-cancellable but **read-only** — it never writes `c.v`, so a running cancel
+  returns `status="cancelled"` with no value and leaves state untouched, sidestepping
+  the partial-mutation question entirely. A checkpointed *mutator* remains a
+  deliberately deferred, separately-designed concern (no `busy_add`).
 * **Admission reuses `Runtime` `max_queue_depth_per_lane`, applied per actor lane**
   for the first slice: a full actor lane makes `counter.call(...)` raise the
   existing `QueueFullError` (no future / token / promise created). No separate
   per-actor cap argument yet.
+* **Deterministic actor `QueueFull` is now tested via `stats()` gating.**
+  (Supersedes the earlier C5 posture, kept here as provenance: a deterministic
+  actor-path `QueueFull` test was originally omitted rather than made flaky because
+  it would have required either an actor-lane observability surface or a hold/pause
+  primitive, neither of which existed.) The bounded-admission *mechanism* was
+  already proven deterministically at the operation level
+  (`test_bounded_admission_queue_full`), and `call_actor_method` reaches the
+  identical `RuntimeLane::try_submit(..., max_queue_depth, ...)` path.
+  `ActorHandle.stats()` now provides exactly the missing observability surface:
+  `test_actor_queue_full_deterministic` occupies the service slot with a large
+  checkpointed `busy_get`, gates on `stats()["active"]` (no sleeps), fills the
+  queue to the cap, and asserts the next call raises `QueueFullError`. The C5
+  `busy_get` cancellation coverage remains **invariant-scoped** by design (its race
+  loop deliberately does not gate on `stats()`); the stats-gated
+  `test_actor_running_cancel_deterministic` and
+  `test_actor_shutdown_fulfills_all_futures` add the deterministic running-cancel
+  and provably-in-flight-at-shutdown coverage on top.
 * **Exactly-once fulfillment reuses the existing lane / `RuntimeCancelToken`
   machinery** — no new fulfillment path is introduced.
+
+## Per-actor observability: `ActorHandle.stats()`
+
+`ActorHandle.stats()` is the one per-actor observability surface — **read-only
+observability only**, nothing more:
+
+* It returns one `{"actor_id", "queue_depth", "active"}` dict for this actor's
+  dedicated lane — the actor analogue of a single `Runtime.lane_stats()` element,
+  with the same three fields and the same semantics: `queue_depth` counts
+  **queued-but-not-started** method calls (the in-service call has been popped and
+  is **not** counted), and `active` is whether one method has been popped into the
+  service slot and has not yet fulfilled.
+* It is a **non-consuming, point-in-time, racy snapshot**, exactly like
+  `lane_stats()`: it touches no future and changes no call / cancel / admission
+  semantics, and the values can change the instant it returns. It exists for
+  debugging and deterministic test-gating only — it is **not** scheduler state,
+  **not** placement control, and **not** a synchronization primitive.
+* Natively it is `_RuntimeEngine.actor_stats(actor_id)`: an actor-map lookup, then
+  the lane's `stats()` read **on an HPX thread** (the same
+  `hpx::run_as_hpx_thread` hop the other lane-mutex paths use, because
+  `RuntimeLane::stats()` takes the lane's `hpx::mutex`), with the result dict built
+  back under the GIL. An unknown `actor_id` raises `ValueError` (only reachable via
+  the raw bypass today — actors live until shutdown); after runtime shutdown the
+  call raises `RuntimeError`, consistent with `call()`.
+* **Deliberately not added:** no counters or cumulative totals, no `actor_type`
+  field, no `Runtime.actor_stats()` all-actors enumeration, no actor lanes in
+  `Runtime.lane_stats()` (it stays op-lanes-only, same length / order / `rt-hpx-`
+  prefix as before), no JSONL / row-schema change, and no performance claim built
+  on it.
 
 ## Row/result model
 
@@ -424,9 +492,10 @@ All MVP methods are **instantaneous, single-mutation** (see cancellation below).
   operation lanes, **`rt-act-`** for actor lanes. The queue / worker / cancellation /
   admission logic is untouched; only id generation gains the parameter. We do **not**
   use a row-only stamp (passing a separate `rt-act-` string into the method task
-  while leaving the lane's id `rt-hpx-`), because that would make `lane_stats` report
-  `rt-hpx-` for an actor whose rows say `rt-act-` — an inconsistency surfacing exactly
-  when actor `lane_stats` lands in Slice C.
+  while leaving the lane's id `rt-hpx-`), because that would make lane stats report
+  `rt-hpx-` for an actor whose rows say `rt-act-` — an inconsistency that would have
+  surfaced exactly when per-actor observability landed (and indeed
+  `ActorHandle.stats()` now reports the same `rt-act-` id the rows carry).
 * `row["service_ms_observed"]` measures the **method's lane-occupancy lifecycle**
   (work-shape-agnostic), exactly as for operations.
 
@@ -478,10 +547,14 @@ exist. The shipped method-call validator is named `validate_actor_call`.)
   cancel** → `status="cancelled"`, `.value` raises `OperationCancelledError`, state
   unchanged, active `cancel()` → `False`; exact **9-field row**, `"value" not in
   row`, `actor_id` starts `rt-act-`; shutdown cleanup (no dangling future; second
-  `create_actor` / `call` after shutdown raises).
+  `create_actor` / `call` after shutdown raises); `ActorHandle.stats()` snapshot
+  shape + non-consumption, the stats-gated deterministic `QueueFull` / running
+  cancel / shutdown-fulfillment tests, post-shutdown `stats()` raise, and
+  `lane_stats()` excluding actor lanes.
 * **Smoke (`bench/smoke_rayx_runtime.py`):** a small `CounterActor` workflow (create,
   `add`×k, `get`, `reset`, `get`) + 9-field-row + `rt-act-` prefix + queued-only
-  cancel posture.
+  cancel posture + an idle `stats()` snapshot check (shape, non-consumption,
+  op-lanes-only `lane_stats`, post-shutdown raise).
 * **Harness untouched:** `bench/smoke_rayx.py` and the v1 schema golden unchanged;
   `rayx.__all__` unchanged.
 

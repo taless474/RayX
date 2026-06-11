@@ -396,15 +396,31 @@ public:
 
         // Construct the lanes AFTER start_hpx: the HpxLane adapter ctor hops onto
         // an HPX thread to spawn the lane's worker, so the runtime must be up.
-        lanes_.reserve(static_cast<std::size_t>(num_lanes));
-        for (int i = 0; i < num_lanes; ++i) {
-            if (lane_impl == "hpx") {
-                lanes_.push_back(
-                    std::make_unique<RayxLaneAdapter<rayhpx::HpxLane>>());
-            } else {
-                lanes_.push_back(
-                    std::make_unique<RayxLaneAdapter<rayhpx::ServiceLane>>());
+        // On a partial-construction failure, destroy whatever lanes already exist
+        // (the adapter dtors join their workers, HpxLane via its own HPX hop --
+        // same lanes-before-stop order as shutdown()), stop HPX, clear the guard,
+        // and rethrow -- so a failed ctor leaves no live worker, no started
+        // runtime, and no claimed guard. Mirrors RuntimeEngine's ctor cleanup.
+        try {
+            lanes_.reserve(static_cast<std::size_t>(num_lanes));
+            for (int i = 0; i < num_lanes; ++i) {
+                if (lane_impl == "hpx") {
+                    lanes_.push_back(
+                        std::make_unique<RayxLaneAdapter<rayhpx::HpxLane>>());
+                } else {
+                    lanes_.push_back(
+                        std::make_unique<RayxLaneAdapter<rayhpx::ServiceLane>>());
+                }
             }
+        } catch (...) {
+            try {
+                lanes_.clear();  // adapter dtors join; HPX must still be up here
+            } catch (...) {
+                // best-effort cleanup; do not mask the original failure
+            }
+            stop_process_hpx();
+            process_runtime_active() = false;
+            throw;
         }
         running_ = true;
     }
@@ -1409,6 +1425,34 @@ public:
         return out;
     }
 
+    // Per-actor observability snapshot (debugging only): the actor's dedicated
+    // lane's {actor_id, queue_depth, active} -- the actor analogue of one
+    // lane_stats() element, with the SAME three fields and the same semantics
+    // (queue_depth counts queued-but-not-started method calls; the in-service
+    // call is popped and NOT counted; active is true while a method is in the
+    // service slot). NON-consuming and racy: a point-in-time snapshot that
+    // touches no future and changes no call/cancel semantics. Reads the lane's
+    // stats ON an HPX thread (RuntimeLane::stats takes the lane's hpx::mutex);
+    // the dict is built with the GIL held after the hop. lane_stats() above
+    // remains op-lanes-only and is NOT changed by this. Unknown actor_id (only
+    // reachable via the raw bypass today -- actors live until shutdown -- and
+    // via a future release_actor) -> std::invalid_argument -> Python ValueError.
+    // Raises if the runtime is shut down, consistent with call_actor_method.
+    py::dict actor_stats(const std::string& actor_id) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        auto it = actors_.find(actor_id);
+        if (it == actors_.end())
+            throw std::invalid_argument("unknown actor_id: " + actor_id);
+        rayx_runtime::RuntimeLane& lane = *it->second.lane;
+        rayx_runtime::RuntimeLane::LaneStat s =
+            hpx::run_as_hpx_thread([&lane]() { return lane.stats(); });
+        py::dict d;
+        d["actor_id"] = s.actor_id;
+        d["queue_depth"] = s.queue_depth;
+        d["active"] = s.active;
+        return d;
+    }
+
     void shutdown() {
         if (!running_) return;
         running_ = false;
@@ -1617,15 +1661,22 @@ PYBIND11_MODULE(_rayx, m) {
              "{actor_id, queue_depth, active} dicts in stable lane order. "
              "Non-consuming; raises if shut down. Not scheduler state, not "
              "placement control, not part of the JSONL schema.")
+        .def("actor_stats", &RuntimeEngine::actor_stats, py::arg("actor_id"),
+             "Per-actor observability snapshot (debugging only): one "
+             "{actor_id, queue_depth, active} dict for the actor's dedicated "
+             "lane. Non-consuming and racy; raises RuntimeError if shut down, "
+             "ValueError on an unknown actor_id. lane_stats() stays "
+             "op-lanes-only. Not scheduler state, not placement control, not "
+             "part of any JSONL schema.")
         .def("shutdown", &RuntimeEngine::shutdown);
 
     m.def("runtime_op_table", []() {
-        // Typed signatures (value-model V1): {op_id: {"arg_types": [str, ...],
-        // "result_type": str}}. Merge the HPX-free core registry
-        // (square/add/boom/busy_sum) with the HPX-side composed-op registry
-        // (fanout_sum) so the Python boundary validates every registered op id, its
-        // arity (== len(arg_types)), and each arg's declared type uniformly. V1 ships
-        // int64 only; the value channel is unchanged (still int64).
+        // Typed signatures (closed value model: int64 / finite double):
+        // {op_id: {"arg_types": [str, ...], "result_type": str}}. Merge the
+        // HPX-free core registry (square/add/boom/busy_sum/scale_double) with the
+        // HPX-side registry (fanout_sum/park_ms) so the Python boundary validates
+        // every registered op id, its arity (== len(arg_types)), and each arg's
+        // declared type + domain uniformly.
         py::dict d;
         auto add = [&d](const std::unordered_map<std::string,
                                                   rayx_runtime::OpEntry>& reg) {

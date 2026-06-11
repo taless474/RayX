@@ -73,11 +73,12 @@ __all__ = [
 ]
 
 # Typed-signature snapshot of the fixed C++ registry, read once at import:
-# {op_id: {"arg_types": [type, ...], "result_type": type}} (value-model V1; int64
-# only). Passed to validate_call() to check op id, arity (== len(arg_types)), and
-# each arg's declared type + int64 range at the Python boundary BEFORE the C++
-# crossing. (validate_call lives in _validate.py and takes the table as a parameter
-# so it stays unit-testable without the native registry.)
+# {op_id: {"arg_types": [type, ...], "result_type": type}} (closed value model:
+# int64 / finite double). Passed to validate_call() to check op id, arity
+# (== len(arg_types)), and each arg's declared type + domain (int64 range; double
+# strict-float finiteness) at the Python boundary BEFORE the C++ crossing.
+# (validate_call lives in _validate.py and takes the table as a parameter so it
+# stays unit-testable without the native registry.)
 _OP_TABLE = dict(runtime_op_table())
 
 # Typed-metadata snapshot of the fixed C++ actor registry, read once at import (the
@@ -259,6 +260,30 @@ class ActorHandle:
         """The actor's registered type id (e.g. ``"counter"``)."""
         return self._actor_type
 
+    def stats(self):
+        """Non-consuming per-actor observability snapshot (debugging only).
+
+        Returns one ``{"actor_id", "queue_depth", "active"}`` dict for THIS
+        actor's dedicated lane — the actor analogue of one
+        :meth:`Runtime.lane_stats` element, with the same three fields and the
+        same semantics: ``queue_depth`` is the queued-but-not-started method-call
+        count (the in-service call has been popped and is **not** counted), and
+        ``active`` is whether a method is currently in the service slot.
+
+        Point-in-time and **racy**, exactly like ``lane_stats()``: values can
+        change the instant this returns. It is fully non-consuming — it touches
+        no future and changes no call/cancel/admission semantics — and is for
+        debugging and test-gating only: **not** scheduler state, **not**
+        placement control, **not** a synchronization primitive, and not part of
+        any JSONL schema. ``Runtime.lane_stats()`` remains **op-lanes-only**;
+        actor lanes are visible only through this per-handle snapshot. Raises
+        ``RuntimeError`` if the owning runtime is shut down (consistent with
+        :meth:`call`).
+        """
+        if self._runtime._closed:
+            raise RuntimeError("Runtime is shut down")
+        return self._runtime._engine.actor_stats(self._actor_id)
+
     def call(self, method_id, *args):
         """Dispatch a registered method on this actor; return a :class:`RuntimeFuture`.
 
@@ -346,20 +371,22 @@ class Runtime:
         """Submit one registered native operation; returns a :class:`RuntimeFuture`.
 
         ``op_id`` is a registered native operation name (``"square"`` / ``"add"``
-        / ``"boom"`` / ``"busy_sum"`` / ``"fanout_sum"`` -> ``int64``; ``"scale_double"``
-        -> ``double``); ``*args`` are its typed arguments, whose accepted Python type
+        / ``"boom"`` / ``"busy_sum"`` / ``"fanout_sum"`` / ``"park_ms"`` ->
+        ``int64``; ``"scale_double"`` -> ``double``); ``*args`` are its typed
+        arguments, whose accepted Python type
         is per the op's declared signature: ``int64`` args take a Python ``int``
         (``bool`` rejected; out of ``[-2**63, 2**63-1]`` -> ``ValueError``), and
         ``double`` args take a strict Python ``float`` (``bool``/``int`` rejected --
         no implicit widening; ``NaN``/``inf`` -> ``ValueError``). Validates at the
         Python boundary (unknown id / wrong arity -> ``ValueError``; wrong type ->
         ``TypeError``; ``busy_sum`` requires ``n >= 0``; ``fanout_sum`` requires
-        ``n >= 0`` and ``1 <= parts <= 1024`` -> ``ValueError``) before the single
+        ``n >= 0`` and ``1 <= parts <= 1024``; ``park_ms`` requires
+        ``0 <= ms <= 60_000`` -> ``ValueError``) before the single
         Python->C++ crossing, capturing ``submit_ns`` like the harness
         ``Engine.submit``. The returned :class:`RuntimeFuture` is cancelable (queued
-        always; running only for checkpointed ops such as ``busy_sum`` -- the
-        launch-all ``fanout_sum`` and the instantaneous ``scale_double`` are
-        queued-cancelable only).
+        always; running only for checkpointed ops such as ``busy_sum`` and the
+        cooperative parked ``park_ms`` -- the launch-all ``fanout_sum`` and the
+        instantaneous ``scale_double`` are queued-cancelable only).
         """
         if self._closed:
             raise RuntimeError("Runtime is shut down")

@@ -24,8 +24,9 @@
 #include "runtime_ops.hpp"  // OpEntry/OpFn/OpOutcome/StopCheckpoint, masked_range_sum,
                             // fanout_sum_checkpoints, FANOUT_PARTS_MAX, BUSY_SUM_MASK
 
-#include <hpx/hpx.hpp>  // hpx::async, hpx::when_all, hpx::future
+#include <hpx/hpx.hpp>  // hpx::async, hpx::when_all, hpx::future, hpx::this_thread::sleep_for
 
+#include <chrono>     // std::chrono::milliseconds (park_ms chunk)
 #include <cstdint>
 #include <stdexcept>  // std::invalid_argument (defensive native arg guard)
 #include <string>
@@ -34,7 +35,8 @@
 
 namespace rayx_runtime {
 
-// The HPX-side composed-operation registry. Currently one entry:
+// The HPX-side registry. Two entries: the internally-composed fanout_sum and the
+// cooperative parked park_ms. First:
 //
 //   fanout_sum(n, parts) = (Σ_{i=0}^{n-1} i) mod 2^31  ==  busy_sum(n)
 //
@@ -115,6 +117,64 @@ inline const std::unordered_map<std::string, OpEntry>& hpx_registry() {
              },
              // Typed signature: fanout_sum(int64 n, int64 parts) -> int64.
              {OpType::Int64, OpType::Int64}, OpType::Int64}},
+        // park_ms(ms) -> int64: PARKED / cooperative-wait synthetic work, the
+        // parked analog of the CPU-bound busy_sum diagnostic. Parks in
+        // PARK_MS_STRIDE-ms chunks via hpx::this_thread::sleep_for -- a
+        // COOPERATIVE suspension of the HPX thread running the body (NEVER
+        // std::this_thread::sleep_for, which would pin an OS worker) -- polling
+        // stop(next_is_final) BEFORE each chunk after the first, exactly the
+        // busy_sum chunk contract: a running cancel (and shutdown's
+        // cancel_pending) stops the park at the next chunk boundary (<= one
+        // stride, never the full park), and the final boundary clears
+        // running-cancellability before the last chunk. Completion ECHOES ms
+        // back (deterministic value path); ms = 0 parks nothing
+        // (checkpoint_count == 1, queued-cancelable only). 0 <= ms <=
+        // PARK_MS_MAX is guaranteed by the Python boundary and re-checked
+        // defensively for the raw/native bypass (throw -> status="failed" row
+        // via make_op_task, never a crash). Synthetic diagnostic only: NO
+        // performance claim, NOT real I/O or inference.
+        {"park_ms", OpEntry{1,
+             [](const OpArgs& a, const StopCheckpoint& stop)
+                 -> OpOutcome {
+                 const std::int64_t ms = as_int64(a, 0, "park_ms");
+                 if (ms < 0 || ms > PARK_MS_MAX) {
+                     throw std::invalid_argument(
+                         "park_ms requires 0 <= ms <= "
+                         + std::to_string(PARK_MS_MAX));
+                 }
+                 const int n_chk = park_ms_checkpoints(ms);
+                 std::int64_t remaining = ms;
+                 for (int k = 0; k < n_chk; ++k) {
+                     if (k > 0 && stop(/*next_is_final=*/k == n_chk - 1)) {
+                         OpOutcome o;  // honored running cancel at this boundary
+                         o.has_value = false;
+                         o.status = "cancelled";
+                         return o;
+                     }
+                     const std::int64_t chunk =
+                         remaining < PARK_MS_STRIDE ? remaining : PARK_MS_STRIDE;
+                     if (chunk > 0) {
+                         hpx::this_thread::sleep_for(
+                             std::chrono::milliseconds(chunk));
+                     }
+                     remaining -= chunk;
+                 }
+                 OpOutcome o;
+                 o.value = ms;  // completion echoes the requested ms (int64)
+                 o.has_value = true;
+                 o.status = "completed";
+                 return o;
+             },
+             // Defensive checkpoint_count, mirroring busy_sum: the real count on
+             // the valid int64 tag, else 1 (queued-cancelable only) -- the body's
+             // as_int64 then produces the failed row; never a throw-to-Python.
+             [](const OpArgs& a) {
+                 return is_int64(a, 0)
+                     ? park_ms_checkpoints(std::get<std::int64_t>(a[0]))
+                     : 1;
+             },
+             // Typed signature: park_ms(int64 ms) -> int64.
+             {OpType::Int64}, OpType::Int64}},
     };
     return r;
 }

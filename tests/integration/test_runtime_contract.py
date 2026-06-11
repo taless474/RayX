@@ -111,6 +111,143 @@ def test_running_cancel_contract(wait_until):
             _ = res.value
 
 
+def test_busy_sum_huge_n_submit_and_cancel():
+    """Overflow/arming guard: submitting busy_sum(INT64_MAX) is safe and cancelable.
+
+    busy_sum_checkpoints computes ceil(n / STRIDE) at SUBMIT time. The naive
+    (n + STRIDE - 1) / STRIDE form overflowed int64 for n near INT64_MAX -- UB,
+    reachable from Python (any int64 n >= 0 passes validation); in practice the
+    wrap produced a negative count whose zero-iteration body made the huge op
+    bogusly "complete" instantly with value 0. This protects the hardened
+    (n - 1) / STRIDE + 1 form: the count clamps to INT_MAX, so the op is armed
+    running-cancellable and is genuinely huge. The test therefore relies on
+    cancellation and MUST NEVER wait for completion (2**63 steps): cancel() is
+    True whether it settles queued or running (clamped count > 1 guarantees a
+    boundary ahead either way), and the future retires status="cancelled". No
+    sleeps, no timing assertions; the also-shared actor busy_get path is covered
+    via the same helper.
+    """
+    with Runtime(num_lanes=1) as rt:
+        fut = rt.submit_operation("busy_sum", 2**63 - 1)
+        assert fut.cancel() is True          # queued or running: both settle True
+        res = fut.result()                   # queued: immediate; running: <= one
+        assert res.row["status"] == "cancelled"   # chunk boundary away
+        with pytest.raises(OperationCancelledError):
+            _ = res.value
+
+
+# --- 4b. park_ms: parked/cooperative work shape ------------------------------
+#
+# park_ms(ms) is the PARKED analog of the CPU-bound busy_sum diagnostic: it
+# occupies the lane's service slot while the HPX thread running it suspends
+# COOPERATIVELY (chunked hpx::this_thread::sleep_for, PARK_MS_STRIDE chunks), so
+# a parked lane does not pin an OS worker. All tests below are structural /
+# stats-gated: NO wall-clock assertions, NO duration measurements, NO performance
+# claims. Large-duration holds rely on the same several-orders-of-magnitude
+# engineering margin as the busy_sum/busy_get tests (a 60 s park cannot retire
+# within a microsecond-scale test window) -- margin, not formal proof.
+
+_PARK_BIG_MS = 60_000  # PARK_MS_MAX: a held lane parks for 60 s unless cancelled
+
+
+def test_park_ms_completes_and_echoes():
+    with Runtime() as rt:
+        res = rt.submit_operation("park_ms", 1).result()
+        assert res.row["status"] == "completed"
+        assert res.value == 1                      # completion echoes ms
+        assert isinstance(res.value, int)
+        assert tuple(sorted(res.row)) == tuple(sorted(ROW_FIELDS))
+
+
+def test_park_ms_zero_terminal_cancel_false():
+    # ms=0 parks nothing (checkpoint_count == 1, queued-cancelable only); once
+    # the result is terminal, cancel() must report False, never claim a cancel.
+    with Runtime() as rt:
+        f = rt.submit_operation("park_ms", 0)
+        res = f.result()
+        assert res.row["status"] == "completed" and res.value == 0
+        assert f.cancel() is False
+
+
+def test_park_ms_running_cancel_stats_gated(wait_until):
+    """cancel() is True once the park is observed active; row retires cancelled.
+
+    HONEST SCOPE: gating on active removes the start-side race; the finish side
+    rests on the engineering margin that a 60 s park cannot complete within the
+    microsecond gap between the observation and cancel(). No wall-clock value is
+    asserted anywhere: the stop lands at the next PARK_MS_STRIDE chunk boundary,
+    and only the terminal row/value contract is checked.
+    """
+    with Runtime(num_lanes=1) as rt:
+        f = rt.submit_operation("park_ms", _PARK_BIG_MS)
+        wait_until(lambda: _any_active(rt), where="park_ms active")
+        assert f.cancel() is True
+        res = f.result()
+        assert res.row["status"] == "cancelled"
+        with pytest.raises(OperationCancelledError):
+            _ = res.value
+
+
+def test_park_ms_queued_cancel(wait_until):
+    with Runtime(num_lanes=1) as rt:
+        holder = rt.submit_operation("park_ms", _PARK_BIG_MS)
+        wait_until(lambda: _any_active(rt), where="holder active")
+        queued = rt.submit_operation("park_ms", 1)   # FIFO: behind the holder
+        assert queued.cancel() is True               # queued: settles immediately
+        res = queued.result()
+        assert res.row["status"] == "cancelled"
+        with pytest.raises(OperationCancelledError):
+            _ = res.value
+        assert holder.cancel() is True               # release the lane fast
+        assert holder.result().row["status"] == "cancelled"
+
+
+def test_park_overlap_structural_hpx_threads_1(wait_until):
+    """Cooperative parking yields the ONE OS worker: structural overlap proof.
+
+    With hpx_threads=1 there is a single HPX worker OS thread. A park that
+    BLOCKED its thread (std::this_thread::sleep_for) would starve every other
+    lane until it finished, so the tiny op on the second lane could never
+    retire. The tiny op retiring while the park lane is still active is
+    therefore a structural, state-gated proof that the park suspends
+    cooperatively -- no wall-clock values are asserted. HONEST SCOPE: "still
+    active" rides the usual margin (the 60 s park cannot have finished within
+    the tiny op's window); round-robin places submissions 0 and 1 on different
+    lanes (the round-robin contract is covered by the smoke). This is the
+    runtime-internal demonstration of the parked/cooperative regime; the
+    quantitative overlap observation note is a deferred follow-up slice.
+    """
+    with Runtime(num_lanes=2, hpx_threads=1) as rt:
+        park = rt.submit_operation("park_ms", _PARK_BIG_MS)   # lane A
+        wait_until(lambda: _any_active(rt), where="park active")
+        tiny = rt.submit_operation("square", 7)               # lane B
+        assert tiny.result().value == 49     # retires WHILE the park holds A
+        assert _any_active(rt)               # the park lane is still active
+        assert park.cancel() is True         # fast teardown
+        assert park.result().row["status"] == "cancelled"
+
+
+def test_park_ms_shutdown_bounded_and_fulfills(wait_until):
+    """Shutdown with a parked op in flight: clean, and the future still retires.
+
+    shutdown()'s cancel_pending stops the park at its next chunk boundary (at
+    most one PARK_MS_STRIDE), so teardown is bounded by a chunk, never the full
+    60 s park -- asserted only as "shutdown returns and the future retires with
+    a valid terminal row" (no duration measurement, no exact-status assertion).
+    """
+    rt = Runtime(num_lanes=1)
+    f = rt.submit_operation("park_ms", _PARK_BIG_MS)
+    wait_until(lambda: _any_active(rt), where="park active")
+    rt.shutdown()                            # must not hang for the full park
+    res = f.result()                         # retire after shutdown
+    assert res.row["status"] in ("completed", "cancelled")
+    if res.row["status"] == "cancelled":
+        with pytest.raises(OperationCancelledError):
+            _ = res.value
+    else:
+        assert res.value == _PARK_BIG_MS
+
+
 # --- 5. bounded admission contract ------------------------------------------
 
 
@@ -354,6 +491,7 @@ def test_runtime_op_table_typed_signatures():
         "fanout_sum": {"arg_types": ["int64", "int64"], "result_type": "int64"},
         "scale_double": {"arg_types": ["double", "double"],
                          "result_type": "double"},
+        "park_ms": {"arg_types": ["int64"], "result_type": "int64"},
     }
     assert set(tbl) == set(expected)
     for op, sig in expected.items():

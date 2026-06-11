@@ -204,3 +204,80 @@ def test_validate_call_fanout_sum_valid_returns_int_args(validate, op_table):
     # parts == PARTS_MAX is the inclusive upper bound.
     assert validate.validate_call(
         "fanout_sum", [10, validate.PARTS_MAX], op_table) == [10, validate.PARTS_MAX]
+
+
+# --- validate_call: park_ms (parked/cooperative-wait diagnostic) -------------
+#
+# park_ms(ms) is a single-int64-arg op exactly like busy_sum at the typed-
+# signature level; only its 0 <= ms <= PARK_MS_MAX domain guard is
+# park_ms-specific. PARK_MS_MAX mirrors the native constant in runtime_ops.hpp.
+
+
+def test_validate_call_park_ms_wrong_type(validate, op_table):
+    with pytest.raises(TypeError):
+        validate.validate_call("park_ms", ["x"], op_table)
+
+
+def test_validate_call_park_ms_bool_rejected(validate, op_table):
+    # bool is an int subclass; the strict int64 validator must reject it.
+    with pytest.raises(TypeError):
+        validate.validate_call("park_ms", [True], op_table)
+
+
+def test_validate_call_park_ms_negative(validate, op_table):
+    with pytest.raises(ValueError):
+        validate.validate_call("park_ms", [-1], op_table)
+
+
+def test_validate_call_park_ms_over_cap(validate, op_table):
+    assert validate.PARK_MS_MAX == 60_000
+    with pytest.raises(ValueError):
+        validate.validate_call("park_ms", [validate.PARK_MS_MAX + 1], op_table)
+
+
+def test_validate_call_park_ms_valid_returns_int_args(validate, op_table):
+    assert validate.validate_call("park_ms", [0], op_table) == [0]
+    assert validate.validate_call("park_ms", [1], op_table) == [1]
+    # ms == PARK_MS_MAX is the inclusive upper bound.
+    assert validate.validate_call(
+        "park_ms", [validate.PARK_MS_MAX], op_table) == [validate.PARK_MS_MAX]
+
+
+# --- validate_actor_call: counter.busy_get (read-only checkpointed method) --
+#
+# Local actor-metadata table including busy_get. Built inline (rather than via the
+# conftest ``actor_table`` fixture) so this file is self-contained: busy_get is a
+# single-int64-arg method exactly like add/reset/busy_sum at the typed-signature
+# level; only its work_n >= 0 domain guard is busy_get-specific.
+_BUSY_GET_TABLE = {
+    "counter": {
+        "init_arg_types": ["int64"],
+        "methods": {
+            "busy_get": {"arg_types": ["int64"], "result_type": "int64"},
+        },
+    }
+}
+
+
+def test_validate_actor_call_busy_get_wrong_type(validate):
+    with pytest.raises(TypeError):
+        validate.validate_actor_call("counter", "busy_get", ["x"], _BUSY_GET_TABLE)
+
+
+def test_validate_actor_call_busy_get_bool_rejected(validate):
+    # bool is an int subclass; the strict int64 validator must reject it (no widening).
+    with pytest.raises(TypeError):
+        validate.validate_actor_call("counter", "busy_get", [True], _BUSY_GET_TABLE)
+
+
+def test_validate_actor_call_busy_get_negative(validate):
+    with pytest.raises(ValueError):
+        validate.validate_actor_call("counter", "busy_get", [-1], _BUSY_GET_TABLE)
+
+
+def test_validate_actor_call_busy_get_valid_returns_int_args(validate):
+    # Non-negative ints pass and are returned unchanged for the native marshaller.
+    assert validate.validate_actor_call(
+        "counter", "busy_get", [0], _BUSY_GET_TABLE) == [0]
+    assert validate.validate_actor_call(
+        "counter", "busy_get", [100_000], _BUSY_GET_TABLE) == [100_000]

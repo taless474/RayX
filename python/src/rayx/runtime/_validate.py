@@ -12,11 +12,12 @@ rather than reading a module global, which is exactly what makes it testable wit
 the native registry: ``__init__`` passes the real C++ ``_OP_TABLE``; tests pass a
 representative dict.
 
-Value-model V1 (int64-only) is a Python-boundary / type-substrate step, NOT an HPX
-mechanism step: it only adds typed per-argument validation (driven by the registry's
-declared ``arg_types``) plus an explicit ``int64`` range check at the boundary. The
-value channel is unchanged -- arguments still cross as ``int`` and results still come
-back as ``int``; no ``std::variant``, no ``double``, no ``bytes``, and no new op.
+The closed typed value model (int64 / finite double) is a Python-boundary /
+type-substrate concern, NOT an HPX mechanism one: this module only adds typed
+per-argument validation (driven by the registry's declared ``arg_types``) plus the
+explicit domain checks at the boundary (``int64`` range; strict-``float`` typing and
+finiteness for ``double``). The type set is closed -- no ``bytes``, no implicit
+``int`` -> ``float`` widening, and no open/extensible value channel.
 """
 
 import math
@@ -24,6 +25,7 @@ import math
 __all__ = [
     "ROW_FIELDS",
     "PARTS_MAX",
+    "PARK_MS_MAX",
     "INT64_MIN",
     "INT64_MAX",
     "validate_timeout",
@@ -38,10 +40,15 @@ __all__ = [
 # spawn an unbounded number of tasks.
 PARTS_MAX = 1024
 
+# Upper bound on the park_ms `ms` argument, enforced at the Python boundary.
+# Mirror of PARK_MS_MAX in python/src/rayx/runtime_ops.hpp -- keep the two in sync.
+# Keeps any cooperatively parked lane bounded by construction (60 s).
+PARK_MS_MAX = 60_000
+
 # Inclusive int64 range. Python ints are arbitrary-precision, so a value that does not
 # fit a C++ std::int64_t must be rejected EXPLICITLY at the boundary (deterministic,
 # well-messaged) rather than relying on an opaque pybind cast failure at the crossing.
-# Value-model V1 ships int64 only.
+# This is the int64 leg of the closed value model (int64 / finite double).
 INT64_MIN = -(2 ** 63)
 INT64_MAX = 2 ** 63 - 1
 
@@ -141,9 +148,10 @@ def validate_call(op_id, args, op_table):
     for i, (a, t) in enumerate(zip(args, arg_types)):
         validator = _TYPE_VALIDATORS.get(t)
         if validator is None:
-            # Defensive: V1 ships int64 only, so a declared type with no validator
-            # means the registry advertised a type the boundary cannot enforce.
-            # Fail loudly rather than letting an unvalidated arg cross.
+            # Defensive: the closed value model ships int64 / finite double only,
+            # so a declared type with no validator means the registry advertised a
+            # type the boundary cannot enforce. Fail loudly rather than letting an
+            # unvalidated arg cross.
             raise ValueError(
                 f"operation {op_id!r} argument {i} has unsupported declared type "
                 f"{t!r}; this build validates: {sorted(_TYPE_VALIDATORS)}")
@@ -169,6 +177,16 @@ def validate_call(op_id, args, op_table):
         if parts > PARTS_MAX:
             raise ValueError(f"operation 'fanout_sum' argument 1 (parts) must be "
                              f"<= {PARTS_MAX}, got {parts}")
+    # park_ms(ms): the parked/cooperative-wait diagnostic. 0 <= ms <= PARK_MS_MAX
+    # (the strict int/bool/int64-range handling above is the generic validator;
+    # these are the domain bounds, mirroring the native re-check).
+    if op_id == "park_ms":
+        if out[0] < 0:
+            raise ValueError(f"operation 'park_ms' argument 0 (ms) must be >= 0, "
+                             f"got {out[0]}")
+        if out[0] > PARK_MS_MAX:
+            raise ValueError(f"operation 'park_ms' argument 0 (ms) must be <= "
+                             f"{PARK_MS_MAX}, got {out[0]}")
     return out
 
 
@@ -222,8 +240,10 @@ def validate_actor_call(actor_type, method_id, args, actor_table):
     ``actor_table`` is as in :func:`validate_actor_create`. Unknown actor type ->
     ``ValueError``; unknown method -> ``ValueError``; wrong method arity ->
     ``ValueError``; a method arg of the wrong Python type (``bool`` rejected) ->
-    ``TypeError``; an ``int64`` arg out of range -> ``ValueError``. Returns the
-    validated method args for the native marshaller."""
+    ``TypeError``; an ``int64`` arg out of range -> ``ValueError``. A per-method
+    argument-domain check rejects a negative ``busy_get`` ``work_n`` (``ValueError``),
+    mirroring the op-level ``busy_sum`` ``n >= 0`` guard in :func:`validate_call`.
+    Returns the validated method args for the native marshaller."""
     if not isinstance(actor_type, str):
         raise TypeError(f"actor_type must be str, got {type(actor_type).__name__}")
     if not isinstance(method_id, str):
@@ -238,7 +258,13 @@ def validate_actor_call(actor_type, method_id, args, actor_table):
             f"unknown method {method_id!r} for actor type {actor_type!r}; "
             f"registered methods: {sorted(methods)}")
     arg_types = methods[method_id]["arg_types"]
-    return _validate_typed_args(f"method {method_id!r}", args, arg_types)
+    out = _validate_typed_args(f"method {method_id!r}", args, arg_types)
+    # Per-method argument-domain check (mirror the op-level busy_sum guard in
+    # validate_call): busy_get's synthetic on-core work count must be non-negative.
+    if method_id == "busy_get" and out[0] < 0:
+        raise ValueError(f"method 'busy_get' argument 0 (work_n) must be >= 0, "
+                         f"got {out[0]}")
+    return out
 
 
 def validate_timeout(timeout):
