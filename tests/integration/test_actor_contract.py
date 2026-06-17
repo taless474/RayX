@@ -604,3 +604,169 @@ def test_lane_stats_excludes_actor_lanes():
         stats = rt.lane_stats()
         assert len(stats) == 2
         assert all(s["actor_id"].startswith("rt-hpx-") for s in stats)
+
+
+# --- Runtime.release_actor: explicit local actor lifecycle -------------------
+#
+# release_actor(actor) is shutdown()'s actor teardown scoped to ONE actor:
+# synchronous and bounded (cancel queued calls; ask an in-flight checkpointed
+# method to stop at its next boundary; drain; join; only then drop the native
+# state). Strict lifecycle: call/stats/second release on a released handle all
+# raise RuntimeError. LOCAL explicit release only -- not ray.kill, no
+# distributed ownership, no refcounting, no GC lifecycle. As everywhere in this
+# module: stats/wait_until gating instead of sleeps, no timing assertions, and
+# no exact completed-vs-cancelled split asserted for in-flight work.
+
+
+def test_release_idle_actor_returns_none():
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        assert c.call("add", 1).result().value == 1
+        assert rt.release_actor(c) is None
+
+
+def test_call_after_release_raises():
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        rt.release_actor(c)
+        with pytest.raises(RuntimeError, match="released"):
+            c.call("get")
+
+
+def test_stats_after_release_raises():
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        rt.release_actor(c)
+        with pytest.raises(RuntimeError, match="released"):
+            c.stats()
+
+
+def test_double_release_raises():
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        rt.release_actor(c)
+        with pytest.raises(RuntimeError, match="already released"):
+            rt.release_actor(c)
+
+
+def test_release_non_handle_raises_type_error():
+    with Runtime() as rt:
+        with pytest.raises(TypeError):
+            rt.release_actor("rt-act-0123456789abcdef")
+
+
+def test_release_after_runtime_shutdown_raises():
+    rt = Runtime()
+    c = rt.create_actor("counter", 0)
+    rt.shutdown()
+    with pytest.raises(RuntimeError, match="shut down"):
+        rt.release_actor(c)
+
+
+def test_release_then_runtime_shutdown_clean():
+    rt = Runtime()
+    c = rt.create_actor("counter", 0)
+    rt.release_actor(c)
+    rt.shutdown()  # must not hang or raise; actor record is already gone
+    with Runtime() as rt2:  # process guard released cleanly
+        assert rt2.create_actor("counter", 0).call("get").result().value == 0
+
+
+def test_unretired_completed_future_retirable_after_release(wait_until):
+    # A future whose work completed BEFORE release must still retire normally
+    # after release (release resolves/affects nothing already fulfilled).
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        f = c.call("add", 7)
+        ready, _ = rt.wait([f], num_returns=1)  # fulfilled, not retired
+        assert f in ready
+        rt.release_actor(c)
+        res = f.result()
+        assert res.row["status"] == "completed"
+        assert res.value == 7
+
+
+def test_release_cancels_queued_calls_behind_active_busy_get(wait_until):
+    """Queued calls at release retire cancelled; every future resolves.
+
+    Stats gating proves the busy_get occupies the service slot, so the adds
+    behind it are provably QUEUED when release_actor runs: release must cancel
+    them (status="cancelled", value raises). The occupant itself is in-flight
+    checkpointed work whose completed-vs-cancelled outcome is timing-dependent
+    and deliberately NOT pinned (same honest scope as the shutdown tests).
+    """
+    with Runtime(num_lanes=1, hpx_threads=2) as rt:
+        c = rt.create_actor("counter", 0)
+        big = c.call("busy_get", _BIG_BUSY_GET_N)
+        wait_until(lambda: c.stats()["active"], where="busy_get active")
+        queued = [c.call("add", 1) for _ in range(3)]
+        assert c.stats()["queue_depth"] == 3
+        rt.release_actor(c)  # blocks until the lane drained and joined
+        for f in queued:
+            res = f.result()
+            assert res.row["status"] == "cancelled"
+            with pytest.raises(OperationCancelledError):
+                _ = res.value
+        st = big.result().row["status"]
+        assert st in ("completed", "cancelled")
+
+
+def test_release_with_active_busy_get_terminal(wait_until):
+    """Release returns only after the in-flight method is terminal.
+
+    Once release_actor returns, the lane worker has joined, so the occupant's
+    future is necessarily fulfilled -- ready without any further wait, with a
+    valid terminal row (cancelled at a checkpoint boundary on the overwhelmingly
+    exercised path, completed if it raced the final chunk; never pinned).
+    """
+    with Runtime(num_lanes=1, hpx_threads=2) as rt:
+        c = rt.create_actor("counter", 0)
+        big = c.call("busy_get", _BIG_BUSY_GET_N)
+        wait_until(lambda: c.stats()["active"], where="busy_get active")
+        rt.release_actor(c)
+        assert big.ready()  # worker joined => promise already fulfilled
+        res = big.result()
+        st = res.row["status"]
+        assert st in ("completed", "cancelled")
+        if st == "cancelled":
+            with pytest.raises(OperationCancelledError):
+                _ = res.value
+        else:
+            assert isinstance(res.value, int)
+
+
+def test_release_one_actor_leaves_other_unaffected():
+    with Runtime() as rt:
+        a = rt.create_actor("counter", 0)
+        b = rt.create_actor("counter", 100)
+        a.call("add", 1).result()
+        b.call("add", 5).result()
+        rt.release_actor(a)
+        # b's state and lane are untouched by a's release.
+        assert b.call("get").result().value == 105
+        assert b.stats()["active"] is False
+        with pytest.raises(RuntimeError, match="released"):
+            a.call("get")
+
+
+def test_released_rows_keep_actor_id():
+    # Rows are stamped with the lane's rt-act- id at task build time (string
+    # copies); release frees the lane/state but never mutates produced rows.
+    with Runtime() as rt:
+        c = rt.create_actor("counter", 0)
+        aid = c.actor_id
+        res_before = c.call("add", 1).result()
+        f_unretired = c.call("get")
+        rt.release_actor(c)
+        assert res_before.row["actor_id"] == aid
+        assert ACTOR_ID_RE.fullmatch(res_before.row["actor_id"])
+        assert f_unretired.result().row["actor_id"] == aid
+
+
+def test_lane_stats_op_lanes_only_after_release():
+    with Runtime(num_lanes=2) as rt:
+        c = rt.create_actor("counter", 0)
+        rt.release_actor(c)
+        stats = rt.lane_stats()
+        assert len(stats) == 2
+        assert all(s["actor_id"].startswith("rt-hpx-") for s in stats)

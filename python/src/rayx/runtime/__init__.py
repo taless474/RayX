@@ -243,12 +243,16 @@ class ActorHandle:
     actor handle: no object store, no ``.remote()``, no arbitrary Python methods.
     """
 
-    __slots__ = ("_runtime", "_actor_id", "_actor_type")
+    __slots__ = ("_runtime", "_actor_id", "_actor_type", "_released")
 
     def __init__(self, runtime, actor_id, actor_type):
         self._runtime = runtime
         self._actor_id = actor_id
         self._actor_type = actor_type
+        # Set (only) by Runtime.release_actor. Python aliases reference this
+        # same handle object, so every alias sees the released state -- there is
+        # deliberately NO handle refcounting and no ownership graph.
+        self._released = False
 
     @property
     def actor_id(self):
@@ -278,10 +282,14 @@ class ActorHandle:
         any JSONL schema. ``Runtime.lane_stats()`` remains **op-lanes-only**;
         actor lanes are visible only through this per-handle snapshot. Raises
         ``RuntimeError`` if the owning runtime is shut down (consistent with
-        :meth:`call`).
+        :meth:`call`) or if this actor was released via
+        :meth:`Runtime.release_actor` (no zombie observability).
         """
         if self._runtime._closed:
             raise RuntimeError("Runtime is shut down")
+        if self._released:
+            raise RuntimeError(
+                "actor has been released; stats() is no longer available")
         return self._runtime._engine.actor_stats(self._actor_id)
 
     def call(self, method_id, *args):
@@ -296,10 +304,14 @@ class ActorHandle:
         the call raise :class:`QueueFullError`. The returned future is an ordinary
         :class:`RuntimeFuture` (FIFO per actor; cancelable -- queued always; the MVP
         methods are instantaneous, so running-cancel does not apply). Raises if the
-        owning runtime is shut down.
+        owning runtime is shut down, or ``RuntimeError`` if this actor was
+        released via :meth:`Runtime.release_actor`.
         """
         if self._runtime._closed:
             raise RuntimeError("Runtime is shut down")
+        if self._released:
+            raise RuntimeError(
+                "actor has been released; no further method calls are possible")
         validated = validate_actor_call(self._actor_type, method_id, args,
                                         _ACTOR_TABLE)
         submit_ns = time.perf_counter_ns()
@@ -413,8 +425,8 @@ class Runtime:
         itself returns **no** future / row -- it builds the actor's native state and
         its dedicated HPX-native FIFO lane and returns a handle whose
         :meth:`ActorHandle.call` dispatches registered methods (each returning an
-        ordinary :class:`RuntimeFuture`). The actor lives for the runtime's lifetime
-        (there is no per-actor release in this slice) and is torn down at
+        ordinary :class:`RuntimeFuture`). The actor lives until it is explicitly
+        released via :meth:`release_actor` or the runtime is torn down at
         :meth:`shutdown`. It is **not** a Ray actor: no object store, no ``.remote()``,
         no arbitrary Python methods.
         """
@@ -423,6 +435,46 @@ class Runtime:
         validated = validate_actor_create(actor_type, args, _ACTOR_TABLE)
         actor_id = self._engine.create_actor(actor_type, validated)
         return ActorHandle(self, actor_id, actor_type)
+
+    def release_actor(self, actor):
+        """Release one local native actor; blocks until its lane drains. -> None
+
+        ``actor`` is the :class:`ActorHandle` returned by :meth:`create_actor`
+        (a non-handle raises ``TypeError``). Release is **synchronous and
+        bounded**, mirroring :meth:`shutdown`'s cancel-then-drain scoped to one
+        actor: queued method calls are **cancelled** (their rows retire
+        ``status="cancelled"``; ``.value`` raises
+        :class:`OperationCancelledError`), an in-flight **checkpointed** method
+        (``busy_get``) is asked to stop at its **next chunk boundary** -- so
+        release blocks for at most one checkpoint stride, never a full call --
+        and an in-flight **instantaneous** method simply completes. **Every**
+        outstanding future still resolves (no broken promises) and remains
+        retirable via ``result()`` / :meth:`get` / :meth:`wait` after release;
+        already-retired :class:`OperationResult` rows are untouched and keep
+        their stamped ``rt-act-`` id. The actor's native state and dedicated
+        lane are freed only after the lane worker joins.
+
+        After release the handle is dead: :meth:`ActorHandle.call` and
+        :meth:`ActorHandle.stats` raise ``RuntimeError``, and a second
+        ``release_actor`` on the same handle raises ``RuntimeError`` (strict,
+        like the consume-once ``result()`` -- a double release usually
+        indicates a bug). Raises ``RuntimeError`` if the runtime is already
+        shut down; a later :meth:`shutdown` after release is unaffected.
+
+        This is **local explicit release only**: not ``ray.kill``, no
+        distributed ownership, no handle refcounting, no GC/destructor
+        lifecycle, no named actors, no all-actors enumeration.
+        """
+        if self._closed:
+            raise RuntimeError("Runtime is shut down")
+        if not isinstance(actor, ActorHandle):
+            raise TypeError(
+                "release_actor() requires an ActorHandle, got "
+                f"{type(actor).__name__}")
+        if actor._released:
+            raise RuntimeError("actor already released")
+        self._engine.release_actor(actor._actor_id)
+        actor._released = True
 
     def wait(self, futures, num_returns=1, timeout=None):
         """Partition ``futures`` into ``(ready, not_ready)`` by readiness.

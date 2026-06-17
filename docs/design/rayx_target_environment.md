@@ -103,7 +103,8 @@ support.
 same snapshot for actor lanes (internal audit notes §9), because it is what
 unlocks deterministic actor tests (queue-full, running-cancel, teardown
 assertions); since shipped as `ActorHandle.stats()` — followed by actor
-lifecycle (`release_actor`) and the extension SDK (§7, §8).
+lifecycle (since shipped as `Runtime.release_actor`: explicit, local, bounded
+cancel-then-drain release of one actor) and the extension SDK (§7, §8).
 
 ## 5. What RayX explicitly does not provide
 
@@ -147,10 +148,11 @@ the call site.
   sweep (including the `Engine` constructor exception-safety fix); one
   cooperative parked-op demo so the runtime demonstrates HPX's overlap value
   itself. This is the accepted roadmap from the internal audit notes (§9).
-* **Stage 1 — actor lifecycle.** `release_actor` (stop/join the lane, resolve
-  outstanding futures, free state), a many-actors stress test, and a per-actor
-  admission cap knob — what makes "an actor per simulator/instrument" a sane
-  pattern instead of a thread leak.
+* **Stage 1 — actor lifecycle.** `release_actor` (since shipped as
+  `Runtime.release_actor`: stop/join the lane, resolve outstanding futures,
+  free state — explicit and local only); still open: a many-actors stress test
+  and a per-actor admission cap knob — what makes "an actor per
+  simulator/instrument" a sane pattern instead of a thread leak.
 * **Stage 2 — native extension SDK.** Let a downstream C++ project register
   its own typed ops/actor types against the existing contract (`OpArgs`,
   `OpOutcome`, `StopCheckpoint`, typed signatures, checkpoint counts) and build

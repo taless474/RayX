@@ -91,9 +91,21 @@ distinct), see the reading guide `docs/reference/hpxlane_backend_arc.md`.
   HPX-native serving-control layer and compare it against a Ray actor-style
   serving-control baseline. The model backend stays opaque. This is the main
   direction of the project.
-* **Future optional path — A: HPX inside a Ray actor.** Running an HPX runtime
-  inside a C++ Ray actor to accelerate that actor's own compute is a feasible
-  integration path, but it is not the primary path now.
+* **Future optional path — A: a Ray actor hosting RayX.** Letting Ray own outer
+  placement/lifecycle while a RayX runtime owns fine-grained local execution
+  inside the actor. Two **Python `@ray.remote`** forms now exist as
+  smoke-validated prototypes: hosting one long-lived **`rayx.Engine`**
+  (`bench/run_ray_hosting_rayx.py`; `experiments/27_ray_hosting_rayx_engine/`,
+  which adds an observation-only boundary decomposition) and hosting one
+  **`rayx.runtime.Runtime`** running a fixed registered native op
+  (`bench/smoke_ray_hosting_rayx_runtime.py`;
+  `experiments/28_ray_hosting_rayx_runtime/`, smoke-only, no timing). Both are
+  **composition feasibility only: observation-only, not a product feature, not a
+  Ray backend or fallback layer, and not a performance result** (the runtime
+  form makes no timing comparison at all). The older, lower-level **C++** Ray
+  actor embedding an HPX runtime remains future and unbuilt. Either way RayX
+  stays narrow (no object store, no distributed semantics) because Ray supplies
+  those from outside; this is not the primary path of the project.
 * **Out of scope — B: replacing Ray Core internals.** Replacing Ray's
   scheduler, transport, or object store with HPX is explicitly out of scope.
 

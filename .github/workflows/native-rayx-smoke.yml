@@ -148,6 +148,24 @@ jobs:
         # above; the pure unit tests (tests/unit) already ran in ci.yml.
         run: pytest tests/integration
 
+      - name: Install Ray (Ray-hosting composition smokes only)
+        # Ray core only (requirements.txt pins ray==2.55.1; no Serve, no
+        # dashboard). Installed late -- after _rayx is built -- so the wheel is
+        # only paid on a green build path. No other CI step imports ray.
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Ray-hosting composition smokes
+        # Structural/lifecycle smokes for a Ray actor hosting one in-process RayX
+        # Engine / rayx.runtime.Runtime: composition + process-singleton guard +
+        # distinct lane ids + clean shutdown. NOT benchmarks -- no timing, no
+        # JSONL, no performance drivers, and NOT the exp29 multi-actor resource
+        # diagnostic (those stay manual). This native job is the only one that
+        # builds _rayx, so it is the only appropriate CI place to execute these;
+        # each still skips clean (exit 0) if ray or _rayx is missing.
+        run: |
+          python bench/smoke_ray_hosting_rayx.py
+          python bench/smoke_ray_hosting_rayx_runtime.py
+
       - name: Run rayx driver retire-mode smoke (one_by_one + batch_wait)
         # Exercises the Python driver's FIFO (one_by_one) and as-completed
         # (batch_wait, via Engine.wait) retire loops end to end, and checks the

@@ -34,8 +34,11 @@ experimental.
 
 **Still out (unchanged limitations):** local-only; a fixed native actor
 type/method registry (no arbitrary Python methods, no dynamic registration); no
-`.remote()`; no Python object state; no `ObjectRef` / object store; no `release()`
-/ `kill()`; no actor lanes in `Runtime.lane_stats()` (it stays **op-lanes-only**;
+`.remote()`; no Python object state; no `ObjectRef` / object store; no `kill()`
+and no GC/refcount/destructor lifecycle (explicit **local** release now exists —
+`Runtime.release_actor(actor)`, see the lifecycle contract below; it is not
+`ray.kill` and carries no distributed-ownership semantics); no actor lanes in
+`Runtime.lane_stats()` (it stays **op-lanes-only**;
 per-actor observability is only the per-handle `ActorHandle.stats()` snapshot, with
 no all-actors enumeration and no counters); no running-cancel of state
 *mutation* (`add` / `get` / `reset` are atomic, queued-cancel only; the C5
@@ -263,12 +266,21 @@ external Python thread, this slice has an explicit lifecycle contract:
      worker has joined, so no in-flight body can touch freed state).
 * **Do not release actors after `stop_process_hpx()`.** Once HPX is stopped, no
   lane lock / join is valid.
-* **First slice has runtime-lifetime actors only.** There is no `release()` /
-  `kill()`; all actor lanes are torn down as part of `Runtime.shutdown()`, inside
-  the same GIL-released `hpx::run_as_hpx_thread` hop that already cancels + drains
-  the op lanes (extended to iterate the actor map first).
-* **If a future `release()` / `kill()` is added, it must use the same
-  HPX-thread-hop lifecycle discipline** (steps 1→2→3 above, while HPX is up).
+* **Actors live until explicitly released or the runtime shuts down.** The
+  first slice had runtime-lifetime actors only; `Runtime.release_actor(actor)`
+  has since been added as the explicit **local** release: `shutdown()`'s actor
+  teardown scoped to one record, following exactly steps 1→2→3 above inside one
+  GIL-released `hpx::run_as_hpx_thread` hop while HPX is up. Synchronous and
+  **bounded by one checkpoint stride** — queued method calls cancel, an
+  in-flight checkpointed method stops at its next boundary, an in-flight
+  instantaneous method completes, **every** outstanding future still resolves
+  (and stays retirable afterwards), and the record (lane +
+  `shared_ptr<ActorState>`) is erased only after the worker joins. Strict
+  afterwards: `call` / `stats` / a second release on the handle raise
+  `RuntimeError`; rows already produced keep their stamped `rt-act-` id. Not
+  `ray.kill`, no distributed ownership, no handle refcounting, no GC/destructor
+  lifecycle. Remaining actors are still torn down by `Runtime.shutdown()`
+  (unchanged, inside the same hop that cancels + drains the op lanes).
 * **Partial construction failure must not leave a joinable `hpx::thread` behind.**
   If `create_actor` fails after the lane's worker exists, it must stop/join that
   lane (same HPX-thread hop) before unwinding — a joinable `hpx::thread` destroyed

@@ -22,3 +22,14 @@ target_link_libraries(hpx_lane_feasibility PRIVATE HPX::hpx HPX::wrap_main)
 # preserved/relaxed/n-a. NOT part of the serving-control benchmark corpus.
 add_executable(hpx_task_dataflow_probe hpx_task_dataflow_probe.cpp)
 target_link_libraries(hpx_task_dataflow_probe PRIVATE HPX::hpx HPX::wrap_main)
+
+# rayx.runtime dispatch-decomposition probe (experiments/25). Standalone
+# diagnostic: includes the experimental runtime headers from python/src/rayx
+# READ-ONLY and UNMODIFIED (RuntimeLane + op registries; no pybind, no _rayx)
+# to decompose per-op dispatch cost and estimate the nested
+# hpx::async(...).get() overhead inside the lane worker. Observation-only; NOT
+# part of the benchmark corpus, NOT the v1 JSONL schema, no performance verdict.
+add_executable(rayx_runtime_dispatch_probe rayx_runtime_dispatch_probe.cpp)
+target_include_directories(rayx_runtime_dispatch_probe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../python/src/rayx)
+target_link_libraries(rayx_runtime_dispatch_probe PRIVATE HPX::hpx HPX::wrap_main)

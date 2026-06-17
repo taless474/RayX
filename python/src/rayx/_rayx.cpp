@@ -1453,6 +1453,48 @@ public:
         return d;
     }
 
+    // Release ONE local native actor: shutdown()'s actor teardown scoped to a
+    // single record, same fixed order while HPX is still running (the design
+    // note's lifecycle contract, steps 1->2->3):
+    //
+    //   1. find the record while the runtime is running. Unknown actor_id ->
+    //      std::invalid_argument -> Python ValueError: the raw-bypass backstop
+    //      (the facade's released-handle flag raises its clearer RuntimeError
+    //      before this is ever reached on the public path).
+    //   2. ONE GIL-released hpx::run_as_hpx_thread hop: cancel_pending() (every
+    //      queued method call cancels now -- the worker pops-and-skips it; an
+    //      in-flight checkpointed method is asked to stop at its NEXT chunk
+    //      boundary; an in-flight instantaneous method just completes), then
+    //      stop_and_join() (drains, fulfilling EVERY promise -- no broken
+    //      future; bounded by one checkpoint stride, never a full op). The GIL
+    //      is released because the drain may block on a boundary; no Python
+    //      object is touched inside the hop. Synchronous by design: when this
+    //      returns, the actor lane worker has joined.
+    //   3. only AFTER the worker joined, erase the record -- dropping the
+    //      shared_ptr<ActorState> (an in-flight body held its own copy) and the
+    //      joined lane. Rows already produced keep their stamped rt-act- id
+    //      (ids are string copies in each row; nothing here mutates them).
+    //
+    // Single-driver assumption as everywhere else in this engine: no map lock;
+    // concurrent release/call/stats/shutdown from multiple Python threads is
+    // not supported and not claimed. This is LOCAL explicit release only -- not
+    // ray.kill, no distributed ownership, no refcounting, no GC hook.
+    void release_actor(const std::string& actor_id) {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        auto it = actors_.find(actor_id);
+        if (it == actors_.end())
+            throw std::invalid_argument("unknown actor_id: " + actor_id);
+        rayx_runtime::RuntimeLane& lane = *it->second.lane;
+        {
+            py::gil_scoped_release release;
+            hpx::run_as_hpx_thread([&lane]() {
+                lane.cancel_pending();
+                lane.stop_and_join();
+            });
+        }
+        actors_.erase(it);  // state dropped only after the worker joined
+    }
+
     void shutdown() {
         if (!running_) return;
         running_ = false;
@@ -1668,6 +1710,16 @@ PYBIND11_MODULE(_rayx, m) {
              "ValueError on an unknown actor_id. lane_stats() stays "
              "op-lanes-only. Not scheduler state, not placement control, not "
              "part of any JSONL schema.")
+        .def("release_actor", &RuntimeEngine::release_actor,
+             py::arg("actor_id"),
+             "Release ONE local native actor: cancel its queued method calls, "
+             "ask an in-flight checkpointed method to stop at its next "
+             "boundary, drain its dedicated lane (every outstanding future "
+             "still resolves), join the lane worker, then drop the native "
+             "state. Synchronous and bounded by one checkpoint stride. Raises "
+             "RuntimeError if the runtime is shut down, ValueError on an "
+             "unknown actor_id. Local explicit release only -- not ray.kill, "
+             "no distributed ownership, no refcounting.")
         .def("shutdown", &RuntimeEngine::shutdown);
 
     m.def("runtime_op_table", []() {

@@ -68,8 +68,13 @@ Use these as durable interpretation constraints unless new evidence changes them
 * `rayx.runtime` is a separate experimental subpackage for fixed registered native work over HPX-native FIFO `RuntimeLane`s. Registered native operations currently include `square`, `add`, `boom`, `busy_sum`, `fanout_sum`, `scale_double`, and `park_ms`; the closed value model is `int64` / `double`. Runtime operation-lane ids use `rt-hpx-<16 lowercase hex>`.
 * `park_ms(ms)` is synthetic cooperative PARKED work (chunked `hpx::this_thread::sleep_for`, capped at 60 s, cancellable at chunk boundaries) — the parked-wait analog of the CPU-bound `busy_sum` diagnostic. It is not real I/O, not inference, and carries no performance claim; park-related tests are structural/stats-gated and never assert wall-clock values.
 * `rayx.runtime` also includes an experimental local native actor MVP: `Runtime.create_actor("counter", initial)` returns an `ActorHandle`, and `ActorHandle.call("add" / "get" / "reset", ...)` dispatches fixed registered native methods on a native `CounterActor`. Actor method calls return the existing `RuntimeFuture` / `OperationResult` path and work with `get` / `wait` / `as_completed`. Actor lane ids use `rt-act-<16 lowercase hex>`.
+* `Runtime.release_actor(actor)` is explicit local native actor release: it is not `ray.kill`, not refcounting, and not GC lifecycle. Release cancels queued/pending actor work, drains/joins the actor lane so outstanding futures still reach a terminal/retirable state, and after release `ActorHandle.call()` / `stats()` / double release raise. `Runtime.shutdown()` still tears down remaining runtime-owned native state.
 * `ActorHandle.stats()` is a non-consuming, point-in-time, racy per-actor debug snapshot (`{actor_id, queue_depth, active}`; the in-service call is not counted in `queue_depth`) for debugging/test-gating only — not scheduler state, not placement control, not a synchronization primitive, and no counters / `actor_type` field / all-actors enumeration. `Runtime.lane_stats()` remains op-lanes-only.
 * `rayx.runtime` still has no `ObjectRef`, no object store, no arbitrary Python callables, no HPX actions/components, no distributed locality, no module-level `rayx.get` / `rayx.wait`, no `.remote()` actor API, no `Runtime.lane_impl`, and no performance claim.
+* Runtime evidence packages stay observation-only: exp24 demonstrates structural parked-overlap behavior for `park_ms`; exp25 prices the nested `hpx::async(...).get()` dispatch shape with a standalone probe; exp26 exercises create/use/release/shutdown/reinit actor lifecycle at scale. Do not turn these into performance, capacity, or production-sizing claims.
+* Ray-hosting experiments 27–29 are composition prototypes: a long-lived Ray actor hosts one in-process RayX `Engine` or `Runtime` because the HPX runtime/process guard is process-global. Ray owns outer actor placement/lifecycle; RayX owns local HPX-backed execution; RayX futures are retired inside the Ray actor and only plain rows/results cross the Ray boundary. This is not a Ray backend, fallback layer, object-store integration, or Ray compatibility API.
+* In the Ray-hosting arc, exp27 is Engine boundary decomposition (observation-only), exp28 is Runtime composition smoke-only (no JSONL/timing/perf), and exp29 is a multi-actor resource-budget diagnostic (observation-only). For exp29, `lane_impl="std"` / `ServiceLane` active CPU-bound demand is driven by concurrently active lanes (`num_lanes`), not `hpx_threads`, and can exceed `hpx_threads`; `lane_impl="hpx"` / `HpxLane` demand is bounded differently by HPX workers, roughly `min(num_lanes, hpx_threads)` under the exp22 spin observation. Ray `num_cpus` is logical scheduling/accounting, not physical core pinning.
+* Multiple Ray-hosted actors mean multiple independent HPX runtimes that do not coordinate core ownership. The more HPX-native long-term direction would be one coordinated HPX runtime with resource partitioning, thread pools, and executors; Ray-hosting deliberately trades that away because Ray owns placement/lifecycle. Do not present the Ray actor-pool / round-robin shape as HPX-native guidance.
 * The HpxLane evidence arc is exp16 (native single-lane feasibility/timer behavior) → exp20 (task/dataflow pools are *not* drop-in RayX lane backends) → exp21 (RayX backend contract parity) → exp22 (load-divergence mechanism, observation-only) → exp23 (adapter-hop cost, observation-only). See `docs/reference/hpxlane_backend_arc.md` for the consolidated reading guide.
 * exp22/exp23 timings (and the spin divergence) are observation-only and machine-specific: do not use them as performance claims, and do not state an "HpxLane is faster/slower than ServiceLane" verdict.
 * Synthetic service timing should not be described as real inference work.
@@ -82,7 +87,8 @@ Use these as durable interpretation constraints unless new evidence changes them
 * `docs/design/`: exploratory runtime design notes; do not treat these as stable shipped reference docs unless explicitly promoted.
 * `bench/`: benchmark drivers, analyzers, smoke/contract checks, and shared helpers.
 * `ray_impl/`: Ray baseline implementation code.
-* `hpx_impl/`: HPX-native baseline implementation code.
+* `hpx_impl/`: HPX-native baseline implementation code and native diagnostic probes.
+* `hpx_impl/rayx_runtime_dispatch_probe.cpp`: standalone exp25 diagnostic target for runtime dispatch decomposition; observation-only, not a benchmark corpus path.
 * `python/src/rayx/runtime/`: experimental `rayx.runtime` Python API plus import-light validation/error helpers.
 * `python/src/rayx/runtime_ops.hpp`: fixed registered native operation registry and typed value model for `rayx.runtime`.
 * `python/src/rayx/runtime_ops_hpx.hpp`: HPX-side registered runtime operations, including internal HPX composition.
@@ -256,6 +262,9 @@ For the runtime test split:
 * runtime unit tests include import-light operation and actor validation.
 * runtime integration tests include native runtime and local actor contract coverage.
 * do not run runtime integration tests or runtime smokes in repo-sanity.
+* Ray-hosting smokes may live only in a native/Ray-capable smoke tier when Ray and built `_rayx` are available and they skip cleanly otherwise.
+* Do not run Ray-hosting performance drivers or exp29 resource diagnostics in normal CI.
+* The exp25 C++ dispatch probe build is an optional native/HPX validation target, not a repo-sanity requirement.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 

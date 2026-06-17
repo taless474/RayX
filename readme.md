@@ -212,14 +212,21 @@ registered surface is: operations `square` / `add` / `boom` / `busy_sum` /
 parked-wait diagnostic work; no performance claim), and `counter` actor methods
 `add` / `get` / `reset` / the read-only checkpointed `busy_get`, with
 `ActorHandle.stats()` as a non-consuming per-actor debug/test-gating snapshot
-(not Ray, no object store / `ObjectRef`, no arbitrary remote Python, no
-`.remote()` actor API).
+and `Runtime.release_actor(actor)` as explicit local actor release (bounded
+cancel-then-drain of one actor's lane; every outstanding future still resolves;
+not `ray.kill`, no refcounting or GC lifecycle) (not Ray, no object store /
+`ObjectRef`, no arbitrary remote Python, no `.remote()` actor API).
 
 To run the available local smoke/golden gates in one step, use the stdlib-only
 aggregator [bench/smoke_local.py](bench/smoke_local.py): `python
 bench/smoke_local.py` runs the checks that apply on your machine and skips any
 unavailable optional tier (no built `_rayx`, no native binary, no Ray). It is a
-validation helper, not a benchmark.
+validation helper, not a benchmark. In CI the repo-sanity job syntax-checks
+`bench/*.py` and `experiments/*/run_*.py`, while the native job covers the
+`_rayx` runtime smokes/tests and the native HPX targets; the Ray-hosting smokes
+are **not** executed in CI (Ray is not installed there) and are skip-clean,
+manual validation — Ray-hosting performance/resource diagnostics are
+intentionally not normal CI gates.
 
 The native HPX baseline also accepts an opt-in `--diag` flag that writes a
 separate `<out>.diag.json` (schema `diag-1`) decomposing per-request latency
@@ -252,10 +259,16 @@ Source: [benchmarks/06_rayx_python_frontend_comparison/rayx_python_frontend_comp
 ## Documentation map
 
 Framing/reference docs live under `docs/` (with `docs/reference/` for the API
-notes); result notes live under `benchmarks/` and `experiments/<name>/`. New
-here? Start with the docs below, then open the **Detailed evidence index** at the
-end for the full per-run notes — every benchmark/experiment link is preserved
-there.
+notes); result notes live under `benchmarks/` and `experiments/<name>/`. The
+three top-level code/evidence trees are distinct: `bench/` holds the runnable
+harness code (drivers, smokes, analyzers, shared helpers), `benchmarks/` holds
+the formal benchmark write-ups/evidence, and `experiments/` holds investigative
+write-ups / curated evidence packages — some experiments ship a local
+`run_*.py` runner, while others reuse a shared driver in `bench/`. New
+here? Start with the docs below, then open the **Detailed harness evidence
+index** at the end for the full per-run notes — every harness
+benchmark/experiment link is preserved there (the `rayx.runtime` experiment is
+linked from its workstream section above).
 
 ### Start here
 
@@ -291,8 +304,32 @@ locality). Runnable tour: [examples/rayx_runtime_basic.py](examples/rayx_runtime
 * [docs/design/rayx_runtime_phase1_summary.md](docs/design/rayx_runtime_phase1_summary.md) — a concise, stable summary of the completed Phase 1 milestone (commit `9143d2d`): what was added, why the runtime is kept separate from the synthetic harness, the HPX relationship, the intentional non-goals, and the tests/CI that protect it.
 * [docs/design/rayx_runtime_internal_composition_note.md](docs/design/rayx_runtime_internal_composition_note.md) — the design rationale for internal HPX composition under one public runtime future/row, now represented by the registered native `fanout_sum` operation; it exposes no child futures/rows or new Python surface, is separate from actors and any future public composition fork, and makes no performance claim.
 * [docs/design/rayx_runtime_value_model.md](docs/design/rayx_runtime_value_model.md) — the design rationale for the closed, typed runtime value model, now implemented for `int64` and strict finite `double` values with typed registry signatures and boundary validation; bounded `bytes` remains deferred, and the value/row split is preserved with no `ObjectRef`/object store, no arbitrary Python/pickle, no schema change, and no performance claim.
-* [docs/design/rayx_runtime_local_native_actors.md](docs/design/rayx_runtime_local_native_actors.md) — the design note for local stateful native actors, now **implemented as an experimental MVP** (`Runtime.create_actor("counter", initial)` / `ActorHandle.call("add" | "get" | "reset" | "busy_get", ...)`, plus the non-consuming `ActorHandle.stats()` per-actor debug/test-gating snapshot): fixed registered actor types (a native `CounterActor`) with registered native methods — including the read-only checkpointed `busy_get` — over a dedicated per-actor HPX-native FIFO lane, reusing the existing `RuntimeFuture` / value+row model and the exact 9-field row (`rt-act-` ids); weighs the lane vs `.then`-chain vs `async_rw_mutex` HPX mechanisms and pins the dynamic-lane lifecycle and one-at-a-time state-race-freedom contracts; explicitly local-only native state, no arbitrary Python methods, no `ObjectRef`/object store, no HPX actions/components/localities, no schema change, and no performance claim.
+* [docs/design/rayx_runtime_local_native_actors.md](docs/design/rayx_runtime_local_native_actors.md) — the design note for local stateful native actors, now **implemented as an experimental MVP** (`Runtime.create_actor("counter", initial)` / `ActorHandle.call("add" | "get" | "reset" | "busy_get", ...)`, plus the non-consuming `ActorHandle.stats()` per-actor debug/test-gating snapshot and the explicit local `Runtime.release_actor(actor)` lifecycle — a synchronous, bounded cancel-then-drain release of one actor following the note's teardown contract, not `ray.kill` and with no refcount/GC semantics): fixed registered actor types (a native `CounterActor`) with registered native methods — including the read-only checkpointed `busy_get` — over a dedicated per-actor HPX-native FIFO lane, reusing the existing `RuntimeFuture` / value+row model and the exact 9-field row (`rt-act-` ids); weighs the lane vs `.then`-chain vs `async_rw_mutex` HPX mechanisms and pins the dynamic-lane lifecycle and one-at-a-time state-race-freedom contracts; explicitly local-only native state, no arbitrary Python methods, no `ObjectRef`/object store, no HPX actions/components/localities, no schema change, and no performance claim.
 * [docs/design/rayx_target_environment.md](docs/design/rayx_target_environment.md) — the first narrow environment the runtime exploration is aimed at: local native actors with Python control, what RayX would and would not provide there, and why a Ray compatibility shim is rejected.
+* [experiments/24_runtime_parked_overlap/runtime_parked_overlap.md](experiments/24_runtime_parked_overlap/runtime_parked_overlap.md) — learned, from the first `rayx.runtime` experiment package (structural gates first, observation-only timing), that lanes parked in `park_ms` suspend cooperatively and free their HPX worker, so many parked lanes make progress with few worker threads — 32 lanes × 250 ms of requested parked work drains in about one park duration even at `hpx_threads=1` (overlap factor ~29, independent of `hpx_threads`), with every park retiring completed, echoing its requested ms, on its own `rt-hpx-` lane, and lanes idle after drain; a scheduling-mechanism demonstration only — machine-specific, synthetic parked work (not real I/O or inference), no performance verdict and no Ray comparison.
+* [experiments/25_runtime_dispatch_decomposition/runtime_dispatch_decomposition.md](experiments/25_runtime_dispatch_decomposition/runtime_dispatch_decomposition.md) — learned, from a standalone native probe (production runtime headers included read-only; the inline-dispatch lane is a measurement fork only), that the nested `hpx::async(exec_, task).get()` inside the `RuntimeLane` worker prices at roughly 0.3–0.5 µs per op at `hpx_threads=1` and ~0.7–1.1 µs at 2 on this machine — about 40–50% of the ~0.8–2.2 µs no-op-floor per-op lane cost, agreeing across a primitive inline-vs-async pair and a production-vs-fork lane pair, with all structural gates (completion, values, FIFO, id prefixes) passing in both dispatch shapes; pricing evidence for a future, separately-approved keep/remove/named-executor decision on the nested dispatch — approximate deltas, observation-only, machine-specific, three orders below the corpus's ms-scale service, no performance verdict and no Ray comparison.
+* [experiments/26_runtime_many_actors_footprint/runtime_many_actors_footprint.md](experiments/26_runtime_many_actors_footprint/runtime_many_actors_footprint.md) — learned, exercising create→use→release→shutdown→reinit for up to 256 local native actors over the public API (one pristine subprocess per cell; structural gates G1–G7 all passing on every cell), that the lifecycle contract holds at scale and that on this machine the HPX runtime is the fixed cost (~2.4 MB) while actors are marginal — idle per-actor committed footprint reads as ~23–30 KiB (lazily-committed stacks, far below reserved-stack arithmetic) with ~7–11 µs per-actor create/release, and a create→release→create recycling cycle plateaus exactly (wave 2 adds 0.0 MB: pool reuse, not growth) while after-release RSS staying flat matches the pre-registered pooling expectation rather than indicating a leak; best-effort allocator-mediated RSS, observation-only and machine-specific — no capacity claim, no performance verdict, no Ray comparison, and the per-actor cap knob / `async_rw_mutex` alternative remain open questions, with no architecture change motivated by this evidence.
+
+### Ray-hosting composition prototypes (experiments 27–29)
+
+Smallest honest realizations of `docs/ray_hpx_mapping.md`'s "Future optional
+path — A": a long-lived Python `@ray.remote` actor hosts one HPX-backed RayX
+runtime in-process. **Composition, not a Ray backend** — Ray owns outer actor
+placement/lifecycle; RayX owns local HPX-backed execution inside the actor
+process; one RayX runtime per actor process (the HPX runtime is process-global);
+the RayX future is retired inside the actor (no object store, no fallback layer,
+no Ray compatibility API, no `ray.get` wrapper).
+
+The runnable pieces for this arc live under `bench/`, not inside the experiment
+folders (which hold only the `.md` reports): exp27 uses
+`bench/run_ray_hosting_rayx.py`, `bench/run_rayx_baseline.py`, and
+`bench/smoke_ray_hosting_rayx.py`; exp28 uses
+`bench/smoke_ray_hosting_rayx_runtime.py`; exp29 uses
+`bench/run_ray_hosting_rayx_multi.py`.
+
+* [experiments/27_ray_hosting_rayx_engine/ray_hosting_rayx_engine.md](experiments/27_ray_hosting_rayx_engine/ray_hosting_rayx_engine.md) — learned a Ray actor can host one `rayx.Engine` (synthetic sleep) cleanly: it builds the Engine once, retires the RayX future internally, returns plain v1 rows, and a three-leg boundary decomposition lands standalone RayX < pure Ray ≈ Ray-hosted RayX (the Ray boundary dominates, local serving adds modestly) — observation-only and machine-specific, not a speedup and not "HPX beats Ray".
+* [experiments/28_ray_hosting_rayx_runtime/ray_hosting_rayx_runtime.md](experiments/28_ray_hosting_rayx_runtime/ray_hosting_rayx_runtime.md) — learned a Ray actor can host one `rayx.runtime.Runtime` running a fixed registered native op (`square`) cleanly: smoke-only composition + lifecycle (one Runtime per actor process; a second Runtime or `rayx.Engine` in-process is rejected by the shared guard; two actors get distinct `rt-hpx-` lanes), with **no timing, no JSONL, no perf comparison** and explicitly **not** comparable to the synthetic sleep Engine benchmark.
+* [experiments/29_ray_hosting_rayx_multi_oversubscription/ray_hosting_rayx_multi_oversubscription.md](experiments/29_ray_hosting_rayx_multi_oversubscription/ray_hosting_rayx_multi_oversubscription.md) — multi-actor resource budgeting for Ray-hosted `rayx.Engine` (spin diagnostic, observation-only, not a Ray benchmark; measured on the default `lane_impl="std"`): learned the binding resource is concurrently-active CPU-bound lanes vs **physical cores**, not `hpx_threads` — for `std`/`ServiceLane` each lane is a `std::thread`, so active demand is `num_lanes` and can exceed `hpx_threads` (an `hpx_threads` vs `num_cpus` mismatch with `num_lanes=1` left latency flat, the extra HPX worker idle), while tails inflate once active spin lanes exceed cores (Ray `num_cpus` is logical accounting, not a core cap); for `hpx`/`HpxLane` the limiter is instead ≈`min(num_lanes, hpx_threads)` (cf. exp22). Guidance: size `num_cpus_per_actor` to active CPU-bound demand (`max(num_lanes, hpx_threads)` as a conservative std budget), keep Σ active lanes ≤ cores, and over-reserving past total logical CPUs makes Ray leave actors PENDING. The deeper HPX-native note: this runs N uncoordinated per-process HPX runtimes — idiomatic HPX would coordinate cores in one runtime via resource partitioning/executors.
 
 ### Main benchmark arc (benchmarks 01–10)
 
@@ -332,7 +369,7 @@ and uncontended adapter-hop cost [23](experiments/23_rayx_hpxlane_adapter_hop_co
 The exp22/exp23 timings are observation-only and machine-specific — no
 performance and no "HPX faster/slower than ServiceLane" claim.
 
-### Detailed evidence index
+### Detailed harness evidence index (benchmarks 01–10, experiments 01–23)
 
 Full per-run notes, with provenance preserved. Expand a section for the complete
 "what we learned" bullets and links.
@@ -354,7 +391,7 @@ Full per-run notes, with provenance preserved. Expand a section for the complete
 </details>
 
 <details>
-<summary>Experiments 01–23 — full notes</summary>
+<summary>Harness experiments 01–23 — full notes</summary>
 
 * [experiments/01_sleep_overshoot/sleep_overshoot_note.md](experiments/01_sleep_overshoot/sleep_overshoot_note.md) — learned HPX/rayx `sleep_for` carries a stable ~25% proportional service overshoot vs Ray's ~5%, a backend sleep-fidelity gap (not control cost) that must be read separately when comparing cross-engine service/total.
 * [experiments/02_variable_service_lane_sweep/variable_service_lane_sweep.md](experiments/02_variable_service_lane_sweep/variable_service_lane_sweep.md) — learned the bimodal lane/actor sweep (1–16) plateaus near ~1390 req/s; the original "coordination ceiling" reading is refined/superseded — it is a closed-loop FIFO-retire / client-driver ceiling (see the top banner in that note).

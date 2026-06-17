@@ -1189,6 +1189,67 @@ def section_counter_actor():
           "shutdown)")
 
 
+def section_release_actor():
+    """Runtime.release_actor(actor): explicit LOCAL actor lifecycle -- shutdown's
+    cancel-then-drain teardown scoped to one actor. Synchronous and bounded (one
+    checkpoint stride, never a full call); strict afterwards (call/stats/second
+    release raise RuntimeError); every outstanding future still resolves. Not
+    ray.kill, no distributed ownership, no refcounting, no GC lifecycle."""
+    with Runtime(num_lanes=1, hpx_threads=2) as rt:
+        # Idle release returns None; the handle is dead afterwards.
+        a = rt.create_actor("counter", 0)
+        if a.call("add", 1).result().value != 1:
+            _fail("pre-release add != 1")
+        if rt.release_actor(a) is not None:
+            _fail("release_actor must return None")
+        for attempt, what in ((lambda: a.call("get"), "call"),
+                              (lambda: a.stats(), "stats"),
+                              (lambda: rt.release_actor(a), "second release")):
+            try:
+                attempt()
+            except RuntimeError:
+                pass
+            else:
+                _fail(f"{what} after release must raise RuntimeError")
+        # Non-handle argument is a TypeError (no stringly-typed release).
+        try:
+            rt.release_actor(a.actor_id)
+        except TypeError:
+            pass
+        else:
+            _fail("release_actor(str) must raise TypeError")
+        # Queued-cancel release: occupy the slot with a large checkpointed
+        # busy_get (stats-gated, the established no-sleep pattern), queue adds
+        # behind it, release. Queued calls retire cancelled; the in-flight
+        # occupant is terminal (cancelled at its next boundary on the normal
+        # path -- never asserted as a specific status); nothing is left broken.
+        b = rt.create_actor("counter", 0)
+        big = b.call("busy_get", 2_000_000_000)
+        for _ in range(200_000):
+            if b.stats()["active"]:
+                break
+        else:
+            _fail("busy_get never observed active")
+        queued = [b.call("add", 1) for _ in range(3)]
+        rt.release_actor(b)  # blocks until the lane drained and joined
+        if not big.ready():
+            _fail("in-flight future must be fulfilled once release returns")
+        for f in queued:
+            if f.result().row["status"] != "cancelled":
+                _fail("queued call at release must retire cancelled")
+        if big.result().row["status"] not in ("completed", "cancelled"):
+            _fail("in-flight busy_get must retire terminal at release")
+        # A third actor is unaffected; runtime shutdown after release is clean
+        # (the with-exit below).
+        c = rt.create_actor("counter", 7)
+        if c.call("get").result().value != 7:
+            _fail("sibling actor must be unaffected by releases")
+    print("PASS: release_actor (idle release None; call/stats/double-release "
+          "raise; TypeError on non-handle; queued calls cancelled and in-flight "
+          "busy_get terminal at release; sibling actor unaffected; clean "
+          "shutdown after release)")
+
+
 def main():
     section_namespace_isolation()
     section_error_hierarchy()
@@ -1222,6 +1283,7 @@ def main():
     section_lifecycle()
     section_runtime_blocks_engine()
     section_counter_actor()
+    section_release_actor()
     print("ALL PASS: rayx.runtime Slice 2c smoke")
     return 0
 
