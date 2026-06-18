@@ -102,18 +102,23 @@ Three observations (mechanism, not performance):
 
 ## 6. What this supports (and does not)
 
-This is pricing evidence for a **future, separately-approved** decision on the
-nested dispatch, per the exp25 plan:
+This priced the inline-vs-async dispatch tradeoff that an internal
+`DispatchPolicy` has **since acted on** — the slice this experiment motivated
+and re-priced (observation-only; the numbers below carry no serving claim):
 
 * The inline fork preserved every structural gate here, and the hop is a
-  substantial share of the no-op-floor lane cost — so a removal/inline slice is
+  substantial share of the no-op-floor lane cost — so an inline path is
   **measurably motivated at the floor** but **immaterial at corpus service
   scales**.
-* The nested `exec_` launch remains the lane's placement seam (named
-  control/work pools, the P4 axis in `runtime_lane.hpp`); removing it would
-  close that seam. Keeping it costs ~0.3–1 µs per op on this machine.
-* **No decision is made in this experiment.** Keep / remove / keep-for-named-
-  executors all remain open; this package only replaces taste with a number.
+* The implemented `DispatchPolicy` runs **instantaneous fixed ops/methods**
+  (`square` / `add` / `boom` / `scale_double`, and counter `add` / `get` /
+  `reset`) **inline** on the serialized lane worker, while **parking /
+  checkpointed / composed** work (`park_ms` / `busy_sum` / `busy_get` /
+  `fanout_sum`) stays on the `hpx::async(exec_, task).get()` path. `Async` is the
+  conservative default, so any unclassified op/method keeps the existing hop.
+* The nested `exec_` launch **remains the lane's placement seam** (named
+  control/work pools, the P4 axis in `runtime_lane.hpp`) on the Async path; the
+  inline path simply skips that seam for work that cannot use it.
 
 Intentionally not claimed: no performance verdict, no "inline is faster" or
 "the lane is slow" claim, no Ray comparison, no serving-capacity statement
@@ -133,8 +138,10 @@ production backend.
   noise to remove.
 * If `RuntimeLane::run()` changes later, the fork in the probe reflects the
   loop as of this experiment and must not be read as current.
-* No production runtime, analyzer, JSONL-schema, or CI change; the probe is not
-  part of the benchmark corpus.
+* The probe itself adds no analyzer, JSONL-schema, or benchmark-corpus change
+  and is not part of the corpus. (The production runtime has since gained the
+  internal `DispatchPolicy` this experiment motivated; the value/row model and
+  the JSONL schema are unchanged by it.)
 
 ## 8. Reproduction
 

@@ -224,6 +224,17 @@ inline int fanout_sum_checkpoints(std::int64_t /*parts*/) { return 1; }
 using OpFn = std::function<OpOutcome(const OpArgs& args,
                                      const StopCheckpoint& stop)>;
 
+// How the serialized RuntimeLane worker runs a task. Inline = call task(stop)
+// directly on the worker (no hpx::async hop) -- ONLY for instantaneous,
+// non-parking, non-composed work. Async = keep hpx::async(exec_, task).get()
+// (cooperative HPX suspension) for parking / checkpointed / internally-composed
+// work, where suspending the worker lets sibling lanes overlap. The DEFAULT is
+// Async (conservative): any unclassified op/method stays on the existing path.
+// This is internal dispatch metadata only -- it is NOT derived from
+// checkpoint_count (a small park_ms is checkpoint_count==1 yet MUST stay Async),
+// adds no Python surface, and does not change the row/value model.
+enum class DispatchPolicy { Inline, Async };
+
 struct OpEntry {
     int arity;
     OpFn fn;
@@ -243,6 +254,11 @@ struct OpEntry {
     // OpValue variant is the value channel.
     std::vector<OpType> arg_types;
     OpType result_type = OpType::Int64;
+    // Internal lane-dispatch policy (last field, defaulted). Inline ops run
+    // directly on the lane worker; everything else (default) keeps the async
+    // hop. Defaulted so existing aggregate initializers are unchanged -- only
+    // the instantaneous ops below opt into Inline.
+    DispatchPolicy policy = DispatchPolicy::Async;
 };
 
 // Every instantaneous op reaches exactly one (notional) checkpoint -> count 1.
@@ -264,7 +280,7 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
                  return o;
              },
              one_checkpoint,
-             {OpType::Int64}, OpType::Int64}},
+             {OpType::Int64}, OpType::Int64, DispatchPolicy::Inline}},
         {"add", OpEntry{2,
              [](const OpArgs& a, const StopCheckpoint&) {
                  OpOutcome o;
@@ -273,7 +289,7 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
                  return o;
              },
              one_checkpoint,
-             {OpType::Int64, OpType::Int64}, OpType::Int64}},
+             {OpType::Int64, OpType::Int64}, OpType::Int64, DispatchPolicy::Inline}},
         {"boom", OpEntry{0,
              [](const OpArgs&, const StopCheckpoint&)
                  -> OpOutcome {
@@ -281,7 +297,7 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
                      "boom: intentional failure for failure-path testing");
              },
              one_checkpoint,
-             {}, OpType::Int64}},
+             {}, OpType::Int64, DispatchPolicy::Inline}},
         {"busy_sum", OpEntry{1,
              // Real native iterative work: acc = (Σ_{i=0}^{n-1} i) mod 2^31, with
              // per-step masking so acc stays < 2^31 (overflow-safe, deterministic;
@@ -333,7 +349,7 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
                  return o;
              },
              one_checkpoint,
-             {OpType::Double, OpType::Double}, OpType::Double}},
+             {OpType::Double, OpType::Double}, OpType::Double, DispatchPolicy::Inline}},
     };
     return r;
 }

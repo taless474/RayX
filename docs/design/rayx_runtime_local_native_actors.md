@@ -194,9 +194,12 @@ Clarifications:
   op-lane pool **and** a map `actor_id → actor lane`.
 * **Cooperative-suspension correctness is inherited.** The lane worker uses
   `hpx::mutex` + `hpx::condition_variable_any` (the idle wait *suspends* the HPX
-  thread, freeing the worker) and dispatches each body via
-  `hpx::async(exec_, task).get()` (a cooperative HPX suspension, not an OS-thread
-  block). Reusing the lane's worker / cancellation / admission logic (only id
+  thread, freeing the worker) and dispatches a body either **inline** on the
+  worker or via `hpx::async(exec_, task).get()` (a cooperative HPX suspension,
+  not an OS-thread block), per the body's internal `DispatchPolicy` — the
+  instantaneous `add` / `get` / `reset` run inline; the checkpointed `busy_get`
+  keeps the async hop (Async is the conservative default). Reusing the lane's
+  worker / cancellation / admission logic (only id
   generation gains a prefix parameter) means actors inherit this correct behavior and
   cannot reintroduce the experiment-16 bug class (a `std::condition_variable` on an
   HPX worker starving the scheduler). This is a *reason* to reuse, not just
@@ -517,12 +520,14 @@ Actor state is mutated without a state lock or atomics, and that is race-free **
 because of a specific, load-bearing invariant** that this note pins down:
 
 * each actor has **one dedicated `RuntimeLane`**;
-* the lane **retires exactly one method body at a time** (the worker does
-  `hpx::async(exec_, task).get()` to completion before popping the next item);
+* the lane **retires exactly one method body at a time** (the worker runs each
+  body to completion — **inline** on the worker, or via
+  `hpx::async(exec_, task).get()` for an Async-policy method — before popping the
+  next item);
 * **method N completes before method N+1 is launched**, so there is a full
-  happens-before chain (N's write → future-ready/release → worker `.get()`/acquire →
-  worker launches N+1 → N+1 reads) — method N's write is visible to method N+1's
-  read;
+  happens-before chain on the single worker thread (N's write → N's body returns
+  on the worker, whether inline or through the async `.get()` → worker pops and
+  runs N+1 → N+1 reads) — method N's write is visible to method N+1's read;
 * **there is no pipelining of actor method bodies**;
 * the actor **state is dropped only after the lane worker joins** (teardown step 3).
 
@@ -613,8 +618,10 @@ as provenance (the shipped split was B → C1a → C1b → C2).
 * **Strict one-at-a-time retirement is load-bearing** for state race-freedom — see
   the invariant; do not pipeline actor method bodies without revisiting the proof.
 * **Micro-method overhead caveat (P10).** `CounterActor` methods are micro-methods:
-  their cost includes the Python→C++ crossing, lane queueing, and the existing
-  `hpx::async(...).get()` lane-body hop. **Do not treat `CounterActor` timing as an
+  their cost includes the Python→C++ crossing and lane queueing (the instantaneous
+  `add` / `get` / `reset` now dispatch **inline** on the lane worker, per their
+  `DispatchPolicy`; the checkpointed `busy_get` keeps the `hpx::async(...).get()`
+  lane-body hop). **Do not treat `CounterActor` timing as an
   actor-throughput benchmark or any performance claim** — a micro-method measures the
   boundary, not work.
 * **No re-entrancy.** Registered actor method bodies must **not** re-enter the

@@ -82,4 +82,5 @@ This slice covers the **op-submission** path (`square`) only. A Ray-hosted
 `rayx.runtime.Runtime` driving the registered **CounterActor** (a second actor
 axis), and any measured standalone-vs-hosted dispatch decomposition (which would
 need a distinct, non-sleep schema), are deliberate later slices, not included
-here.
+here. The local native counter extension is now realized in experiment 30
+(`30_ray_hosting_rayx_runtime_counter/`, smoke-only).

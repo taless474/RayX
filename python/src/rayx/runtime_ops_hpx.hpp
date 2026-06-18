@@ -36,7 +36,11 @@
 namespace rayx_runtime {
 
 // The HPX-side registry. Two entries: the internally-composed fanout_sum and the
-// cooperative parked park_ms. First:
+// cooperative parked park_ms. Both INTENTIONALLY inherit the default
+// DispatchPolicy::Async (no policy field set below): park_ms must keep the
+// cooperative hop so a parked lane frees its worker, and fanout_sum composes
+// internal hpx::async children that rely on running inside the async body.
+// Neither may run inline on the lane worker. First:
 //
 //   fanout_sum(n, parts) = (Σ_{i=0}^{n-1} i) mod 2^31  ==  busy_sum(n)
 //

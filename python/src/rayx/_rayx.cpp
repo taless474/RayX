@@ -1158,6 +1158,11 @@ public:
         // -> 1), so this never throws here -- a wrong-tag bypass produces a failed row
         // from the op body instead.
         const int checkpoint_count = entry->checkpoint_count(targs);
+        // Internal lane-dispatch policy, read from the registry entry (NOT derived
+        // from checkpoint_count): Inline for instantaneous ops, Async (default)
+        // for parking/checkpointed/composed ops. Threaded to the lane alongside
+        // checkpoint_count; no Python surface, no row/value change.
+        const rayx_runtime::DispatchPolicy policy = entry->policy;
         // Round-robin lane selection. rr_ advances on EVERY submit so call index i
         // maps to lane (i % num_lanes); rr_ is engine state, not a row field.
         rayx_runtime::RuntimeLane& lane = *lanes_[rr_ % lanes_.size()];
@@ -1173,17 +1178,17 @@ public:
             // (engine state), matching the harness round-robin-on-reject behavior.
             std::optional<hpx::future<rayx_runtime::RuntimeResult>> fut =
                 hpx::run_as_hpx_thread(
-                    [&lane, &task, checkpoint_count, &tok, this]() {
+                    [&lane, &task, checkpoint_count, policy, &tok, this]() {
                         return lane.try_submit(std::move(task), max_qd_per_lane_,
-                                               checkpoint_count, &tok);
+                                               checkpoint_count, policy, &tok);
                     });
             if (!fut) return py::none();  // rejected: no row, no future, no token
             return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
                             py::return_value_policy::move);
         }
         hpx::future<rayx_runtime::RuntimeResult> fut =
-            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, &tok]() {
-                return lane.submit(std::move(task), checkpoint_count, &tok);
+            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, policy, &tok]() {
+                return lane.submit(std::move(task), checkpoint_count, policy, &tok);
             });
         return py::cast(RuntimeFuture(std::move(fut), std::move(tok)),
                         py::return_value_policy::move);
@@ -1293,6 +1298,11 @@ public:
         rayx_runtime::OpArgs targs =
             marshal_actor_args(args, "method '" + method_id + "'");
         const int checkpoint_count = method.checkpoint_count(targs);
+        // Internal lane-dispatch policy from the method entry (NOT from
+        // checkpoint_count): Inline for instantaneous methods (add/get/reset),
+        // Async (default) for the checkpointed busy_get. Same thread-through as
+        // the op path; no Python surface, no row/value change.
+        const rayx_runtime::DispatchPolicy policy = method.policy;
         rayx_runtime::MethodFn fn = method.fn;  // copied into the closure
         rayx_runtime::RuntimeLane& lane = *rec.lane;
         // Capture-by-value contract (make_method_task): rec.state is copied (refcount
@@ -1304,17 +1314,17 @@ public:
         if (max_qd_per_lane_ >= 0) {
             std::optional<hpx::future<rayx_runtime::RuntimeResult>> fut =
                 hpx::run_as_hpx_thread(
-                    [&lane, &task, checkpoint_count, &tok, this]() {
+                    [&lane, &task, checkpoint_count, policy, &tok, this]() {
                         return lane.try_submit(std::move(task), max_qd_per_lane_,
-                                               checkpoint_count, &tok);
+                                               checkpoint_count, policy, &tok);
                     });
             if (!fut) return py::none();  // rejected: no row/future/token created
             return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
                             py::return_value_policy::move);
         }
         hpx::future<rayx_runtime::RuntimeResult> fut =
-            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, &tok]() {
-                return lane.submit(std::move(task), checkpoint_count, &tok);
+            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, policy, &tok]() {
+                return lane.submit(std::move(task), checkpoint_count, policy, &tok);
             });
         return py::cast(RuntimeFuture(std::move(fut), std::move(tok)),
                         py::return_value_policy::move);

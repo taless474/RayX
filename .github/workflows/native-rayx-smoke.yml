@@ -165,6 +165,7 @@ jobs:
         run: |
           python bench/smoke_ray_hosting_rayx.py
           python bench/smoke_ray_hosting_rayx_runtime.py
+          python bench/smoke_ray_hosting_rayx_runtime_counter.py
 
       - name: Run rayx driver retire-mode smoke (one_by_one + batch_wait)
         # Exercises the Python driver's FIFO (one_by_one) and as-completed

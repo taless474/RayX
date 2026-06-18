@@ -646,6 +646,38 @@ def section_queued_cancel():
           "cancelled; .value raises)")
 
 
+def section_inline_queued_cancel_holder_completes():
+    # Inline-dispatch slice (DispatchPolicy): a queued INLINE op (square, now run
+    # directly on the lane worker) cancelled behind a slow ASYNC holder must (a)
+    # retire cancelled and (b) NOT disturb the holder, which still completes
+    # normally. The holder is a short PARKED op (park_ms) so it both reliably
+    # holds the lane open long enough to queue behind AND completes cheaply
+    # (no CPU burn, deterministic) -- complementing section_queued_cancel(), which
+    # cancels its busy_sum holder for a fast exit instead of letting it finish.
+    with Runtime(num_lanes=1) as rt:
+        holder = rt.submit_operation("park_ms", 200)  # parked: holds lane 0 cheaply
+        _wait_until(lambda: rt.lane_stats()[0]["active"], 5.0, "park holder active")
+        q = rt.submit_operation("square", 9)  # INLINE op, queued behind the holder
+        _wait_until(lambda: rt.lane_stats()[0]["queue_depth"] >= 1, 5.0,
+                    "inline square queued")
+        if q.cancel() is not True:
+            _fail("queued cancel of the inline square must return True")
+        qres = q.result()
+        if qres.row["status"] != "cancelled":
+            _fail(f"queued-cancelled inline square status {qres.row['status']!r}, "
+                  "expected 'cancelled'")
+        _expect(OperationCancelledError, lambda: qres.value,
+                "inline queued-cancel .value")
+        # The slow async holder is undisturbed by the queued inline cancel: it
+        # still completes and echoes its ms.
+        hres = holder.result()
+        if hres.row["status"] != "completed" or hres.value != 200:
+            _fail(f"parked holder must still complete and echo 200, got "
+                  f"status={hres.row['status']!r} value={hres.value!r}")
+    print("PASS: inline queued-cancel (square cancelled while queued behind a "
+          "parked holder; holder still completes) ")
+
+
 def section_shutdown_cancels_running():
     rt = Runtime(num_lanes=1)
     f = rt.submit_operation("busy_sum", 2_000_000_000)  # would run seconds in full
@@ -1265,6 +1297,7 @@ def main():
     section_short_busy_sum_cancel_invariant()
     section_running_cancel()
     section_queued_cancel()
+    section_inline_queued_cancel_holder_completes()
     section_shutdown_cancels_running()
     section_lane_stats_under_load()
     section_cancelled_semantics()

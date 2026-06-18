@@ -84,6 +84,10 @@ struct MethodEntry {
     // op registry: runs BEFORE the task/future exist.
     std::function<int(const OpArgs& args)> checkpoint_count;
     MethodFn fn;                    // downcasts ActorState defensively
+    // Internal lane-dispatch policy (last field, defaulted), reusing the op
+    // registry's DispatchPolicy. Instantaneous methods (add/get/reset) opt into
+    // Inline; the checkpointed busy_get inherits the conservative Async default.
+    DispatchPolicy policy = DispatchPolicy::Async;
 };
 
 struct ActorTypeEntry {
@@ -125,7 +129,7 @@ inline const std::unordered_map<std::string, ActorTypeEntry>& actor_registry() {
                           o.value = c.v;  // int64 -> OpValue
                           o.has_value = true;
                           return o;
-                      }}},
+                      }, DispatchPolicy::Inline}},
                  // get() -> int64: read current state.
                  {"get", MethodEntry{0,
                       {}, OpType::Int64,
@@ -136,7 +140,7 @@ inline const std::unordered_map<std::string, ActorTypeEntry>& actor_registry() {
                           o.value = c.v;
                           o.has_value = true;
                           return o;
-                      }}},
+                      }, DispatchPolicy::Inline}},
                  // reset(int64 value) -> int64: overwrite state, return new value.
                  {"reset", MethodEntry{1,
                       {OpType::Int64}, OpType::Int64,
@@ -148,7 +152,7 @@ inline const std::unordered_map<std::string, ActorTypeEntry>& actor_registry() {
                           o.value = c.v;
                           o.has_value = true;
                           return o;
-                      }}},
+                      }, DispatchPolicy::Inline}},
                  // busy_get(int64 work_n) -> int64: READ-ONLY synthetic on-core
                  // diagnostic/calibration work (the actor-method analog of the
                  // op-level busy_sum), then return the CURRENT counter value

@@ -143,8 +143,14 @@ public:
     const std::string& actor_id() const { return actor_id_; }
 
     // Copied from RuntimeLane::submit (same promise/token/queue/notify work).
+    // Accepts (and IGNORES) a DispatchPolicy so this fork's submit signature
+    // matches the production RuntimeLane::submit -- the templated run_lane_*
+    // helpers call both. This fork ALWAYS inlines structurally (its run()
+    // replaces the nested async with an inline task(stop)); the policy arg never
+    // changes that, so lane_inline_* cells are unchanged.
     hpx::future<rayx_runtime::RuntimeResult> submit(
             OpTask task, int checkpoint_count,
+            rayx_runtime::DispatchPolicy /*policy, ignored: always inline*/,
             std::shared_ptr<rayx_runtime::RuntimeCancelToken>* out_tok) {
         auto prom =
             std::make_shared<hpx::promise<rayx_runtime::RuntimeResult>>();
@@ -398,9 +404,13 @@ Cell run_lane_seq(const char* mode, const OpSpec& spec, int iters, int warmup,
     std::int64_t last_end = 0;
     for (int i = 0; i < iters + warmup; ++i) {
         const std::int64_t t0 = now_ns();
+        // Force Async on the production RuntimeLane so the lane_nested cells keep
+        // measuring the nested hpx::async(...).get() path regardless of the op's
+        // registry policy (square is now Inline-classified); the InlineDispatch-
+        // ProbeLane fork ignores this and inlines structurally (lane_inline cells).
         auto fut = lane.submit(
             make_probe_op_task(spec.fn, spec.args, lane.actor_id()),
-            spec.checkpoint_count, nullptr);
+            spec.checkpoint_count, rayx_runtime::DispatchPolicy::Async, nullptr);
         rayx_runtime::RuntimeResult r = fut.get();
         const std::int64_t t1 = now_ns();
         check_result(c, r, spec.expected);
@@ -434,7 +444,8 @@ Cell run_lane_batch(const char* mode, const OpSpec& spec, int batches,
         for (int k = 0; k < batch_size; ++k) {
             futs.push_back(lane.submit(
                 make_probe_op_task(spec.fn, spec.args, lane.actor_id()),
-                spec.checkpoint_count, nullptr));
+                spec.checkpoint_count, rayx_runtime::DispatchPolicy::Async,
+                nullptr));
         }
         std::int64_t last_end = 0;
         for (auto& fut : futs) {

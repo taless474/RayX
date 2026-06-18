@@ -129,7 +129,7 @@ public:
     // via run_as_hpx_thread. Slice 2a: every single-submit carries a token; no
     // admission cap yet (that is Slice 2b).
     hpx::future<RuntimeResult> submit(
-            OpTask task, int checkpoint_count,
+            OpTask task, int checkpoint_count, DispatchPolicy policy,
             std::shared_ptr<RuntimeCancelToken>* out_tok) {
         auto prom = std::make_shared<hpx::promise<RuntimeResult>>();
         hpx::future<RuntimeResult> fut = prom->get_future();
@@ -138,7 +138,8 @@ public:
         {
             std::lock_guard<hpx::mutex> lk(mu_);
             queue_.push_back(
-                Item{std::move(task), std::move(prom), tok, checkpoint_count});
+                Item{std::move(task), std::move(prom), tok, checkpoint_count,
+                     policy});
         }
         cv_.notify_one();
         if (out_tok) *out_tok = std::move(tok);
@@ -159,6 +160,7 @@ public:
     // rayhpx::HpxLane::try_submit. MUST be called from an HPX thread (hpx::mutex).
     std::optional<hpx::future<RuntimeResult>> try_submit(
             OpTask task, int max_queue_depth, int checkpoint_count,
+            DispatchPolicy policy,
             std::shared_ptr<RuntimeCancelToken>* out_tok) {
         std::unique_lock<hpx::mutex> lk(mu_);
         if (static_cast<int>(queue_.size()) >= max_queue_depth) {
@@ -169,7 +171,8 @@ public:
         auto tok = std::make_shared<RuntimeCancelToken>();
         tok->arm(prom, actor_id_);
         queue_.push_back(
-            Item{std::move(task), std::move(prom), tok, checkpoint_count});
+            Item{std::move(task), std::move(prom), tok, checkpoint_count,
+                 policy});
         lk.unlock();
         cv_.notify_one();
         if (out_tok) *out_tok = std::move(tok);
@@ -214,6 +217,9 @@ private:
         std::shared_ptr<hpx::promise<RuntimeResult>> prom;
         std::shared_ptr<RuntimeCancelToken> tok;  // per-future cancel token
         int checkpoint_count = 1;                 // arms running-cancellability
+        // Internal dispatch policy (default Async). Inline runs task(stop)
+        // directly on the worker; Async keeps the hpx::async(exec_,...).get() hop.
+        DispatchPolicy policy = DispatchPolicy::Async;
     };
 
     // Long-lived consumer (one HPX thread). The idle wait on
@@ -255,15 +261,32 @@ private:
                 hpx::this_thread::yield();
                 return s;
             };
-            // HPX-native dispatch: launch the op body on the executor and
-            // cooperatively .get() it. Because this worker is an hpx::thread the
-            // .get() SUSPENDS the worker (frees the OS worker) until the op
-            // completes -- one operation retires before the next is popped (FIFO).
+            // Dispatch the op body. Two shapes, selected by the item's policy:
+            //
+            //   * Async (default): launch on the executor and cooperatively
+            //     .get() it. Because this worker is an hpx::thread the .get()
+            //     SUSPENDS the worker (frees the OS worker) until the op
+            //     completes, so parking / checkpointed / composed work lets
+            //     sibling lanes overlap. One op retires before the next is popped.
+            //   * Inline: run task(stop) DIRECTLY on the worker, with no
+            //     hpx::async hop -- only for instantaneous, non-parking,
+            //     non-composed ops (registry-classified), where the hop would be
+            //     pure overhead on this already-serialized lane. FIFO is
+            //     unchanged (still one-at-a-time on the single worker).
+            //
+            // Both shapes are inside the SAME try/catch, run AFTER the queued
+            // begin_service skip above, and are followed by the SAME mark_finished
+            // + single set_value below -- so cancellation, promise fulfillment,
+            // and actor state serialization are identical across the two.
             RuntimeResult r;
             try {
-                r = hpx::async(exec_, [task = item.task, stop]() {
-                        return task(stop);
-                    }).get();
+                if (item.policy == DispatchPolicy::Inline) {
+                    r = item.task(stop);  // direct on the worker; no async hop
+                } else {
+                    r = hpx::async(exec_, [task = item.task, stop]() {
+                            return task(stop);
+                        }).get();
+                }
             } catch (...) {
                 // Defensive: the op task maps its own throws to a failed result, so
                 // .get() should not throw. This covers only async/executor failure

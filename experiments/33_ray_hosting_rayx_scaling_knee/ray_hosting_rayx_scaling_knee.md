@@ -1,0 +1,135 @@
+# Intra-actor RayX/HPX CPU scaling knee (prepared tool, observation-only)
+
+> **Prepared tool — no trusted result yet.** This is a *prepared* experiment for
+> **future homogeneous many-core Linux** validation. It is **observation-only**
+> and machine-specific. It is **not** "RayX makes Ray faster", **not** "HPX beats
+> Ray", **not** "RayX replaces Ray", **not** Ray cluster scaling, and **not** a
+> benchmark / sizing / capacity claim. It **does not reinterpret exp32**. Any
+> output on this Apple-silicon laptop is **smoke-only, not evidence**.
+
+## Question
+
+Inside **one long-lived Ray actor** (one process, one Ray boundary held
+constant), **where** does intra-process RayX/HPX native Async CPU scaling
+(`busy_sum`) stop being efficient as the worker count `W` grows — and **how does
+that knee move with operation granularity** (the per-op work size `n`, which also
+sets the derived `checkpoint_count = ceil(n / BUSY_SUM_STRIDE)`)?
+
+This is the deferred **saturation-knee** follow-up to exp32. exp32 established (on
+homogeneous many-core Linux) that intra-actor RayX/HPX `busy_sum` scales while an
+in-process Python CPU loop stays GIL-bound, and it deliberately **capped `W` at 4**
+on the Apple-silicon laptop, leaving the `W>4` knee to "a homogeneous many-core
+box". exp33 is that box's tool. exp33 asks only the *knee* question; it asserts
+nothing new about exp32's `W≤4` SUPPORT reading.
+
+## Methodology
+
+* **Same Ray-hosted shape as exp32.** One long-lived Ray actor hosts one
+  `rayx.runtime.Runtime(num_lanes=W, hpx_threads=W)`. `ActorHandle` /
+  `RuntimeFuture` / `OperationResult` are created and retired **inside** the actor;
+  only plain scalars/containers cross the Ray boundary.
+* **Load op:** RayX native **Async** `busy_sum` (the Async DispatchPolicy is what
+  lets ops overlap across the HPX worker pool; an Inline op would not scale).
+* **Strong scaling of a fixed batch, per (granularity, leg) normalized.** For each
+  granularity `n`, a batch is `K` `busy_sum(n)` ops with `K` **held fixed** across
+  the `W` sweep. `speedup(W) = T(W=1)/T(W)`, `efficiency = speedup / W`.
+* **`K ≥ max(W)` for every cell** — we use `K = 2·max(W)` so a batch can always
+  keep every worker occupied. (exp32's earlier `K=4` capped occupancy once `W>4`;
+  exp33 does not repeat that.)
+* **Granularity sweep (≥ 2 sizes).** A smaller and a larger `n`. Because
+  `checkpoint_count = ceil(n / BUSY_SUM_STRIDE)` is **derived** from `n`, the
+  granularity sweep doubles as a coarse checkpoint-count sweep, reported per cell.
+* **Checkpoint stride is fixed, not swept.** `BUSY_SUM_STRIDE` is a compile-time
+  `constexpr` in `runtime_ops.hpp`, **not** a runtime op parameter. We deliberately
+  do **not** modify C++ to make it one, so the available lever is `n` (which moves
+  `checkpoint_count`).
+* **Knee detection (observational).** Per granularity, the knee is the **first
+  `W>1` whose efficiency falls below a conservative threshold (`0.70`)**; otherwise
+  "no clear knee in tested range" with the minimum efficiency reported. This is a
+  **reading, not a pass/fail gate**.
+* **Optional small Python leg (`--with-py`).** A pure-Python serial GIL reference,
+  run **only at the smallest granularity with a capped `K`**. It is a flatness
+  reference, not the focus — exp32 already made the GIL point.
+* **Structural gates only** (`agg_ok`, `futures_completed`, `lane_ids_ok`,
+  `plain_types_ok`, `clean_shutdown`). **Timing/efficiency is never a pass/fail
+  gate.** Exit 0 = gates passed (or cleanly skipped); exit 1 = a structural gate
+  failed.
+* **Two timing points:** in-actor wall (engine-clean) and end-to-end wall
+  (includes the Ray boundary, not a pure engine metric).
+
+### Reported per cell
+
+`W`, `K`, granularity `n` and its derived `checkpoint_count`, in-actor median ms,
+spread, speedup vs `W=1`, efficiency (`speedup/W`), end-to-end median ms, and the
+structural gates. Plus a per-granularity knee reading.
+
+## Required machine type
+
+A trusted knee reading requires a **homogeneous many-core Linux node**:
+
+* a single Linux workstation / bare-metal server (not a cluster, not a laptop);
+* **homogeneous cores** — all cores the same type (avoid ARM big.LITTLE and Intel
+  P-core/E-core hybrids);
+* ideally Xeon / EPYC / Threadripper / older homogeneous Core / Ryzen;
+* enough cores to reach the sweep: `W=16` wants ~16 **physical** cores, and the
+  `W=32` cell is only added when `os.cpu_count()` (logical, incl. SMT) `≥ 32`.
+  Because the cap is on *logical* CPUs, a high-`W` cell can land on SMT siblings
+  on a smaller box — prefer SMT/HT off, and check `lscpu` "Thread(s) per core";
+* not thermally throttled; not a noisy shared VM.
+
+`--full` does **not** drop high-`W` cells (reaching/exceeding the core count is how
+the knee becomes visible); instead it **warns** when a `W` exceeds the logical CPU
+count, so oversubscription rolloff is not misread as a true scaling knee.
+
+## Commands
+
+```
+python -m py_compile experiments/33_ray_hosting_rayx_scaling_knee/run_ray_hosting_rayx_scaling_knee.py
+
+# cheap local structural validation (Mac/laptop-safe; SMOKE-ONLY, not evidence)
+python experiments/33_ray_hosting_rayx_scaling_knee/run_ray_hosting_rayx_scaling_knee.py --smoke
+
+# homogeneous many-core Linux knee sweep (run 2-3 times; send full output)
+python experiments/33_ray_hosting_rayx_scaling_knee/run_ray_hosting_rayx_scaling_knee.py --full
+
+# add the small optional pure-Python GIL reference to either mode
+python experiments/33_ray_hosting_rayx_scaling_knee/run_ray_hosting_rayx_scaling_knee.py --full --with-py
+```
+
+* `--smoke` (default): `W ∈ {1,2,4}`, `K=8`, small granularities, few reps. Runs
+  in well under a minute. Exercises every code path (granularity sweep, knee
+  detection, gates) but is **smoke-only**.
+* `--full`: `W ∈ {1,2,4,8,16}` (plus `32` when `cpu_count ≥ 32`), `K = 2·max(W)`,
+  small + large granularity, more reps. Intended for homogeneous many-core Linux.
+
+Requires Ray and the built `_rayx`; the runner skips cleanly (exit 0) if either is
+unavailable. Every mode prints a compact `machine-info` block. No JSONL/corpus
+artifact is written. **Do not run `--full` on this Mac/laptop as evidence.**
+
+## Interpretation guardrails
+
+* The supported claim, **only on appropriate hardware and only if the data
+  supports it**: "intra-process RayX/HPX native Async CPU scaling stays efficient
+  up to `W=<knee>` for this op granularity on this machine, and rolls off beyond
+  it."
+* **Forbidden:** "RayX makes Ray faster", "HPX beats Ray", "RayX replaces Ray",
+  Ray cluster scaling, any benchmark / sizing / capacity guidance, and any raw
+  Python-vs-RayX wall-time speedup claim.
+* The knee is an **observation**, not a verdict; timing/efficiency is never a
+  pass/fail gate.
+* The scaling bound is `min(num_lanes, hpx_threads, physical cores)` (cf. exp22 /
+  exp31 / exp32); a knee near the physical-core count is expected, and an
+  oversubscribed-`W` rolloff is not a true scaling limit.
+* End-to-end numbers include the Ray actor boundary and are not a pure engine
+  metric.
+* exp33 **does not reinterpret exp32**; it adds the deferred knee tool only.
+
+## Current status
+
+**Tool prepared; no trusted result yet.** `--smoke` validates the structure on
+this laptop (gates pass, both knee branches exercised) but is explicitly
+**smoke-only, not evidence** — on Apple silicon the `W>4` region is confounded by
+P/E-core asymmetry, SMT, and thermal behavior. A trusted knee reading (and its
+dependence on granularity / checkpoint_count) will only exist once `--full` is run
+on an appropriate **homogeneous many-core Linux** node and the output is reported
+back in full. Until then exp33 is a prepared instrument, not a result.

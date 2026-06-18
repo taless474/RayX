@@ -632,6 +632,17 @@ efficiency comparison would need its own measured slice.
   measured slice**; it is not folded into the current runtime work, precisely because
   it would reverse the placement-seam decision rather than just tidy code.
 
+  > **Update (superseded, post-Phase 1):** this inline-dispatch slice was
+  > subsequently designed and implemented — motivated and re-priced by
+  > experiment 25 — as an **internal `DispatchPolicy`** (no public API change).
+  > Instantaneous fixed ops/methods (`square` / `add` / `boom` / `scale_double`,
+  > and counter `add` / `get` / `reset`) now run **inline** on the serialized
+  > lane worker; **parking / checkpointed / composed** work
+  > (`park_ms` / `busy_sum` / `busy_get` / `fanout_sum`) keeps the
+  > `hpx::async(exec_, task).get()` path, with `Async` as the conservative
+  > default. The placement seam below is **preserved on the Async path** (it is
+  > not reversed) — inline only skips it for work that cannot use it.
+
 * **Executor choice.** The lane's current executor is, in Phase 1, **mostly that
   seam** rather than real placement isolation — a single serialized slot does not
   need a parallel executor's bulk-spawn behavior. **Be honest about what the seam is
@@ -646,10 +657,11 @@ efficiency comparison would need its own measured slice.
   become available if the **shared HPX bootstrap declares them at init**; the seam
   cannot conjure isolation on its own. If/when resource partitioning becomes real
   (named control vs work pools declared at bootstrap), a **pool-specific executor**
-  may replace the current default. Phase 1 does not change this yet; the
-  inline-dispatch-vs-async-dispatch question is a **future measured mechanism slice
-  (not a cleanup)** — see the inline bullet above — and this note motivates **no**
-  source change on its own and makes **no** performance claim.
+  may replace the current default. Phase 1 did not change this; the
+  inline-dispatch-vs-async-dispatch question **was** a future measured mechanism
+  slice (not a cleanup) — since implemented as an internal `DispatchPolicy`, see
+  the superseded-update note on the inline bullet above — and this Phase 1 note
+  itself motivated **no** source change and makes **no** performance claim.
 
 * **`async_rw_mutex` / continuation-chain lane.** A more HPX-native way to serialize
   a lane is a **continuation chain** (e.g. extending a tail future per submit, or
