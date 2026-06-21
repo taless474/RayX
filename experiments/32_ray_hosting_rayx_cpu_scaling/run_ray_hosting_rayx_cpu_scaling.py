@@ -662,13 +662,13 @@ def _print_quick():
     gates_ok = all(gates.values())
     print("  gates: " + ", ".join(f"{k}={v}" for k, v in sorted(gates.items())))
 
-    # M1 context only (explicitly NOT a speedup claim).
+    # Native/CPython context only (explicitly NOT a speedup claim).
     by = {(r["leg"], r["w"]): r for r in rows}
     py1 = by[("PY", 1)]["in_actor_med"]
     rx1 = by[("RAYX", 1)]["in_actor_med"]
     if rx1 > 0:
-        print(f"  M1 context only (NOT a speedup claim): native/CPython per-op "
-              f"factor ~= {py1 / rx1:.1f}x at W=1")
+        print(f"  Native/CPython context only (NOT a speedup claim): native/CPython "
+              f"per-op factor ~= {py1 / rx1:.1f}x at W=1")
     print()
 
     verdict, msg = _interpret(rows)

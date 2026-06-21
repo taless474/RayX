@@ -89,7 +89,7 @@ replacement.
   queued-but-not-started depth is full (**not** Ray Serve backpressure, distributed
   flow control, or blocking backpressure; experiments 17–19 in the documentation
   map).
-* Headline result below; per-experiment result notes in the documentation map.
+* Headline results below; per-experiment result notes in the documentation map.
 
 ## The `rayx` frontend at a glance
 
@@ -233,7 +233,25 @@ separate `<out>.diag.json` (schema `diag-1`) decomposing per-request latency
 into push / pickup / service / completion phases plus queue depth and per-lane
 utilization. It is off by default and does not change the normal JSONL output.
 
-## Headline result
+## Headline results
+
+RayX has **two validated, bounded properties**, both observation-only and
+machine-specific:
+
+1. **Control-plane dispatch floor** — in the synthetic no-op benchmark, rayx stays
+   near the HPX-native control-plane floor rather than collapsing toward Ray's
+   actor-process boundary (benchmark 06).
+2. **Ray-hosted native scaling inside one actor** — inside one long-lived Ray
+   actor, native HPX-backed Async CPU work scales **cleanly through W=16** on
+   homogeneous Linux while a pure-Python in-process CPU loop stays flat (exp32 on
+   Rostam).
+
+Together these validate an **intra-process runtime mechanism**. They are **not**
+Ray cluster scaling, **not** "RayX makes Ray faster", **not** "HPX beats Ray",
+**not** "RayX replaces Ray", and **not** benchmark / sizing / capacity guidance. A
+raw Python-vs-RayX wall-time speedup is **not** the point.
+
+### Control-plane dispatch floor
 
 From benchmark 06 (three-way, single lane, `retire_mode=one_by_one`, medians of
 5 repeats). These are control-plane / dispatch numbers on a **synthetic**
@@ -255,6 +273,41 @@ identical-boundary comparison.
   general.
 
 Source: [benchmarks/06_rayx_python_frontend_comparison/rayx_python_frontend_comparison.md](benchmarks/06_rayx_python_frontend_comparison/rayx_python_frontend_comparison.md).
+
+### Ray-hosted native scaling inside one actor
+
+From exp32 on **Rostam** (`medusa06`; 40-core dual-socket Intel Xeon Gold 6148,
+2 sockets × 20 cores, 1 thread/core, `performance` governor; commit `dbad2d1`;
+**all structural gates PASS**). Inside **one long-lived Ray actor**, the candidate
+runs native HPX-backed Async `busy_sum` across `W = num_lanes = hpx_threads`
+workers; the baseline runs the same CPU work as a serial pure-Python loop. Speedup
+is **normalized per leg** (`T(W=1)/T(W)`), so the absolute C++-vs-CPython per-op
+cost is cancelled and only *how each engine scales* is compared.
+
+* **`--quick` (SUPPORT):** RayX in-actor speedup `1.00 → 1.98 → 3.77`
+  (W ∈ {1,2,4}) while Python stays flat `1.00 → 1.00 → 1.00` (GIL-bound).
+* **`--decouple` (SUPPORT):** the decoupling panel varies `num_lanes` and
+  `hpx_threads` **separately** to check whether effective scaling follows
+  `min(num_lanes, hpx_threads, cores)`. On Rostam both `worker_bound`
+  (`ratio_to_4x = 1.00`) and `lane_bound` (`ratio_to_4x = 1.05`) tracked the
+  4-effective reference — extra lanes beyond workers, or workers beyond lanes, do
+  not help, as the bound predicts.
+* **`--full`:** **W=16 is the clean, load-bearing result** — efficiency ≈
+  0.89–0.90 across full runs, with `--tail-diagnostic` spread ≈ 1–2%. **W=32** is
+  a **lower-efficiency, placement-sensitive** region: median speedup still improves
+  to ~17–18×, but efficiency drops to ~0.53–0.56 and the cell is bimodal across
+  fresh invocations (`--tail-diagnostic` bounds the within-run spread to ≈
+  27–31%). W=32 is **not** clean-linear and **not** a smooth knee.
+
+This validates an **intra-process runtime mechanism** only: scaling native CPU
+work *within one process* (HPX) versus *across processes* (Ray's idiomatic answer,
+not measured here). It is **not** Ray cluster scaling, **not** "RayX makes Ray
+faster", **not** "HPX beats Ray", **not** "RayX replaces Ray", and **not** a
+sizing/capacity claim. No socket/NUMA cause is attributed without affinity/binding
+evidence.
+
+Source: [experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md](experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md)
+(curated numbers: [experiments/32_ray_hosting_rayx_cpu_scaling/aggregate_rostam_40core.json](experiments/32_ray_hosting_rayx_cpu_scaling/aggregate_rostam_40core.json)).
 
 ## Documentation map
 
@@ -333,7 +386,7 @@ folders (which hold only the `.md` reports): exp27 uses
 * [experiments/29_ray_hosting_rayx_multi_oversubscription/ray_hosting_rayx_multi_oversubscription.md](experiments/29_ray_hosting_rayx_multi_oversubscription/ray_hosting_rayx_multi_oversubscription.md) — multi-actor resource budgeting for Ray-hosted `rayx.Engine` (spin diagnostic, observation-only, not a Ray benchmark; measured on the default `lane_impl="std"`): learned the binding resource is concurrently-active CPU-bound lanes vs **physical cores**, not `hpx_threads` — for `std`/`ServiceLane` each lane is a `std::thread`, so active demand is `num_lanes` and can exceed `hpx_threads` (an `hpx_threads` vs `num_cpus` mismatch with `num_lanes=1` left latency flat, the extra HPX worker idle), while tails inflate once active spin lanes exceed cores (Ray `num_cpus` is logical accounting, not a core cap); for `hpx`/`HpxLane` the limiter is instead ≈`min(num_lanes, hpx_threads)` (cf. exp22). Guidance: size `num_cpus_per_actor` to active CPU-bound demand (`max(num_lanes, hpx_threads)` as a conservative std budget), keep Σ active lanes ≤ cores, and over-reserving past total logical CPUs makes Ray leave actors PENDING. The deeper HPX-native note: this runs N uncoordinated per-process HPX runtimes — idiomatic HPX would coordinate cores in one runtime via resource partitioning/executors.
 * [experiments/30_ray_hosting_rayx_runtime_counter/ray_hosting_rayx_runtime_counter.md](experiments/30_ray_hosting_rayx_runtime_counter/ray_hosting_rayx_runtime_counter.md) — learned a Ray actor can host one `rayx.runtime.Runtime` **and** one local native `counter` actor cleanly (extending exp28's `square` op path to a stateful actor): smoke-only composition + lifecycle (state evolves `initial → add → get → reset`; two Ray actors hold independent counters with distinct `rt-act-` ids and no cross-actor leak; an explicit `release_actor` makes later use raise inside the actor, surfaced as a plain marker; clean idempotent shutdown), with the `ActorHandle` / `RuntimeFuture` / `OperationResult` retired **inside** the Ray actor and only plain Python scalars/containers (such as ints, bools, strings, tuples, dicts, or None) crossing — **no timing, no JSONL, no perf comparison**, and **not** comparable to the synthetic sleep Engine benchmark.
 
-### Current evidence map (experiments 31–32)
+### Current evidence map (experiments 31–34)
 
 The newest `rayx.runtime` evidence packages bound the runtime arc on both sides —
 one decision-gate **STOP** and one narrow **SUPPORT** — and tie together the
@@ -348,7 +401,10 @@ benchmark / sizing / capacity claim.
   `DispatchPolicy` that runs instantaneous ops inline and keeps
   parking/checkpointed/composed work async (no public API or schema change).
 * [experiments/31_runtime_control_plane_under_load/runtime_control_plane_under_load.md](experiments/31_runtime_control_plane_under_load/runtime_control_plane_under_load.md) — learned that with the runtime fully saturated by CPU-bound Async work, control-plane operations crossing `hpx::run_as_hpx_thread` (submit/admission, `lane_stats`, `create_actor`/`release_actor`) stay bounded in **absolute** terms (worst saturated p99 ≈ 0.1 ms, ~50× under a 5 ms gate) while the hop-free `RuntimeFuture.cancel` stays flat — the evidence-backed **STOP**: HPX thread priorities, named pools, and resource partitioning are **not motivated** by this evidence (cooperative checkpoint yields keep control hops schedulable).
-* [experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md](experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md) — learned, inside one long-lived Ray actor (one boundary held constant), that RayX/HPX scales Async native CPU work (`busy_sum`) across HPX workers — per-leg normalized speedup ~1.00 → 1.99 → 3.43 at `W = num_lanes = hpx_threads ∈ {1,2,4}` — while an equivalent pure-Python in-process CPU loop stays GIL-bound at ~1×: a narrow **SUPPORT** for intra-process native CPU scaling as an in-process execution-engine property. The native/CPython absolute factor is disclosed as context only and is **not** the result; this is **not** "RayX makes Ray faster", **not** "HPX beats Ray", **not** "RayX replaces Ray" — Ray's idiomatic CPU-scaling answer remains more actors/processes. Quick mode plus an opt-in decoupling panel only (a wider `W>4` worker sweep is deferred — see the note): the panel cleanly observes the **worker-bound** half of the `min(num_lanes, hpx_threads, cores)` bound (`lanes=8, hpx_threads=4` tracks the 4-worker reference) but is conservative/**INCONCLUSIVE** on the **lane-bound** half (`lanes=4, hpx_threads=8` is noisy/slower from over-provisioned HPX workers + Apple-silicon effects) — this does **not** change the quick-mode SUPPORT.
+* [experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md](experiments/32_ray_hosting_rayx_cpu_scaling/ray_hosting_rayx_cpu_scaling.md) — learned, inside one long-lived Ray actor (one boundary held constant), that RayX/HPX scales Async native CPU work (`busy_sum`) across HPX workers while an equivalent pure-Python in-process CPU loop stays GIL-bound at ~1×: a narrow **SUPPORT** for intra-process native CPU scaling as an in-process execution-engine property (per-leg normalized; the native/CPython absolute factor is context only, **not** the result). Now **homogeneous-Linux-validated on Rostam** (`medusa06`; 40-core dual-socket Xeon Gold 6148, 2×20 cores, 1 thread/core): **`--quick` SUPPORT** replicates the scaling (RayX `1.00 → 1.98 → 3.77`, Python flat); **`--decouple` SUPPORT** (worker_bound `ratio_to_4x = 1.00`, lane_bound `ratio_to_4x = 1.05`) supports the `min(num_lanes, hpx_threads, cores)` bound in **both** directions — upgrading the earlier Apple-silicon lane-bound INCONCLUSIVE; **`--full`** shows **clean scaling through W=16** (efficiency ≈ 0.89–0.90), while **W=32** still improves median speedup (~17–18×) but is **lower-efficiency / placement-sensitive** (efficiency ≈ 0.53–0.56, bimodal across fresh invocations) — **not** clean-linear and **not** a catastrophic straggler failure. This is **not** "RayX makes Ray faster", **not** "HPX beats Ray", **not** "RayX replaces Ray", **not** Ray cluster scaling, and **not** a benchmark/sizing/capacity claim — Ray's idiomatic CPU-scaling answer remains more actors/processes (curated numbers: [aggregate_rostam_40core.json](experiments/32_ray_hosting_rayx_cpu_scaling/aggregate_rostam_40core.json)).
+* [experiments/33_ray_hosting_rayx_scaling_knee/ray_hosting_rayx_scaling_knee.md](experiments/33_ray_hosting_rayx_scaling_knee/ray_hosting_rayx_scaling_knee.md) — learned, on Rostam's homogeneous 40-core Xeon node, that RayX/HPX intra-actor native CPU scaling is granularity-sensitive rather than governed by one universal knee: fine-grain work (`n=2,000,000`) rolls off at W=32 in all three runs, while coarse-grain work (`n=20,000,000`) has no clear knee through W≤32 and restores W=32 efficiency. Observation-only and machine-specific; not a Ray-vs-Ray or sizing claim.
+* [experiments/34_ray_hosting_rayx_serving_mix/ray_hosting_rayx_serving_mix.md](experiments/34_ray_hosting_rayx_serving_mix/ray_hosting_rayx_serving_mix.md) — learned, on Rostam's homogeneous 40-core Xeon node (`lane_impl="std"`, fixed-W primary, W∈{4,8,16}, no W=32), that a synthetic serving-shaped latency mix has two readings: the default **S/C FIFO-adapter baseline** reads **`BASELINE/STOP`** (its over-load S-p90 inflation is a FIFO-adapter head-of-line property, **not** HPX-native scheduling, and SUPPORT is unreachable by construction), while the opt-in **`--with-parked` cooperative-overlap path** reads **SUPPORT 3/3** — under a synthetic parked-wait mix (`park_ms`, which **cooperatively suspends the HPX task and frees the worker**), the current Ray-hosted Runtime/lane adapter shows a **fixed-W cooperative-overlap signal** (median `overlap_ratio` 2.32 / 2.10 / 2.32 ≥ 2.0; reproducible fine over-load cells ≈4.45–4.48 at W=8 and ≈7.61–7.65 at W=16), granularity-sensitive (weaker at coarse where compute dominates). `overlap_ratio` is approximate/structural and **never** a gate; `park_ms` is **synthetic, not real I/O**. Observation-only and machine-specific; **not** real inference, **not** Ray Serve, **not** Ray cluster scaling, **not** HPX priority scheduling, **not** a latency-SLO/capacity/sizing claim, **not** "RayX makes Ray faster" / "HPX beats Ray" / "RayX replaces Ray", and **no** socket/NUMA attribution (curated numbers: [aggregate_rostam_40core.json](experiments/34_ray_hosting_rayx_serving_mix/aggregate_rostam_40core.json)).
+  * *Next (proposed, not yet run):* because HPX cooperative suspension is true by construction for `hpx::this_thread::sleep_for`, exp35 should harden exp34 by testing whether the **Ray-hosted RayX adapter path preserves** that property — comparing compute-only, parked-only, and compute+parked arms to see whether compute throughput/latency are **retained** under calibrated synthetic parked load **despite shared FIFO lanes and the CPython driver**. Same guardrails: synthetic only, `lane_impl="std"`, W≤16 (no W=32), no NUMA/binding, not Ray Serve/inference, no "RayX makes Ray faster" / "HPX beats Ray".
 
 ### Main benchmark arc (benchmarks 01–10)
 

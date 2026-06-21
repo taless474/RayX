@@ -1,0 +1,73 @@
+{
+  "experiment": "exp33_ray_hosting_rayx_scaling_knee",
+  "kind": "curated_summary",
+  "observation_only": true,
+  "machine_specific": true,
+  "note": "Granularity-sensitivity scaling envelope, not a single universal knee. End-to-end numbers include the Ray actor boundary; efficiency is from the in-actor (engine-clean) view. No socket/NUMA attribution without affinity evidence. Not a Ray comparison, performance, sizing, or capacity claim.",
+  "commit": "2e14a068fc47081ee9cd8a84f787c152ee543b18",
+  "machine": {
+    "node": "Rostam (homogeneous many-core Linux)",
+    "cpu": "Intel Xeon Gold 6148 @ 2.40GHz",
+    "physical_cores": 40,
+    "sockets": 2,
+    "cores_per_socket": 20,
+    "threads_per_core": 1,
+    "governor": "performance",
+    "allocation": "exclusive Slurm",
+    "affinity_pinning_evidence": false,
+    "os": "Linux 5.14",
+    "python": "3.12.3",
+    "ray": "2.55.1"
+  },
+  "settings": {
+    "W_values": [1, 2, 4, 8, 16, 32],
+    "K": 64,
+    "K_rule": "2*max(W)",
+    "reps": 5,
+    "warmup": 1,
+    "with_py": false,
+    "knee_efficiency": 0.70,
+    "granularities": {
+      "n_2000000": { "n": 2000000, "checkpoint_count": 245 },
+      "n_20000000": { "n": 20000000, "checkpoint_count": 2442 }
+    }
+  },
+  "runs": ["full_run1", "full_run2", "full_run3"],
+  "structural_gates": "PASS (all three runs)",
+  "headline_cells": {
+    "fine_n_2000000": {
+      "W16": {
+        "efficiency": [0.89, 0.88, 0.88],
+        "speedup": [14.17, 14.06, 14.14],
+        "spread_pct": [0.7, 1.0, 0.7]
+      },
+      "W32": {
+        "efficiency": [0.61, 0.68, 0.61],
+        "speedup": [19.40, 21.75, 19.40],
+        "spread_pct": [1587.8, 8.2, 1791.8]
+      },
+      "knee": "W=32 in all three runs (efficiency < 0.70)"
+    },
+    "coarse_n_20000000": {
+      "W16": {
+        "efficiency": [0.97, 0.96, 0.97],
+        "speedup": [15.52, 15.44, 15.44],
+        "spread_pct": [0.3, 0.5, 0.7]
+      },
+      "W32": {
+        "efficiency": [0.92, 0.90, 0.92],
+        "speedup": [29.35, 28.95, 29.36],
+        "spread_pct": [27.5, 35.3, 3.5]
+      },
+      "knee": "no clear knee through W<=32 in all three runs (min efficiency >= 0.70)"
+    }
+  },
+  "classification": {
+    "granularity_sensitivity_reproduces": true,
+    "fine_grain_W32": "stable-degraded; degradation reproducible, extreme intra-run dispersion intermittent (1587.8 / 8.2 / 1791.8 %)",
+    "coarse_grain_W32": "efficiency restored (0.90-0.92); dispersion greatly reduced relative to the fine-grain extreme (27.5 / 35.3 / 3.5 %), not uniformly tiny",
+    "knee_moves_with_granularity": true,
+    "W16": "clean-stable at both granularities"
+  },
+  "diagnostics_posture": "conditional only: justified if a real (non-synthetic) workload needs efficient fine-grain work at W>16 on this class of hardware, or if later evidence leaves a decision-relevant unexplained rolloff. Not a required next task."
+}

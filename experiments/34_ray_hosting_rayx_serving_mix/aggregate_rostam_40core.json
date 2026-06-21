@@ -1,0 +1,83 @@
+{
+  "experiment": "exp34_ray_hosting_rayx_serving_mix",
+  "kind": "curated_summary",
+  "observation_only": true,
+  "machine_specific": true,
+  "note": "Two paths. Slice 1 (S/C baseline) reads BASELINE/STOP: any S-vs-C head-of-line interference is a FIFO ADAPTER property, not HPX-native scheduling, and SUPPORT is unreachable by construction. Slice 2 (--with-parked) is SUPPORT-capable via the SYNTHETIC cooperative parked class Wp (park_ms): park_ms suspends the HPX task and frees the worker, so parked waits can overlap compute. overlap_ratio is approximate/structural and NEVER a gate; only the structural gates decide pass/fail. End-to-end includes the Ray actor boundary and is not a pure engine metric.",
+  "commit": "661efb0b21945e8eadbde21b92d0ef730c67ec96",
+  "machine": {
+    "node": "Rostam / medusa06 (homogeneous many-core Linux; same node class as exp32/exp33)",
+    "cpu": "Intel Xeon Gold 6148 @ 2.40GHz",
+    "physical_cores": 40,
+    "sockets": 2,
+    "cores_per_socket": 20,
+    "threads_per_core": 1,
+    "affinity_pinning_evidence": false,
+    "os": "Linux 5.14.0-570.37.1.el9_6.x86_64",
+    "python": "3.12.3",
+    "ray": "2.55.1"
+  },
+  "settings": {
+    "lane_impl": "std",
+    "W_values": [4, 8, 16],
+    "W32": false,
+    "load_levels": ["under", "near", "over"],
+    "granularities": {
+      "fine": { "n_s": 200000, "n_c": 2000000, "cpc_s": 25, "cpc_c": 245 },
+      "coarse": { "n_s": 2000000, "n_c": 20000000, "cpc_s": 245, "cpc_c": 2442 }
+    },
+    "full": { "N": 200, "reps": 3, "warmup": 1, "p99_min_samples": 100 },
+    "parked": { "park_ms": 5, "mix_counts": { "S": 100, "C": 40, "Wp": 60 }, "overlap_support_threshold": 2.0 }
+  },
+  "structural_gates": "PASS in every run (smoke baseline, smoke parked, full baseline run1, full parked run1/2/3)",
+  "smoke": {
+    "baseline": { "gates": "PASS", "reading": "INCONCLUSIVE (smoke-only)" },
+    "parked": { "gates": "PASS", "reading": "INCONCLUSIVE (smoke-only)" },
+    "note": "Mac/laptop smoke clean-skips without Ray/_rayx; these are the Rostam smokes. Smoke is structural-only (low samples, per-class p99 = NA), not evidence."
+  },
+  "full_baseline": {
+    "runs": ["full_baseline_run1"],
+    "reading": "BASELINE/STOP",
+    "gates": "PASS",
+    "fifo_adapter_interference_S_p90_under_to_over_x": {
+      "W4_coarse": 33.14,
+      "W4_fine": 24.90,
+      "W8_coarse": 8.00,
+      "W8_fine": 8.85,
+      "W16_coarse": 6.17,
+      "W16_fine": 4.91
+    },
+    "interference_reading": "FIFO-adapter head-of-line interference is real and largest at small W / coarse granularity, shrinking as W grows (more lanes/workers absorb the over-load). This is an ADAPTER property, not HPX-native scheduling; BASELINE/STOP correctly does not claim SUPPORT."
+  },
+  "full_parked": {
+    "runs": ["full_parked_run1", "full_parked_run2", "full_parked_run3"],
+    "reading": "SUPPORT (3/3)",
+    "gates": "PASS (3/3)",
+    "median_overlap_ratio": [2.32, 2.10, 2.32],
+    "stable_over_load_fine_cells": {
+      "W4_fine_over": { "overlap_ratio": [2.61, 2.60, 2.60], "parked_demand_ms": 900, "wall_ms": [345.5, 345.5, 345.5] },
+      "W8_fine_over": { "overlap_ratio": [4.48, 4.45, 4.47], "parked_demand_ms": 900, "wall_ms": [201.1, 202.4, 201.4] },
+      "W16_fine_over": { "overlap_ratio": [7.61, 7.65, 7.62], "parked_demand_ms": 900, "wall_ms": [118.2, 117.6, 118.1] }
+    },
+    "coarse_over_load_context": {
+      "W4_coarse_over": { "overlap_ratio": [0.96, 0.96, 0.96] },
+      "W8_coarse_over": { "overlap_ratio": [1.88, 1.89, 1.88] },
+      "W16_coarse_over": { "overlap_ratio": [2.93, 2.98, 2.94] },
+      "note": "At coarse granularity the parked demand (Wp=5ms) is small relative to the heavy compute, so wall is compute-bound and overlap headroom is lower (W4_coarse_over ~0.96, parked demand roughly equals wall). Overlap is granularity- and W-dependent."
+    }
+  },
+  "reading": "On this homogeneous 40-core (2x20, 1 thread/core) Xeon node, under a SYNTHETIC parked-wait mix, the current Ray-hosted Runtime/lane adapter shows a fixed-W cooperative-overlap signal (median overlap_ratio >= 2.0 in all three runs; tightly reproducible fine over-load cells W8/fine/over ~4.45-4.48 and W16/fine/over ~7.61-7.65). The signal is granularity-sensitive: strong at fine granularity, weaker at coarse where compute dominates. The S/C baseline reads BASELINE/STOP and its over-load S-p90 inflation is a FIFO-ADAPTER head-of-line property, not HPX-native scheduling.",
+  "claims_allowed": [
+    "Under a synthetic parked-wait mix, the current Ray-hosted Runtime/lane adapter shows a fixed-W cooperative-overlap signal on Rostam.",
+    "Observation-only and machine-specific.",
+    "This does not evaluate HPX priority scheduling because priorities are out of scope."
+  ],
+  "claims_forbidden": [
+    "real I/O", "real inference", "Ray Serve", "Ray cluster scaling",
+    "HPX priority scheduling", "latency SLO", "capacity/sizing",
+    "RayX makes Ray faster", "HPX beats Ray", "RayX replaces Ray",
+    "NUMA/socket attribution without binding evidence",
+    "treating FIFO-lane head-of-line blocking as an HPX-native scheduling property"
+  ],
+  "park_ms_caveat": "park_ms is a SYNTHETIC cooperative parked wait: it suspends the HPX task and frees the worker (cooperative, not an OS-thread sleep). It is NOT real I/O and NOT inference. overlap_ratio is approximate/structural and never a pass/fail gate; parked readings never assert wall-clock."
+}

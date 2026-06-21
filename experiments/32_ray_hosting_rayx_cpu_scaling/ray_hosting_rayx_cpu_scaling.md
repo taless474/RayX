@@ -132,6 +132,11 @@ without the idle-worker/heterogeneity noise. This panel is a runtime-bound
 observation only — **it does not modify the exp32 quick SUPPORT** above, and is
 not a benchmark or sizing claim.
 
+**Update (Rostam, homogeneous 40-core Linux).** On the homogeneous node the
+lane-bound half now tracks cleanly (`ratio/4x ≈ 1.05`) and the panel reads
+**SUPPORT** in both directions — the laptop INCONCLUSIVE above is **superseded**
+for the homogeneous case. See the *Rostam validation* section below.
+
 ## Confounds and caveats
 
 * **M1 (native vs CPython per-op cost):** real (~50×) but removed from the claim
@@ -166,10 +171,10 @@ failed. No JSONL/corpus artifact is written. Every mode prints a compact
 `machine-info` block (platform, Python, CPU count, uname/arch, Ray version, plus
 an `lscpu` summary on Linux) so future cross-machine runs are self-describing.
 
-## Full mode (`--full`) — prepared tool, not yet trusted evidence
+## Full mode (`--full`) — homogeneous many-core Linux validation tool
 
-`--full` now **exists** as a prepared tool for **future homogeneous many-core
-Linux validation**. It walks the wider `W ∈ {1,2,4,8,16,32}` sweep at `K=32`,
+`--full` is the **homogeneous many-core Linux validation** tool (now exercised on
+Rostam — see the next section). It walks the wider `W ∈ {1,2,4,8,16,32}` sweep at `K=32`,
 running the **same** workload shape (RayX Async `busy_sum` + the pure-Python CPU
 loop) and the **same** per-leg normalization as quick. `K=32` is required because
 **`K` must be ≥ `max(W)`** — otherwise the batch has fewer ops than workers and
@@ -181,20 +186,108 @@ cells are dropped and a warning is printed. It keeps **only the structural gates
 non-monotone run is reported as an observational `NOISY` / `INCONCLUSIVE`, not
 `FAIL`.
 
-**Full mode has not yet produced a trusted result.** It is meaningful only on a
-homogeneous many-core box; on this Apple-silicon laptop the `W>4` cells are
-confounded by P/E heterogeneity, SMT, and thermal behavior (the decoupling
+**Full mode is meaningful only on homogeneous many-core Linux** (a first Rostam
+run is reported in the next section). On this Apple-silicon laptop the `W>4` cells
+are confounded by P/E heterogeneity, SMT, and thermal behavior (the decoupling
 panel's noisy lane-bound cell already shows over-provisioning workers strays into
-that regime). Any full-mode output produced here is therefore **smoke-only, not
-evidence**, and the runner prints that warning at the top of every full run.
+that regime). Any full-mode output produced **on a Mac/laptop** is therefore
+**smoke-only, not evidence**; the runner now prints a **platform-aware** note at
+the top of every full run (smoke-only on Mac/heterogeneous; observation-only
+validation subject to spread/noise on homogeneous Linux).
 
-**The current validated exp32 evidence remains unchanged:** `--quick` is
-**SUPPORT** (RayX in-actor speedup rises with `W`, Python flat), and `--decouple`
-is **INCONCLUSIVE overall with the worker-bound half clean** (`lanes=8,
-hpx_threads=4` tracks the 4-effective reference; the lane-bound half stays noisy
-on this laptop). `--full` does not change either reading until it is run on
-appropriate homogeneous hardware.
+**The laptop exp32 evidence remains unchanged:** `--quick` is **SUPPORT** (RayX
+in-actor speedup rises with `W`, Python flat), and `--decouple` is **INCONCLUSIVE
+overall with the worker-bound half clean** (`lanes=8, hpx_threads=4` tracks the
+4-effective reference; the lane-bound half stays noisy on this laptop). The first
+homogeneous-Linux `--full` reading is reported below.
 
 Absolute numbers will differ per machine and run; the **shape** (RayX speedup
 rising with `W`, Python flat) and the per-leg-normalized framing are the portable
 parts.
+
+## Rostam (homogeneous 40-core Linux) validation
+
+> **Observation-only / machine-specific.** First homogeneous-Linux reading,
+> **not** a Ray-vs-HPX benchmark, **not** "RayX makes Ray faster", **not** "HPX
+> beats Ray", **not** "RayX replaces Ray", **not** Ray cluster scaling, and
+> **not** a sizing/capacity claim. The curated numbers are mirrored in
+> `aggregate_rostam_40core.json`; raw logs stay under the ignored `results/`.
+
+**Node / environment.** `medusa06.rostam.cct.lsu.edu`; Intel Xeon Gold 6148 @
+2.40 GHz, `CPU(s)=40`, **2 sockets × 20 cores**, `Thread(s) per core=1` (SMT off),
+`performance` governor; Python 3.12.3, Ray 2.55.1; commit `dbad2d1`. **All
+structural gates PASS** in every run below. No affinity/pinning was set, so no
+per-socket placement is claimed.
+
+**`--quick` (SUPPORT).** RAYX in-actor speedup 1.00 → 1.98 → 3.77 (W∈{1,2,4})
+while Python stays 1.00 → 1.00 → 1.00 — the same shape as the laptop quick result,
+on homogeneous cores.
+
+**`--decouple` (SUPPORT — resolves the laptop INCONCLUSIVE).** baseline_1x
+27.3 ms; coupled_4x 7.1 ms (speedup/1x 3.86); **worker_bound** (lanes=8,
+hpx_threads=4) 7.1 ms, ratio/4x **1.00**; **lane_bound** (lanes=4, hpx_threads=8)
+7.4 ms, ratio/4x **1.05**. Both decoupled halves now track the 4-effective
+reference, so the `min(num_lanes, hpx_threads, cores)` bound is cleanly observed
+in **both** directions — the lane-bound half that stayed noisy/INCONCLUSIVE on the
+Apple-silicon laptop is **resolved** for the homogeneous-Linux case.
+
+**`--full` — three runs (`W ∈ {1,2,4,8,16,32}`, `K=32`, reps 5).** Lower cells
+(W≤8) were clean (efficiency ≈ 0.96–0.99); Python flat in all three.
+
+| run | W=16 speedup | W=16 eff | W=16 spread | W=32 speedup | W=32 eff | W=32 spread | reading |
+|---|---|---|---|---|---|---|---|
+| 1 | 14.45 | 0.90 | 0.9% | 16.92 | 0.53 | **756.7%** | NOISY/SUPPORT-QUALIFIED |
+| 2 | 14.20 | 0.89 | 5.9% | 17.79 | 0.56 | 24.1% | SUPPORT |
+| 3 | 14.26 | 0.89 | 10.7% | 17.73 | 0.55 | 27.6% | SUPPORT |
+
+**`--tail-diagnostic` — two runs (W=16/W=32 only, 10 reps each).**
+
+| run | W=16 median (spread) | W=32 median | W=32 min / max | W=32 spread |
+|---|---|---|---|---|
+| 1 | 7.5 ms (1.0%) | 5.9 ms | 4.6 / 6.2 | 27.3% |
+| 2 | 7.5 ms (1.7%) | 4.7 ms | 4.6 / 6.0 | 31.0% |
+
+### Reading (observation-only)
+
+1. **W=16 is the clean, load-bearing Linux result.** Scaling is clean,
+   near-linear, and **replicated 3/3** through W=16 (efficiency ≈ 0.89–0.90), and
+   the 10-rep tail diagnostic shows W=16 spread of only **1–2%**. Python is flat
+   throughout. This is the supported claim.
+
+2. **W=32 is neither a smooth knee nor a catastrophe — it is a lower-efficiency,
+   placement-sensitive region.** Median speedup still **improves** to ~17–18×
+   (W=32 is faster in absolute terms), but efficiency drops to **~0.53–0.56** in
+   the full runs. The 10-rep tail diagnostics bound the within-run spread to
+   **~27–31%**; the earlier **756.7% / 910%** figures were **outlier-sensitive
+   `reps=5` artifacts** and are **superseded** by the 10-rep diagnostics. The W=32
+   per-rep distribution is **bimodal** (a fast mode ~4.6–4.7 ms and a slow mode
+   ~6.0–6.2 ms), and *which mode dominates flips between fresh `Runtime`/Ray-actor
+   invocations* (tail run1 median 5.9 ms vs run2 median 4.7 ms): the variation
+   lives mostly **between** process invocations, not as a within-run straggler
+   tail. **Do not** call W=32 a smooth knee; **do not** call it a catastrophic
+   straggler explosion.
+
+3. **NUMA/socket is a hypothesis only.** W=32 is the first sweep point that must
+   exceed the **20-core-per-socket** boundary on this 2-socket node, so a
+   socket/NUMA explanation (remote-memory / first-touch / unpinned-migration,
+   consistent with the between-invocation bimodality) is **plausible**. It stays a
+   **hypothesis**: no socket/NUMA cause is attributed without
+   **binding/affinity/numactl** evidence, per the project guardrails.
+
+4. **exp34 is less blocked, but still a separate decision.** The diagnostic has
+   answered the open question — W=32 is a bounded, placement-sensitive bimodal
+   regime, not chaos — so it no longer hard-blocks the serving-mix follow-up.
+   exp34 remains a **separate** go/no-go decision; if it ever uses W=32 it must
+   treat W=32 as a **lower-efficiency, placement-sensitive** regime, and
+   **W≤16 is the clean regime** for a latency/mix experiment.
+
+### Supported vs forbidden claims (this evidence)
+
+* **Supported:** on a homogeneous 40-core Linux Xeon node, exp32 validates
+  intra-actor RayX/HPX native CPU scaling **cleanly through W=16**; the decoupling
+  panel supports the expected `min(num_lanes, hpx_threads, cores)` bound; W=32
+  still improves median speedup but enters a **lower-efficiency,
+  placement-sensitive** region; **Python remains flat**.
+* **Forbidden:** "RayX makes Ray faster", "HPX beats Ray", "RayX replaces Ray",
+  Ray cluster scaling, any benchmark/sizing/capacity guidance, and any raw
+  Python-vs-RayX wall-time speedup as the point.

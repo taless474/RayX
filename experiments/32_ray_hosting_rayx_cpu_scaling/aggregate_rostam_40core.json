@@ -1,0 +1,99 @@
+{
+  "experiment": "exp32_ray_hosting_rayx_cpu_scaling",
+  "kind": "curated_summary",
+  "observation_only": true,
+  "machine_specific": true,
+  "note": "Intra-actor RayX/HPX native CPU scaling inside one long-lived Ray actor, validated on a homogeneous 40-core Linux Xeon node. Clean through W=16; W=32 is a lower-efficiency, placement-sensitive region (bimodal across fresh invocations), not a smooth knee and not a straggler explosion. Per-leg normalized; engine-clean view is the in-actor wall. Not a Ray comparison, performance, sizing, or capacity claim. No socket/NUMA attribution without binding/affinity evidence.",
+  "commit": "dbad2d1022de99eb5f00d4e27f010744a3a62f3c",
+  "machine": {
+    "node": "medusa06.rostam.cct.lsu.edu",
+    "cpu": "Intel Xeon Gold 6148 @ 2.40GHz",
+    "cpus": 40,
+    "sockets": 2,
+    "cores_per_socket": 20,
+    "threads_per_core": 1,
+    "governor": "performance",
+    "affinity_pinning_evidence": false
+  },
+  "environment": {
+    "python": "3.12.3",
+    "ray": "2.55.1"
+  },
+  "commands": [
+    "python experiments/32_ray_hosting_rayx_cpu_scaling/run_ray_hosting_rayx_cpu_scaling.py --quick",
+    "python experiments/32_ray_hosting_rayx_cpu_scaling/run_ray_hosting_rayx_cpu_scaling.py --decouple",
+    "python experiments/32_ray_hosting_rayx_cpu_scaling/run_ray_hosting_rayx_cpu_scaling.py --full",
+    "python experiments/32_ray_hosting_rayx_cpu_scaling/run_ray_hosting_rayx_cpu_scaling.py --tail-diagnostic"
+  ],
+  "structural_gates": "PASS (all runs)",
+  "raw_logs": "kept outside the tracked tree under the ignored results/ (e.g. results/exp32_rostam_40core_tail/)",
+  "runs": {
+    "quick": {
+      "reading": "SUPPORT",
+      "rayx_speedup": [1.00, 1.98, 3.77],
+      "py_speedup": [1.00, 1.00, 1.00],
+      "w_values": [1, 2, 4]
+    },
+    "decouple": {
+      "reading": "SUPPORT",
+      "resolves": "the prior Mac/laptop decouple INCONCLUSIVE result, for the homogeneous Linux case",
+      "cells": {
+        "baseline_1x": {"lanes": 1, "hpx_threads": 1, "in_actor_ms": 27.3, "speedup_vs_1x": 1.00, "ratio_to_4x": 3.86},
+        "coupled_4x": {"lanes": 4, "hpx_threads": 4, "in_actor_ms": 7.1, "speedup_vs_1x": 3.86, "ratio_to_4x": 1.00},
+        "worker_bound": {"lanes": 8, "hpx_threads": 4, "in_actor_ms": 7.1, "ratio_to_4x": 1.00},
+        "lane_bound": {"lanes": 4, "hpx_threads": 8, "in_actor_ms": 7.4, "ratio_to_4x": 1.05}
+      }
+    },
+    "full": {
+      "settings": {"w_values": [1, 2, 4, 8, 16, 32], "K": 32, "reps": 5},
+      "py_flat": true,
+      "low_cells_clean": "W<=8 efficiency approx 0.96-0.99",
+      "run1": {
+        "reading": "NOISY/SUPPORT-QUALIFIED",
+        "W16": {"speedup": 14.45, "efficiency": 0.90, "spread_pct": 0.9},
+        "W32": {"speedup": 16.92, "efficiency": 0.53, "spread_pct": 756.7}
+      },
+      "run2": {
+        "reading": "SUPPORT",
+        "W16": {"speedup": 14.20, "efficiency": 0.89, "spread_pct": 5.9},
+        "W32": {"speedup": 17.79, "efficiency": 0.56, "spread_pct": 24.1}
+      },
+      "run3": {
+        "reading": "SUPPORT",
+        "W16": {"speedup": 14.26, "efficiency": 0.89, "spread_pct": 10.7},
+        "W32": {"speedup": 17.73, "efficiency": 0.55, "spread_pct": 27.6}
+      }
+    },
+    "tail_diagnostic": {
+      "settings": {"w_values": [16, 32], "K": 32, "reps": 10},
+      "run1": {
+        "W16": {"median_ms": 7.5, "min_ms": 7.5, "max_ms": 7.6, "spread_pct": 1.0},
+        "W32": {"median_ms": 5.9, "min_ms": 4.6, "max_ms": 6.2, "spread_pct": 27.3}
+      },
+      "run2": {
+        "W16": {"median_ms": 7.5, "min_ms": 7.5, "max_ms": 7.6, "spread_pct": 1.7},
+        "W32": {"median_ms": 4.7, "min_ms": 4.6, "max_ms": 6.0, "spread_pct": 31.0}
+      }
+    }
+  },
+  "interpretation": {
+    "W16": "Clean, near-linear, replicated 3/3; efficiency approx 0.89-0.90; tail-diagnostic spread approx 1-2%. The load-bearing Linux result. Python flat.",
+    "W32": "Lower-efficiency, placement-sensitive region. Median speedup still improves to approx 17-18x but efficiency drops to approx 0.53-0.56. Within-run spread bounded approx 27-31% (10-rep tail diagnostic); the 756.7%/910% reps=5 figures are outlier-sensitive low-rep artifacts, superseded. Distribution is bimodal (fast approx 4.6-4.7 ms, slow approx 6.0-6.2 ms) and the dominant mode flips between fresh Runtime/Ray-actor invocations, so the variation is mostly between invocations, not a within-run straggler tail. Not a smooth knee and not a catastrophic straggler explosion.",
+    "numa_socket": "Hypothesis only. W=32 exceeds the 20-core-per-socket boundary on this 2-socket node, so a socket/NUMA explanation is plausible and consistent with the between-invocation bimodality, but it is NOT attributed without binding/affinity/numactl evidence.",
+    "exp34": "Do not start exp34. It is less blocked now (W=32 is bounded and characterized, not chaos) but remains a separate decision. W<=16 is the clean regime for a latency/mix experiment; if exp34 uses W=32 it must treat W=32 as a lower-efficiency, placement-sensitive regime."
+  },
+  "claims_allowed": [
+    "On a homogeneous 40-core Linux Xeon node, exp32 validates intra-actor RayX/HPX native CPU scaling cleanly through W=16.",
+    "The decoupling panel supports the expected min(num_lanes, hpx_threads, cores) bound.",
+    "W=32 still improves median speedup but enters a lower-efficiency, placement-sensitive region.",
+    "Python remains flat."
+  ],
+  "claims_forbidden": [
+    "RayX makes Ray faster",
+    "HPX beats Ray",
+    "RayX replaces Ray",
+    "Ray cluster scaling",
+    "benchmark/sizing/capacity guidance",
+    "raw Python-vs-RayX wall-time speedup as the point"
+  ]
+}
