@@ -26,6 +26,7 @@ compile_commands.json
 results/
 *.jsonl
 *.summary.json
+*.log
 aggregate.json
 
 # Exception: curated aggregate.json files co-located with benchmark/experiment

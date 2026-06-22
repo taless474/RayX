@@ -68,34 +68,21 @@ Use these as durable interpretation constraints unless new evidence changes them
 * `rayx.runtime` is a separate experimental subpackage for fixed registered native work over HPX-native FIFO `RuntimeLane`s. Registered native operations currently include `square`, `add`, `boom`, `busy_sum`, `fanout_sum`, `scale_double`, and `park_ms`; the closed value model is `int64` / `double`. Runtime operation-lane ids use `rt-hpx-<16 lowercase hex>`.
 * `park_ms(ms)` is synthetic cooperative PARKED work (chunked `hpx::this_thread::sleep_for`, capped at 60 s, cancellable at chunk boundaries) — the parked-wait analog of the CPU-bound `busy_sum` diagnostic. It is not real I/O, not inference, and carries no performance claim; park-related tests are structural/stats-gated and never assert wall-clock values.
 * `rayx.runtime` also includes an experimental local native actor MVP: `Runtime.create_actor("counter", initial)` returns an `ActorHandle`, and `ActorHandle.call("add" / "get" / "reset", ...)` dispatches fixed registered native methods on a native `CounterActor`. Actor method calls return the existing `RuntimeFuture` / `OperationResult` path and work with `get` / `wait` / `as_completed`. Actor lane ids use `rt-act-<16 lowercase hex>`.
-* `Runtime.release_actor(actor)` is explicit local native actor release: it is not `ray.kill`, not refcounting, and not GC lifecycle. Release cancels queued/pending actor work, drains/joins the actor lane so outstanding futures still reach a terminal/retirable state, and after release `ActorHandle.call()` / `stats()` / double release raise. `Runtime.shutdown()` still tears down remaining runtime-owned native state.
 * `ActorHandle.stats()` is a non-consuming, point-in-time, racy per-actor debug snapshot (`{actor_id, queue_depth, active}`; the in-service call is not counted in `queue_depth`) for debugging/test-gating only — not scheduler state, not placement control, not a synchronization primitive, and no counters / `actor_type` field / all-actors enumeration. `Runtime.lane_stats()` remains op-lanes-only.
 * `rayx.runtime` still has no `ObjectRef`, no object store, no arbitrary Python callables, no HPX actions/components, no distributed locality, no module-level `rayx.get` / `rayx.wait`, no `.remote()` actor API, no `Runtime.lane_impl`, and no performance claim.
-* `rayx.runtime` dispatch is explicitly policy-driven: instantaneous serialized operations/methods (`square`, `add`, `boom`, `scale_double`, counter `add` / `get` / `reset`) are `Inline`; parking, checkpointed CPU, internally composed, busy actor, and unclassified/future work (`busy_sum`, `fanout_sum`, `park_ms`, counter `busy_get`) remain `Async`. `DispatchPolicy` is internal registry metadata, not public API and not inferred from `checkpoint_count` (for example, `park_ms` can have one checkpoint and still must remain `Async`).
-* Runtime evidence packages stay observation-only unless explicitly framed otherwise: exp24 demonstrates structural parked-overlap behavior for `park_ms`; exp25 prices the nested `hpx::async(...).get()` dispatch shape with a standalone probe; exp26 exercises create/use/release/shutdown/reinit actor lifecycle at scale. Do not turn these into performance, capacity, or production-sizing claims.
-* exp31 is a control-plane-under-load decision gate: HPX-hop control latency inflation under saturated Async work is visible but tiny in absolute terms on the measured machine (worst saturated p99 about 0.10 ms, with hop-free `RuntimeFuture.cancel()` flat). The conclusion is STOP: priorities, named pools, and resource partitioning are not motivated by this evidence. Do not revive that machinery without a real workload showing meaningful millisecond-level control sluggishness.
-* exp32 is a narrow intra-actor native CPU scaling probe: inside one long-lived Ray actor, RayX/HPX `busy_sum` Async native work scales across HPX workers while pure Python CPU work in the same process stays GIL-bound. The supported claim is per-leg normalized scaling behavior, not raw C++-vs-CPython speed, not “RayX makes Ray faster,” and not “HPX beats Ray.” Rostam homogeneous many-core validation (40-core Xeon, 2 sockets × 20 cores, 1 thread/core, performance governor, exclusive Slurm allocation, no affinity/pinning evidence) upgrades the earlier Apple-Silicon caveat: `PY` stays flat, `RAYX` scales cleanly/near-linearly through W=16, and the decoupling panel supports the `min(num_lanes, hpx_threads, cores)` bound. W=16 is the load-bearing clean result. W=32 is stable-degraded/noisy: central speedup improves beyond W=16, but efficiency is lower and spread is high. This remains observation-only and machine-specific; do not claim W≤16 is single-socket without affinity evidence.
-* exp33 is the follow-up Ray-hosted RayX/HPX scaling-envelope / granularity-sensitivity probe, not a search for one universal knee. Rostam validation shows the knee moves with operation granularity: at fine granularity (`n=2,000,000`), W=32 is the knee in all three runs; at coarse granularity (`n=20,000,000`), there is no clear knee through W≤32 in all three runs. Coarse granularity restores W=32 efficiency and greatly reduces the extreme dispersion seen in fine-grain W=32 cells, though coarse W=32 spread is not uniformly tiny. The supported reading is a machine-specific envelope/sensitivity result layered on exp32, not a performance verdict, not capacity/sizing guidance, and not a socket/NUMA attribution. Diagnostics such as affinity/NUMA placement remain conditional only: consider them only if a real fine-grain W>16 workload needs this regime, or if later evidence leaves a decision-relevant unexplained rolloff.
-* exp34 is the source-complete Ray-hosted serving-shaped latency-mix probe and is fixed-W primary (the W set is secondary, not an exp32-style scaling curve); it observes the current `lane_impl="std"` Ray-hosted Runtime/lane FIFO adapter, not HPX-native priority scheduling (priorities are out of scope). It has two paths. The default S/C path is a FIFO-adapter baseline that reads `BASELINE/STOP`: SUPPORT is unreachable by construction, and any S-vs-C head-of-line interference is an adapter (FIFO) property, not HPX-native scheduling. The opt-in `--with-parked` path adds the synthetic cooperative parked class Wp (`park_ms`, which cooperatively suspends the HPX task and frees the worker — not real I/O, not inference) and is SUPPORT-capable. Rostam validation (40-core Xeon, std lane, W∈{4,8,16}, no W=32) is SUPPORT 3/3 for the parked path (median overlap_ratio ≥ 2.0; reproducible fine over-load cells ≈4.45–4.48 at W=8 and ≈7.61–7.65 at W=16), granularity-sensitive (weaker at coarse where compute dominates). The supported claim is exactly: under a synthetic parked-wait mix, the current Ray-hosted Runtime/lane adapter shows a fixed-W cooperative-overlap signal on Rostam. `overlap_ratio` is approximate/structural and never a gate (only the structural gates decide pass/fail); parked readings never assert wall-clock. Because the parked path SUPPORTED, the priority/yield follow-up gate did not trigger, and W=32, NUMA/binding, and `lane_impl="hpx"` remain unmotivated by this evidence. Not a Ray-vs-Ray, performance, capacity/sizing, Ray Serve, cluster-scaling, "RayX makes Ray faster", or "HPX beats Ray" claim, and no socket/NUMA attribution without binding evidence.
-* exp35, if/when implemented, should be framed as an adapter-preservation / non-regression probe for HPX cooperative suspension, not as discovering parked-work overlap. HPX cooperative suspension via `hpx::this_thread::sleep_for` is true by construction; the exp35 question is whether the Ray-hosted RayX Runtime / FIFO RuntimeLane / `DispatchPolicy=Async` / CPython closed-loop stack preserves that property at fixed W under synthetic parked load. The intended shape is C-only vs Wp-only vs matched C+Wp arms, with calibrated parked demand, compute-class retention as the primary reading, and `lane_stats()` / `ActorHandle.stats()` snapshots as racy context only. Shared FIFO admission and the CPython submit/retire driver are first-class caveats. Until exp35 has real results, it unlocks no new claims: no real I/O, inference, Ray Serve, cluster scaling, HPX priority scheduling, latency-SLO/capacity, W=32/NUMA/binding, `lane_impl="hpx"`, or Ray-vs-HPX performance claim.
-
-* Ray-hosting experiments 27–30 are composition prototypes: a long-lived Ray actor hosts one in-process RayX `Engine` or `Runtime` because the HPX runtime/process guard is process-global. Ray owns outer actor placement/lifecycle; RayX owns local HPX-backed execution; RayX futures are retired inside the Ray actor and only plain rows/results cross the Ray boundary. Exp30 extends the ladder to a Ray-hosted `Runtime` plus local native `CounterActor` with state, release, and shutdown checks. This is not a Ray backend, fallback layer, object-store integration, Ray Serve behavior, or Ray compatibility API.
-* In the Ray-hosting arc, exp27 is Engine boundary decomposition (observation-only), exp28 is Runtime fixed-op composition smoke-only (no JSONL/timing/perf), exp29 is a multi-actor resource-budget diagnostic (observation-only), and exp30 is Runtime + stateful local native actor composition smoke-only. For exp29, `lane_impl="std"` / `ServiceLane` active CPU-bound demand is driven by concurrently active lanes (`num_lanes`), not `hpx_threads`, and can exceed `hpx_threads`; `lane_impl="hpx"` / `HpxLane` demand is bounded differently by HPX workers, roughly `min(num_lanes, hpx_threads)` under the exp22 spin observation. Ray `num_cpus` is logical scheduling/accounting, not physical core pinning.
-* Multiple Ray-hosted actors mean multiple independent HPX runtimes that do not coordinate core ownership. The more HPX-native long-term direction would be one coordinated HPX runtime with resource partitioning, thread pools, and executors; Ray-hosting deliberately trades that away because Ray owns placement/lifecycle. Do not present the Ray actor-pool / round-robin shape as HPX-native guidance.
 * The HpxLane evidence arc is exp16 (native single-lane feasibility/timer behavior) → exp20 (task/dataflow pools are *not* drop-in RayX lane backends) → exp21 (RayX backend contract parity) → exp22 (load-divergence mechanism, observation-only) → exp23 (adapter-hop cost, observation-only). See `docs/reference/hpxlane_backend_arc.md` for the consolidated reading guide.
 * exp22/exp23 timings (and the spin divergence) are observation-only and machine-specific: do not use them as performance claims, and do not state an "HpxLane is faster/slower than ServiceLane" verdict.
 * Synthetic service timing should not be described as real inference work.
 
 ## Repository structure
 
-* `readme.md`: project overview, `rayx` frontend at-a-glance, Quickstart, headline benchmark result, and documentation map.
+* `readme.md`: project overview, `rayx` frontend at-a-glance, Quickstart, current evidence summary, and documentation map.
 * `docs/`: stable project framing and reference documentation.
 * `docs/reference/`: API and design reference notes.
 * `docs/design/`: exploratory runtime design notes; do not treat these as stable shipped reference docs unless explicitly promoted.
 * `bench/`: benchmark drivers, analyzers, smoke/contract checks, and shared helpers.
 * `ray_impl/`: Ray baseline implementation code.
-* `hpx_impl/`: HPX-native baseline implementation code and native diagnostic probes.
-* `hpx_impl/rayx_runtime_dispatch_probe.cpp`: standalone exp25 diagnostic target for runtime dispatch decomposition; observation-only, not a benchmark corpus path.
+* `hpx_impl/`: HPX-native baseline implementation code.
 * `python/src/rayx/runtime/`: experimental `rayx.runtime` Python API plus import-light validation/error helpers.
 * `python/src/rayx/runtime_ops.hpp`: fixed registered native operation registry and typed value model for `rayx.runtime`.
 * `python/src/rayx/runtime_ops_hpx.hpp`: HPX-side registered runtime operations, including internal HPX composition.
@@ -153,14 +140,14 @@ Keep these stories separate:
 
 * Ray-facing mapping: useful for showing how common Ray actor/future control patterns map onto RayX.
 * HPX-facing design: should consider HPX futures, `hpx::async`, continuations, `hpx::dataflow`, executors, resource partitioning, cooperative scheduling, and HPX-thread lane mechanisms where appropriate.
-* RayX harness design: remains a synthetic comparison harness with explicit, narrow semantics.
+* RayX evidence harness design: remains synthetic infrastructure for isolating adapter/runtime mechanisms with explicit, narrow semantics.
 * `rayx.runtime` design: registered native operations and local native actors over HPX-native runtime lanes, still narrow and explicitly not arbitrary Python or object-store semantics.
 
 Do not present a Ray actor-pool pattern as HPX best-practice guidance. If an example mirrors Ray actor-pool code, label it as a Ray-pattern mapping only.
 
 Before adding Ray-shaped API surface or examples, ask:
 
-* Is this needed for the Ray-vs-HPX comparison story?
+* Is this needed for the Ray-hosted HPX-native runtime story or its synthetic evidence harness?
 * Is there a clearer HPX-native mechanism or experiment?
 * Would this blur RayX into a fake Ray clone?
 * Does this preserve the honest boundaries: no object store, no arbitrary remote Python execution, no Ray Serve, no real inference?
@@ -203,7 +190,7 @@ For deterministic synthetic workloads:
 
 ## Documentation rules
 
-Use `readme.md` for the project overview, `rayx` frontend at-a-glance, Quickstart, headline benchmark result, and documentation map.
+Use `readme.md` for the project overview, `rayx` frontend at-a-glance, Quickstart, current evidence summary, and documentation map.
 
 Avoid future-looking roadmap, TODO, or “next step” language in `readme.md` unless explicitly requested.
 
@@ -228,7 +215,7 @@ Do not track raw generated artifacts:
 
 * `.jsonl`
 * `.summary.json`
-* logs
+* logs, including `experiments/**/logs/` and `benchmarks/**/logs/`
 * broad raw `results/` contents
 * build outputs
 * `_rayx*.so`
@@ -269,9 +256,8 @@ For the runtime test split:
 * runtime unit tests include import-light operation and actor validation.
 * runtime integration tests include native runtime and local actor contract coverage.
 * do not run runtime integration tests or runtime smokes in repo-sanity.
-* Ray-hosting smokes may live only in a native/Ray-capable smoke tier when Ray and built `_rayx` are available and they skip cleanly otherwise; this includes smoke-only Ray-hosted Runtime/CounterActor composition checks.
-* Do not run Ray-hosting performance drivers, exp29 resource diagnostics, or exp31/exp32/exp33/exp34 observation probes in normal CI.
-* The exp25 C++ dispatch probe build is an optional native/HPX validation target, not a repo-sanity requirement.
+* Ray-hosting smoke checks may live only in a native/Ray-capable smoke tier and must skip cleanly when Ray or built `_rayx` is unavailable.
+* Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38, in normal CI.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 
@@ -297,7 +283,7 @@ Be precise and skeptical.
 
 Prefer concrete claims over broad claims.
 
-When comparing Ray and HPX, distinguish clearly between:
+When discussing Ray and HPX together, distinguish clearly between:
 
 * Python-first ecosystem value
 * distributed execution model
@@ -307,4 +293,4 @@ When comparing Ray and HPX, distinguish clearly between:
 * serving-control behavior
 * benchmark-driver artifacts
 
-Do not claim HPX is better than Ray without benchmark evidence.
+Do not claim HPX beats Ray or that RayX makes Ray generally faster.

@@ -58,6 +58,7 @@ from ._validate import (
     validate_actor_call,
     validate_actor_create,
     validate_call,
+    validate_nonblocking_options,
     validate_timeout,
 )
 
@@ -348,15 +349,34 @@ class Runtime:
     ``rt-hpx-`` ``actor_id`` (visible on the result row and via :meth:`lane_stats`).
     It does **not** accept ``lane_impl`` (the runtime is HPX-native by construction;
     there is no backend selector).
+
+    **Experimental (off by default):** ``experimental_nonblocking_op_lanes=True``
+    builds the **operation** lanes in a non-blocking mode -- an Async op is dispatched
+    via ``hpx::async`` and retired through a continuation instead of the consumer
+    blocking on ``.get()``, so a single lane can service more queued work while a
+    parked op is suspended (removes the per-lane head-of-line measured in exp35/exp36).
+    ``max_inflight_per_lane`` (``None`` -> default ``8`` when enabled) bounds the
+    concurrent in-flight Async ops per lane. This relaxes only per-lane **completion**
+    order (submission stays FIFO) and is therefore applied to **stateless operation
+    lanes only** -- **actor lanes are always serial**. The value/row schema and the
+    ``RuntimeFuture`` / ``OperationResult`` contract are unchanged. Prototype safety
+    mode; no performance claim.
     """
 
-    def __init__(self, num_lanes=1, hpx_threads=1, max_queue_depth_per_lane=None):
+    def __init__(self, num_lanes=1, hpx_threads=1, max_queue_depth_per_lane=None,
+                 experimental_nonblocking_op_lanes=False,
+                 max_inflight_per_lane=None):
         # bool is an int subclass; reject it explicitly (almost always a mistake).
         if isinstance(num_lanes, bool) or not isinstance(num_lanes, int):
             raise TypeError(
                 f"num_lanes must be int, got {type(num_lanes).__name__}")
         if num_lanes < 1:
             raise ValueError(f"num_lanes must be >= 1, got {num_lanes}")
+        # EXPERIMENTAL opt-in: non-blocking OPERATION lanes (default off => the stable
+        # serial-blocking lane). Validated at the boundary before the native crossing;
+        # actor lanes are always serial regardless of this flag. See _validate.py.
+        nonblocking_flag, max_inflight = validate_nonblocking_options(
+            experimental_nonblocking_op_lanes, max_inflight_per_lane)
         # Bounded admission (Slice 2b): None = unbounded (default), passed to C++ as
         # the -1 sentinel; otherwise a positive int per-lane cap. Validated here at
         # the Python boundary, before the crossing -- mirrors num_lanes / the harness
@@ -376,7 +396,9 @@ class Runtime:
             cap = max_queue_depth_per_lane
         self._engine = _RuntimeEngine(hpx_threads=hpx_threads,
                                       num_lanes=num_lanes,
-                                      max_queue_depth_per_lane=cap)
+                                      max_queue_depth_per_lane=cap,
+                                      nonblocking_op_lanes=nonblocking_flag,
+                                      max_inflight_per_lane=max_inflight)
         self._closed = False
 
     def submit_operation(self, op_id, *args):

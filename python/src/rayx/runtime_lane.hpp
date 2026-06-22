@@ -84,7 +84,21 @@ public:
     // lane (Slice B) will construct RuntimeLane("rt-act-") to get a distinct id
     // namespace; the lane mechanism (queue / worker / cancellation / admission) is
     // otherwise unchanged -- only id generation gains the parameter.
-    explicit RuntimeLane(const std::string& id_prefix = "rt-hpx-") {
+    // Lane dispatch mode (EXPERIMENTAL, additive). SerialBlocking is the default and
+    // the only mode used by the stable runtime / all actor lanes: the consumer runs
+    // one Async op via hpx::async(exec_, body).get() and retires it before popping the
+    // next (per-lane FIFO completion). AsyncNonBlocking is an opt-in OPERATION-LANE-ONLY
+    // mode that dispatches Async ops without the inline .get() and retires them through
+    // a continuation, so the lane can pop more work while a parked op is suspended
+    // (removes the per-lane head-of-line measured in exp35/exp36). It relaxes ONLY
+    // per-lane COMPLETION order (submission stays FIFO) and is therefore safe only for
+    // STATELESS operation lanes -- actor lanes MUST stay SerialBlocking.
+    enum class LaneMode { SerialBlocking, AsyncNonBlocking };
+
+    explicit RuntimeLane(const std::string& id_prefix = "rt-hpx-",
+                         LaneMode mode = LaneMode::SerialBlocking,
+                         int max_inflight = 1)
+        : mode_(mode), max_inflight_(max_inflight < 1 ? 1 : max_inflight) {
         actor_id_ = make_runtime_actor_id(id_prefix);
         worker_ = hpx::thread([this]() { run(); });
     }
@@ -118,7 +132,12 @@ public:
         s.actor_id = actor_id_;
         std::lock_guard<hpx::mutex> lk(mu_);
         s.queue_depth = static_cast<int>(queue_.size());
-        s.active = active_.load(std::memory_order_relaxed);
+        // SerialBlocking: the single-slot active_ flag. AsyncNonBlocking has no single
+        // service slot, so "active" means "at least one Async op in flight" (inflight_
+        // is guarded by mu_, which we already hold here).
+        s.active = (mode_ == LaneMode::AsyncNonBlocking)
+                       ? (inflight_ > 0)
+                       : active_.load(std::memory_order_relaxed);
         return s;
     }
 
@@ -192,7 +211,9 @@ public:
             std::lock_guard<hpx::mutex> lk(mu_);
             for (auto& item : queue_)
                 if (item.tok) toks.push_back(item.tok);
-            if (active_tok_) toks.push_back(active_tok_);
+            if (active_tok_) toks.push_back(active_tok_);  // SerialBlocking slot
+            for (auto& t : inflight_toks_)                 // AsyncNonBlocking in-flight
+                if (t) toks.push_back(t);
         }
         for (auto& t : toks) t->cancel();  // outside mu_
     }
@@ -209,6 +230,18 @@ public:
         }
         cv_.notify_all();
         if (worker_.joinable()) worker_.join();
+        // AsyncNonBlocking: the worker has stopped popping, but Async continuations
+        // dispatched earlier may still be settling. Wait until every dispatched op has
+        // retired (promise fulfilled + inflight_ decremented) before returning, so the
+        // lane is destroyed only after no continuation can touch it (the continuation
+        // notifies UNDER mu_, closing the cv-teardown race). Bounded by one checkpoint
+        // stride: cancel_pending() (called first by shutdown/release) asks in-flight
+        // checkpointed ops to stop; a non-cancellable single-chunk park completes within
+        // its own ms. SerialBlocking has no in-flight set and skips this wait.
+        if (mode_ == LaneMode::AsyncNonBlocking) {
+            std::unique_lock<hpx::mutex> lk(mu_);
+            cv_.wait(lk, [this] { return inflight_ == 0; });
+        }
     }
 
 private:
@@ -222,12 +255,22 @@ private:
         DispatchPolicy policy = DispatchPolicy::Async;
     };
 
+    // Consumer entry point: dispatch on the lane mode. SerialBlocking is the default
+    // (unchanged behaviour); AsyncNonBlocking is the experimental op-lane mode.
+    void run() {
+        if (mode_ == LaneMode::AsyncNonBlocking) {
+            run_nonblocking();
+            return;
+        }
+        run_serial();
+    }
+
     // Long-lived consumer (one HPX thread). The idle wait on
     // hpx::condition_variable_any suspends this HPX thread cooperatively, so the
     // worker is freed while the lane is empty. On stop it DRAINS the remaining
     // queue (servicing/skipping and fulfilling each item) before returning, so no
     // pending RuntimeFuture is left with a broken promise.
-    void run() {
+    void run_serial() {
         for (;;) {
             Item item;
             {
@@ -306,6 +349,111 @@ private:
         }
     }
 
+    // EXPERIMENTAL AsyncNonBlocking consumer (operation lanes only). Pops in FIFO
+    // order like run_serial, but for an Async op it dispatches hpx::async(exec_, body)
+    // WITHOUT .get() and attaches a continuation that fulfills the promise -- so the
+    // lane pops and dispatches more work while a parked op is suspended, removing the
+    // per-lane head-of-line that exp35/exp36 measured. Inline ops still run serially on
+    // the consumer (instantaneous; no async hop, no in-flight slot). Submission order
+    // stays FIFO; COMPLETION order may differ (safe only for STATELESS operation lanes
+    // -- actor lanes are never built in this mode). max_inflight_ bounds concurrent
+    // in-flight Async ops per lane (the consumer waits when the cap is reached).
+    void run_nonblocking() {
+        for (;;) {
+            Item item;
+            {
+                std::unique_lock<hpx::mutex> lk(mu_);
+                cv_.wait(lk, [this] {
+                    return stop_ ||
+                           (!queue_.empty() && inflight_ < max_inflight_);
+                });
+                if (stop_ && queue_.empty()) return;  // drained: exit
+                if (queue_.empty()) continue;         // woke for a freed slot only
+                item = std::move(queue_.front());
+                queue_.pop_front();
+            }
+            // Queued-cancel skip: cancel() already fulfilled the promise (no second
+            // set_value, no in-flight slot taken).
+            if (item.tok && !item.tok->begin_service(item.checkpoint_count)) {
+                continue;
+            }
+            std::shared_ptr<RuntimeCancelToken> tok = item.tok;
+            StopCheckpoint stop = [tok](bool next_is_final) -> bool {
+                bool s = tok ? tok->stop_at_boundary(next_is_final) : false;
+                hpx::this_thread::yield();
+                return s;
+            };
+            if (item.policy == DispatchPolicy::Inline) {
+                // Inline ops are instantaneous: run on the consumer and retire now,
+                // exactly as in serial mode (no async hop, no in-flight slot).
+                RuntimeResult r;
+                try {
+                    r = item.task(stop);
+                } catch (...) {
+                    r.actor_id = actor_id_;
+                    r.status = "failed";
+                    r.error = "runtime dispatch failed";
+                    r.has_value = false;
+                }
+                if (item.tok && r.status != "cancelled") item.tok->mark_finished();
+                item.prom->set_value(std::move(r));
+                continue;
+            }
+            // Async: dispatch non-blocking and retire via a continuation. The promise
+            // + token (shared_ptr) and actor_id (value) are owned by the continuation,
+            // so nothing it touches can be destroyed before it runs (stop_and_join
+            // waits for inflight_ == 0). Take one in-flight slot here; release it
+            // exactly once in the continuation.
+            std::shared_ptr<hpx::promise<RuntimeResult>> prom = item.prom;
+            {
+                std::lock_guard<hpx::mutex> lk(mu_);
+                ++inflight_;
+                inflight_toks_.push_back(tok);
+            }
+            const std::string aid = actor_id_;
+            // The successor future returned by .then is intentionally discarded: an
+            // hpx::future destructor does NOT block, and discarding it does NOT cancel
+            // the registered continuation (the predecessor's shared state owns it until
+            // the body completes). launch::sync runs the (trivial) continuation inline
+            // on the worker that finishes the body.
+            hpx::async(exec_, [task = item.task, stop]() {
+                return task(stop);
+            }).then(hpx::launch::sync,
+                    [this, prom, tok, aid](hpx::future<RuntimeResult>&& done) {
+                RuntimeResult r;
+                try {
+                    r = done.get();
+                } catch (...) {
+                    // Defensive: the op body maps its own throws to a failed result,
+                    // so .get() should not throw; this covers async/executor failure
+                    // only -- still fulfill the promise so the future never breaks.
+                    r.actor_id = aid;
+                    r.status = "failed";
+                    r.error = "runtime dispatch failed";
+                    r.has_value = false;
+                }
+                if (tok && r.status != "cancelled") tok->mark_finished();
+                prom->set_value(std::move(r));  // fulfilled exactly once
+                {
+                    // Release the in-flight slot + drop the token, and notify, ALL
+                    // under mu_: notifying under the lock prevents a stop_and_join
+                    // waiter from waking, returning, and destroying cv_/mu_ while this
+                    // notify is still touching them (cv-teardown race).
+                    std::lock_guard<hpx::mutex> lk(mu_);
+                    --inflight_;
+                    for (auto it = inflight_toks_.begin();
+                         it != inflight_toks_.end(); ++it) {
+                        if (it->get() == tok.get()) {
+                            inflight_toks_.erase(it);
+                            break;
+                        }
+                    }
+                    cv_.notify_all();
+                }
+            });
+        }
+    }
+
     // Clear the in-flight markers after a fulfilled (or skipped) item. active_tok_
     // is cleared UNDER mu_ (cancel_pending reads it under mu_); active_ is an atomic
     // cleared without the lock for the stats() snapshot.
@@ -332,6 +480,18 @@ private:
     // and cleared under mu_ after fulfill, so cancel_pending() can read it under mu_
     // and ask a running op to stop at its next checkpoint (shutdown cancellation).
     std::shared_ptr<RuntimeCancelToken> active_tok_;
+    // ---- AsyncNonBlocking (experimental, operation lanes only) state ----------
+    // Dispatch mode + per-lane in-flight bound. SerialBlocking (default) leaves every
+    // path above unchanged and never touches inflight_ / inflight_toks_.
+    LaneMode mode_ = LaneMode::SerialBlocking;
+    int max_inflight_ = 1;
+    // Count of dispatched-but-not-yet-retired Async ops (AsyncNonBlocking only),
+    // guarded by mu_. Gates admission (consumer waits when == max_inflight_) and
+    // teardown (stop_and_join waits until == 0).
+    int inflight_ = 0;
+    // Cancel tokens of the currently in-flight Async ops (AsyncNonBlocking only),
+    // guarded by mu_, so cancel_pending() can ask every in-flight op to stop.
+    std::vector<std::shared_ptr<RuntimeCancelToken>> inflight_toks_;
     // The executor op bodies are dispatched on. Default pool in Slice 1; the P4
     // placement seam (named control/work pools) is a later, illustrative axis.
     hpx::execution::parallel_executor exec_;

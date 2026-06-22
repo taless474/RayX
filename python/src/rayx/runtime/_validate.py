@@ -32,6 +32,7 @@ __all__ = [
     "validate_call",
     "validate_actor_create",
     "validate_actor_call",
+    "validate_nonblocking_options",
 ]
 
 # Upper bound on the fanout_sum `parts` argument, enforced at the Python boundary.
@@ -265,6 +266,56 @@ def validate_actor_call(actor_type, method_id, args, actor_table):
         raise ValueError(f"method 'busy_get' argument 0 (work_n) must be >= 0, "
                          f"got {out[0]}")
     return out
+
+
+def validate_nonblocking_options(experimental_nonblocking_op_lanes,
+                                 max_inflight_per_lane):
+    """Validate the EXPERIMENTAL non-blocking-op-lane constructor options at the
+    Python boundary, before the native crossing. Returns ``(flag, mi)`` where ``flag``
+    is the bool to pass to the native ``nonblocking_op_lanes`` and ``mi`` is the int to
+    pass to native ``max_inflight_per_lane``.
+
+    ``experimental_nonblocking_op_lanes`` must be a real ``bool`` (not an ``int``).
+    ``max_inflight_per_lane`` must be ``None`` or a positive ``int`` (``bool`` rejected
+    as an ``int`` subclass):
+
+      * disabled (flag ``False``): ``max_inflight_per_lane`` must be ``None`` (the cap
+        is meaningless without the mode); a value with the mode off is a usage error.
+        ``mi`` defaults to ``1``.
+      * enabled (flag ``True``): ``None`` -> a default of ``8``; else the positive int.
+
+    This mirrors the ``num_lanes`` / ``max_queue_depth_per_lane`` boundary discipline:
+    fully validated here, before any ``_RuntimeEngine`` is constructed on rejection.
+    The non-blocking mode applies to STATELESS operation lanes only -- actor lanes are
+    always serial -- and relaxes only per-lane completion order, never the value/row
+    schema or the ``RuntimeFuture`` contract.
+    """
+    # Default per-lane in-flight cap when the experimental mode is enabled without an
+    # explicit cap. Small and bounded so a single non-blocking lane cannot dispatch an
+    # unbounded number of concurrent Async bodies.
+    default_inflight = 8
+    if not isinstance(experimental_nonblocking_op_lanes, bool):
+        raise TypeError(
+            "experimental_nonblocking_op_lanes must be bool, got "
+            f"{type(experimental_nonblocking_op_lanes).__name__}")
+    if max_inflight_per_lane is not None:
+        if (isinstance(max_inflight_per_lane, bool)
+                or not isinstance(max_inflight_per_lane, int)):
+            raise TypeError(
+                "max_inflight_per_lane must be None or int, got "
+                f"{type(max_inflight_per_lane).__name__}")
+        if max_inflight_per_lane < 1:
+            raise ValueError(
+                "max_inflight_per_lane must be None or >= 1, got "
+                f"{max_inflight_per_lane}")
+    if not experimental_nonblocking_op_lanes:
+        if max_inflight_per_lane is not None:
+            raise ValueError(
+                "max_inflight_per_lane is only valid when "
+                "experimental_nonblocking_op_lanes=True")
+        return False, 1
+    return True, (default_inflight if max_inflight_per_lane is None
+                  else max_inflight_per_lane)
 
 
 def validate_timeout(timeout):

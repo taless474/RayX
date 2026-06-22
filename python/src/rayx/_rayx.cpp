@@ -1028,7 +1028,9 @@ inline rayx_runtime::RuntimeLane::OpTask make_method_task(
 class RuntimeEngine {
 public:
     RuntimeEngine(int hpx_threads, int num_lanes,
-                  int max_queue_depth_per_lane) {
+                  int max_queue_depth_per_lane,
+                  bool nonblocking_op_lanes = false,
+                  int max_inflight_per_lane = 1) {
         if (hpx_threads < 1)
             throw std::invalid_argument("hpx_threads must be >= 1");
         if (num_lanes < 1)
@@ -1039,6 +1041,15 @@ public:
         if (max_queue_depth_per_lane != -1 && max_queue_depth_per_lane < 1)
             throw std::invalid_argument(
                 "max_queue_depth_per_lane must be -1 (unbounded) or >= 1");
+        // EXPERIMENTAL opt-in: non-blocking OPERATION lanes. Default false keeps the
+        // serial-blocking lane (the stable anchor). max_inflight_per_lane only applies
+        // when enabled and must be >= 1 (the facade validates; this is a backstop).
+        if (nonblocking_op_lanes && max_inflight_per_lane < 1)
+            throw std::invalid_argument(
+                "max_inflight_per_lane must be >= 1 when nonblocking_op_lanes is set");
+        nonblocking_op_lanes_ = nonblocking_op_lanes;
+        max_inflight_per_lane_ = (max_inflight_per_lane < 1) ? 1
+                                                             : max_inflight_per_lane;
         max_qd_per_lane_ = max_queue_depth_per_lane;
         bool expected = false;
         if (!process_runtime_active().compare_exchange_strong(expected, true)) {
@@ -1059,11 +1070,21 @@ public:
         // guard, and rethrow -- so a failed ctor leaves no live worker, no started
         // runtime, and no claimed guard.
         try {
-            hpx::run_as_hpx_thread([this, num_lanes]() {
+            // Operation lanes honour the experimental non-blocking mode; ACTOR lanes
+            // (create_actor) are always SerialBlocking (method ordering == state
+            // correctness), so this mode is op-lanes-only by construction.
+            const auto op_lane_mode =
+                nonblocking_op_lanes_
+                    ? rayx_runtime::RuntimeLane::LaneMode::AsyncNonBlocking
+                    : rayx_runtime::RuntimeLane::LaneMode::SerialBlocking;
+            const int op_lane_inflight = max_inflight_per_lane_;
+            hpx::run_as_hpx_thread([this, num_lanes, op_lane_mode,
+                                    op_lane_inflight]() {
                 lanes_.reserve(static_cast<std::size_t>(num_lanes));
                 for (int i = 0; i < num_lanes; ++i) {
                     lanes_.push_back(
-                        std::make_unique<rayx_runtime::RuntimeLane>());
+                        std::make_unique<rayx_runtime::RuntimeLane>(
+                            "rt-hpx-", op_lane_mode, op_lane_inflight));
                 }
             });
         } catch (...) {
@@ -1552,6 +1573,10 @@ private:
     // Per-lane bounded-admission cap: -1 = unbounded (default); >= 1 = max
     // queued-but-not-started requests admitted per lane (see submit_operation).
     int max_qd_per_lane_ = -1;
+    // EXPERIMENTAL: when set, OPERATION lanes are built AsyncNonBlocking with
+    // max_inflight_per_lane_ in-flight Async ops each (actor lanes stay serial).
+    bool nonblocking_op_lanes_ = false;
+    int max_inflight_per_lane_ = 1;
     bool running_ = false;
 
     // ---- local native actors (C1b) ----------------------------------------
@@ -1682,8 +1707,10 @@ PYBIND11_MODULE(_rayx, m) {
              "and after result().");
 
     py::class_<RuntimeEngine>(m, "_RuntimeEngine")
-        .def(py::init<int, int, int>(), py::arg("hpx_threads"),
-             py::arg("num_lanes"), py::arg("max_queue_depth_per_lane"))
+        .def(py::init<int, int, int, bool, int>(), py::arg("hpx_threads"),
+             py::arg("num_lanes"), py::arg("max_queue_depth_per_lane"),
+             py::arg("nonblocking_op_lanes") = false,
+             py::arg("max_inflight_per_lane") = 1)
         .def("submit_operation", &RuntimeEngine::submit_operation,
              py::arg("op_id"), py::arg("args"),
              "Dispatch one registered native operation through a round-robin "
