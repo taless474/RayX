@@ -23,6 +23,16 @@ target_link_libraries(hpx_lane_feasibility PRIVATE HPX::hpx HPX::wrap_main)
 add_executable(hpx_task_dataflow_probe hpx_task_dataflow_probe.cpp)
 target_link_libraries(hpx_task_dataflow_probe PRIVATE HPX::hpx HPX::wrap_main)
 
+# Cooperative gate/barrier witness spike (experiments/41). Standalone,
+# experiment-only: launches N HPX child tasks that arrive, cooperatively suspend
+# on a shared hpx::promise<void> gate, and resume when the last arriver opens it.
+# Uses only hpx::async / hpx::when_all / hpx::promise<void> / shared_future<void>
+# / hpx::this_thread::sleep_for -- NO hpx::latch / barrier / counting_semaphore,
+# NO Runtime registry op, NO endpoint bridge. Structural gates only; no timing
+# claim. NOT part of the serving-control benchmark corpus.
+add_executable(hpx_barrier_witness_spike hpx_barrier_witness_spike.cpp)
+target_link_libraries(hpx_barrier_witness_spike PRIVATE HPX::hpx HPX::wrap_main)
+
 # rayx.runtime dispatch-decomposition probe (experiments/25). Standalone
 # diagnostic: includes the experimental runtime headers from python/src/rayx
 # READ-ONLY and UNMODIFIED (RuntimeLane + op registries; no pybind, no _rayx)

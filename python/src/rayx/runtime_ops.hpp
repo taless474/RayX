@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <random>
 #include <stdexcept>
 #include <string>
@@ -216,6 +217,136 @@ inline std::uint64_t masked_range_sum(std::int64_t begin, std::int64_t end) {
 // future P2 bounded-wave variant would instead return ceil(parts / FANOUT_WAVE_SIZE).
 inline int fanout_sum_checkpoints(std::int64_t /*parts*/) { return 1; }
 
+// --- chain_sum_* shared stage kernel + metadata (exp39) -----------------------
+//
+// exp39 is the latency/decomposition slice (single actor, single node, synthetic
+// int64). A dependent "stage" applies `quantum` units of the SAME masked on-core
+// work as busy_sum/fanout_sum and folds it into the running value x:
+//
+//   chain_stage(x, q) = (x + masked_range_sum(0, q)) & BUSY_SUM_MASK
+//
+// so a chain of S stages from `seed` is deterministic, int64, overflow-safe, and
+// data-dependent (each stage reads the previous value). chain_stage is the SINGLE
+// source of truth for BOTH native variants -- the plain C++ loop op chain_sum_loop
+// (registry(), the in-process floor) and the hpx::future::then continuation chain
+// chain_sum_then (hpx_registry()) -- so the two cannot drift and the experiment's
+// three-way equal-work invariant (loop == then == Python left-fold of the one-stage
+// loop) holds by construction. Synthetic CPU diagnostic only: NO performance claim,
+// NOT inference, and NOT framed as "HPX scheduling wins" (a linear dependent chain
+// has no parallelism -- the concurrency/overlap story is the separate exp40).
+
+// Upper bounds enforced at the Python boundary (mirror: CHAIN_STEPS_MAX /
+// CHAIN_QUANTUM_MAX in runtime/_validate.py -- keep in sync). STEPS bounds the chain
+// length (so chain_sum_then cannot build an unbounded continuation chain and the
+// Python-mediated fold issues a bounded number of submits); QUANTUM bounds per-stage
+// on-core work. The chain ops are queued-cancelable only (no running cancel), so the
+// product is kept modest by construction to bound an uninterruptible call / teardown.
+inline constexpr std::int64_t CHAIN_STEPS_MAX = 10'000;
+inline constexpr std::int64_t CHAIN_QUANTUM_MAX = 100'000;
+
+// Upper bound on the chain_fanout `count` argument (number of INDEPENDENT child
+// chains fanned out via hpx::async, exp40 probe), enforced at the Python boundary
+// (mirror: CHAIN_FANOUT_K_MAX in runtime/_validate.py -- keep in sync). Bounds the
+// internal hpx::async fan-out so an absurd child count cannot spawn an unbounded
+// number of tasks, exactly the FANOUT_PARTS_MAX posture for the launch-all op.
+inline constexpr std::int64_t CHAIN_FANOUT_K_MAX = 256;
+
+// One dependent stage. masked_range_sum(0, q) is q units of the shared masked work;
+// folding it into x under BUSY_SUM_MASK keeps the result < 2^31 and dependent on x.
+// q == 0 -> empty range -> 0 -> identity add (stage returns x unchanged); q < 0 is
+// rejected at the Python boundary and re-checked defensively by the op bodies. Pure /
+// HPX-free so both the registry() loop op and the hpx_registry() then op call it.
+inline std::int64_t chain_stage(std::int64_t x, std::int64_t q) {
+    const std::uint64_t acc =
+        (static_cast<std::uint64_t>(x) + masked_range_sum(0, q)) & BUSY_SUM_MASK;
+    return static_cast<std::int64_t>(acc);
+}
+
+// --- barrier_fanin (exp44) HPX-free metadata + diagnostic witness -------------
+//
+// barrier_fanin(seed, leaves, quantum) is the exp44 "witnessed barrier-gated fan-in"
+// op. Its HPX body (runtime_ops_hpx.hpp) launches `leaves` bare-hpx::async children
+// that all compute chain_stage(seed+j, quantum), mutually RENDEZVOUS on a shared
+// cooperative gate, join with when_all, and reduce with a scheduled .then. The value
+// is value-neutral of the gate, so:
+//
+//   barrier_fanin(seed, leaves, quantum)
+//     == ( Σ_{j=0}^{leaves-1} chain_stage(seed+j, quantum) ) & BUSY_SUM_MASK
+//     == chain_fanout(seed, leaves, /*steps=*/1, quantum)
+//
+// so the result is Python-checkable WITHOUT any HPX type. The gate only forces the
+// mutual dependency that makes a clean completion at --hpx:threads=1 load-bearing
+// (cooperative suspend/resume on ONE default-pool OS worker; a non-cooperative
+// interior would deadlock). This is a synthetic barrier/all-reduce shape, NOT general
+// DAG scheduling -- NO speedup/throughput/latency/parallelism claim.
+
+// Upper bound on `leaves`, enforced at the Python boundary (mirror: FANIN_LEAVES_MAX in
+// runtime/_validate.py -- keep in sync) and re-checked defensively in the op body. Small
+// so the gated interior + witness stay bounded; well under CHAIN_FANOUT_K_MAX.
+inline constexpr std::int64_t FANIN_LEAVES_MAX = 64;
+
+// Internal cooperative-watchdog deadline / poll stride for the barrier_fanin body
+// (defense-in-depth only). GENEROUS deadline (>= exp41's 500 ms, with CI headroom) so a
+// healthy success run is opened by the LAST ARRIVER, never the watchdog: a watchdog open
+// on a success run is treated as a structural FAILURE upstream. NOT a timing knob and NOT
+// the anti-hang guarantee -- the experiment's external subprocess timeout owns that.
+inline constexpr int BARRIER_FANIN_WATCHDOG_MS = 5'000;
+inline constexpr int BARRIER_FANIN_POLL_MS = 2;
+
+// Debug-only structural witness for the LAST barrier_fanin execution. THIS IS THE ONLY
+// SIDE-EFFECTING REGISTRY OP: every other registry()/hpx_registry() op is a pure value
+// function (value out, no global state). barrier_fanin additionally writes this witness
+// for structural test/experiment gating. It does NOT touch OpOutcome, RuntimeResult,
+// lane_stats(), or the v1 JSONL schema. The snapshot is mutex-guarded (no torn read);
+// "racy" means only that a reader may observe a stale / cross-call value. Tests and the
+// experiment are SINGLE-IN-FLIGHT (one barrier_fanin at a time), under which `seq`
+// identifies the execution. The process-global slot is acceptable because Runtime is a
+// process singleton. This is NOT scheduler state, NOT a synchronization primitive, NOT
+// placement control, and NOT public scheduler introspection.
+struct BarrierFaninWitness {
+    std::int64_t seq = 0;             // monotonic id of the last recorded execution
+    int observed_os_workers = 0;      // hpx::get_os_thread_count() at execution
+    int leaves_requested = 0;
+    int arrived_count = 0;            // leaves that reached the gate
+    int released_count = 0;           // leaves that passed the gate and returned
+    std::string opener = "none";      // "last_arriver" | "watchdog" | "none"
+    bool reduction_after_all_leaves = false;  // released == leaves at reduction entry
+    int ordering_violations = 0;      // defensive invariant breaches; expected 0
+    bool clean_exit = false;          // joined_count == leaves
+    bool watchdog_opened = false;     // opener == "watchdog"
+    int joined_count = 0;             // leaves joined (when_all)
+    // OBSERVATION-ONLY (never a pass/fail gate): peak count of leaves simultaneously
+    // suspended at gate.get(). This is COORDINATED SUSPENSION -- NOT parallel execution,
+    // NOT throughput, NOT worker-level concurrency. At --hpx:threads=1 it can still be
+    // large because HPX cooperatively suspends the gated tasks on a single OS worker.
+    int max_simultaneously_suspended_leaves = 0;
+};
+
+inline std::mutex& barrier_fanin_witness_mutex() {
+    static std::mutex m;
+    return m;
+}
+
+inline BarrierFaninWitness& barrier_fanin_witness_slot() {
+    static BarrierFaninWitness w;
+    return w;
+}
+
+// Record one execution's witness under the mutex (single write site; the op body calls
+// this exactly once at completion). Stamps a fresh monotonic `seq`.
+inline void record_barrier_fanin_witness(BarrierFaninWitness w) {
+    std::lock_guard<std::mutex> g(barrier_fanin_witness_mutex());
+    BarrierFaninWitness& slot = barrier_fanin_witness_slot();
+    w.seq = slot.seq + 1;
+    slot = w;
+}
+
+// Snapshot the last witness under the mutex (no torn read). Returns by value.
+inline BarrierFaninWitness read_barrier_fanin_witness() {
+    std::lock_guard<std::mutex> g(barrier_fanin_witness_mutex());
+    return barrier_fanin_witness_slot();
+}
+
 // Operation signature: typed args (OpArgs = vector<variant<int64,double>>) + a
 // lane-bound StopCheckpoint in, OpOutcome out. Args are arity/type-validated at the
 // Python boundary and marshalled into OpArgs in _rayx.cpp; the op body extracts each
@@ -350,6 +481,39 @@ inline const std::unordered_map<std::string, OpEntry>& registry() {
              },
              one_checkpoint,
              {OpType::Double, OpType::Double}, OpType::Double, DispatchPolicy::Inline}},
+        {"chain_sum_loop", OpEntry{3,
+             // exp39 native in-process FLOOR: apply chain_stage in a plain C++ loop
+             // over `steps` dependent stages on the lane worker -- NO per-stage
+             // hpx::future::then. One submitted op, one outer async hop (default
+             // Async policy). Deterministic; shares chain_stage with chain_sum_then,
+             // so the three-way equal-work invariant holds by construction. Also the
+             // ONE-STAGE unit for the experiment's Python-mediated fold (steps == 1).
+             [](const OpArgs& a, const StopCheckpoint&) -> OpOutcome {
+                 const std::int64_t seed = as_int64(a, 0, "chain_sum_loop");
+                 const std::int64_t steps = as_int64(a, 1, "chain_sum_loop");
+                 const std::int64_t quantum = as_int64(a, 2, "chain_sum_loop");
+                 // Defensive native guard (the public Python boundary already rejects
+                 // these; this protects the private/native bypass). Throw is mapped by
+                 // make_op_task to a status="failed" row, never a crash.
+                 if (steps < 0 || steps > CHAIN_STEPS_MAX ||
+                     quantum < 0 || quantum > CHAIN_QUANTUM_MAX) {
+                     throw std::invalid_argument(
+                         "chain_sum_loop requires 0 <= steps <= "
+                         + std::to_string(CHAIN_STEPS_MAX)
+                         + " and 0 <= quantum <= "
+                         + std::to_string(CHAIN_QUANTUM_MAX));
+                 }
+                 std::int64_t x = seed;  // steps == 0 -> returns seed unchanged
+                 for (std::int64_t k = 0; k < steps; ++k)
+                     x = chain_stage(x, quantum);
+                 OpOutcome o;
+                 o.value = x;  // int64 -> OpValue
+                 o.has_value = true;
+                 o.status = "completed";
+                 return o;
+             },
+             one_checkpoint,  // queued-cancelable only (count 1)
+             {OpType::Int64, OpType::Int64, OpType::Int64}, OpType::Int64}},
     };
     return r;
 }

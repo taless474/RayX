@@ -1,0 +1,709 @@
+{
+  "experiment": "exp39_native_continuation_vs_mediated_chain",
+  "kind": "curated_summary",
+  "schema": "rayx-exp39-decomposition-1",
+  "schema_note": "experiment-local; NOT the v1 benchmark JSONL schema",
+  "observation_only": true,
+  "machine_specific": true,
+  "framing": "decomposition, not 'HPX wins'. A linear DEPENDENT chain has no parallelism and is the least-flattering shape for HPX; this slice measures WHERE the cost goes (repeated Python/pybind/RuntimeFuture/lane boundary cost vs scheduled hpx::future::then continuation/shared-state cost), not who wins. The overlap/concurrency story is the separate exp40.",
+  "supported_claim": "For dependent synthetic native work inside one RayX runtime, in-process native composition avoids repeated Python/pybind/RuntimeFuture/lane-boundary cost. The scheduled hpx::future::then variant measures the HPX continuation/shared-state overhead paid to express the chain natively.",
+  "non_claims": [
+    "no Ray-mediated baseline",
+    "no multi-node result",
+    "no HPX fabric / parcelport / AGAS",
+    "no Python callback result",
+    "no tokenizer / detokenization / vLLM / SGLang result",
+    "no no-GIL result",
+    "no general 'HPX beats Ray' claim",
+    "no real model inference; chain work is synthetic masked on-core int64 work"
+  ],
+  "decomposition_legend": {
+    "mediated_minus_loop": "repeated boundary overhead = (S-1) extra submit/retire cycles (pybind marshal + GIL cycle + RuntimeFuture alloc + lane admission + dispatch hop)",
+    "then_minus_loop": "scheduled hpx::future::then continuation / shared-state overhead (launch::async, deliberately visible/pessimistic; NOT the HPX floor)",
+    "mediated_minus_then": "net benefit of staying native while still paying HPX continuation cost"
+  },
+  "commit": "c1496875118f0c4d1d257151a6f02b8a085e6a86",
+  "machine": {
+    "node": "Rostam (homogeneous many-core Linux)",
+    "cpu": "Intel Xeon Gold 6148 @ 2.40GHz",
+    "physical_cores": 40,
+    "sockets": 2,
+    "cores_per_socket": 20,
+    "threads_per_core": 1,
+    "governor": "performance",
+    "allocation": "exclusive Slurm",
+    "affinity_pinning_evidence": false,
+    "os": "Linux 5.14",
+    "python": "3.12.3"
+  },
+  "settings": {
+    "steps": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "quanta": [
+      0,
+      16,
+      64,
+      256,
+      1024,
+      4096,
+      16384,
+      65536,
+      100000
+    ],
+    "reps": 200,
+    "warmup": 30,
+    "hpx_threads": 1,
+    "num_lanes": 1,
+    "seed": 12345,
+    "hpx_bind": "HPX default (RayX sets only --hpx:threads, never --hpx:bind)",
+    "launch_policy": "hpx::launch::async (chain_sum_then; deliberately visible scheduled-continuation cost, not HPX floor)",
+    "quantum_cap_note": "q grid capped at 100000 = CHAIN_QUANTUM_MAX (boundary guardrail in runtime/_validate.py, mirrored in runtime_ops.hpp). The earlier writeup command listed q=262144, which the validator correctly rejects; the cap is working as designed, no code change required.",
+    "headline_metric": "client-side per-chain wall time (time.perf_counter_ns), p50; GC disabled inside the measured loop; warmup discarded"
+  },
+  "structural_gates": "PASS (three-way equal-work invariant held at every (S,q) cell; values deterministic across all reps)",
+  "headline_fixed_overhead_q0": {
+    "note": "q=0 isolates the fixed per-stage overheads (no stage work). med-loop is ~linear in (S-1): ~20.2 us per Python/pybind/RuntimeFuture/lane boundary crossing. then-loop is ~1 us per scheduled future::then continuation at scale -- visible but ~20x smaller per stage than the mediated boundary crossing.",
+    "per_S": {
+      "1": {
+        "mediated_minus_loop_ms": 0.0007,
+        "then_minus_loop_ms": 0.0018
+      },
+      "2": {
+        "mediated_minus_loop_ms": 0.0204,
+        "then_minus_loop_ms": 0.0001,
+        "per_boundary_crossing_us": 20.39,
+        "per_then_continuation_us": 0.1
+      },
+      "4": {
+        "mediated_minus_loop_ms": 0.0609,
+        "then_minus_loop_ms": 0.0073,
+        "per_boundary_crossing_us": 20.3,
+        "per_then_continuation_us": 2.44
+      },
+      "8": {
+        "mediated_minus_loop_ms": 0.1409,
+        "then_minus_loop_ms": 0.0121,
+        "per_boundary_crossing_us": 20.13,
+        "per_then_continuation_us": 1.73
+      },
+      "16": {
+        "mediated_minus_loop_ms": 0.3042,
+        "then_minus_loop_ms": 0.0205,
+        "per_boundary_crossing_us": 20.28,
+        "per_then_continuation_us": 1.36
+      },
+      "32": {
+        "mediated_minus_loop_ms": 0.6308,
+        "then_minus_loop_ms": 0.0328,
+        "per_boundary_crossing_us": 20.35,
+        "per_then_continuation_us": 1.06
+      },
+      "64": {
+        "mediated_minus_loop_ms": 1.2733,
+        "then_minus_loop_ms": 0.0641,
+        "per_boundary_crossing_us": 20.21,
+        "per_then_continuation_us": 1.02
+      }
+    }
+  },
+  "large_q_read": {
+    "note": "SOFT read, not pass/fail. As q grows, relative spread SHRINKS (stage work dominates fixed overhead) but does NOT fully collapse at high S: at S=64,q=100000 rel_spread is still ~0.50 and med-loop GROWS above its q=0 fixed value (~1.27 -> ~2.11 ms). Fixed mediated overhead remains visible for long chains; there are likely additional scheduler/allocator/cache/affinity effects at large q. Observational and machine-specific only.",
+    "qmax": 100000,
+    "per_S_at_qmax": {
+      "1": {
+        "p50s_ms": [
+          0.0925,
+          0.0936,
+          0.0926
+        ],
+        "rel_spread": 0.0115
+      },
+      "2": {
+        "p50s_ms": [
+          0.1736,
+          0.1754,
+          0.1854
+        ],
+        "rel_spread": 0.068
+      },
+      "4": {
+        "p50s_ms": [
+          0.3111,
+          0.316,
+          0.3865
+        ],
+        "rel_spread": 0.2421
+      },
+      "8": {
+        "p50s_ms": [
+          0.5762,
+          0.5842,
+          0.7809
+        ],
+        "rel_spread": 0.3552
+      },
+      "16": {
+        "p50s_ms": [
+          1.0964,
+          1.1121,
+          1.5957
+        ],
+        "rel_spread": 0.4553
+      },
+      "32": {
+        "p50s_ms": [
+          2.1349,
+          2.1685,
+          3.1602
+        ],
+        "rel_spread": 0.4802
+      },
+      "64": {
+        "p50s_ms": [
+          4.2111,
+          4.275,
+          6.3257
+        ],
+        "rel_spread": 0.5022
+      }
+    },
+    "rel_spread_along_q_S64": {
+      "0": 63.2082,
+      "16": 63.1059,
+      "64": 61.2616,
+      "256": 33.9479,
+      "1024": 17.8916,
+      "4096": 6.4139,
+      "16384": 2.1925,
+      "65536": 0.5888,
+      "100000": 0.5022
+    }
+  },
+  "p50_grid_ms": {
+    "1": {
+      "0": {
+        "loop_p50_ms": 0.0202,
+        "then_p50_ms": 0.022,
+        "mediated_p50_ms": 0.0209,
+        "mediated_minus_loop_ms": 0.0007,
+        "then_minus_loop_ms": 0.0018,
+        "mediated_minus_then_ms": -0.0011
+      },
+      "16": {
+        "loop_p50_ms": 0.0206,
+        "then_p50_ms": 0.0206,
+        "mediated_p50_ms": 0.0209,
+        "mediated_minus_loop_ms": 0.0003,
+        "then_minus_loop_ms": 0.0,
+        "mediated_minus_then_ms": 0.0003
+      },
+      "64": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0205,
+        "mediated_p50_ms": 0.0207,
+        "mediated_minus_loop_ms": 0.0003,
+        "then_minus_loop_ms": 0.0002,
+        "mediated_minus_then_ms": 0.0002
+      },
+      "256": {
+        "loop_p50_ms": 0.0206,
+        "then_p50_ms": 0.0206,
+        "mediated_p50_ms": 0.0209,
+        "mediated_minus_loop_ms": 0.0003,
+        "then_minus_loop_ms": 0.0,
+        "mediated_minus_then_ms": 0.0003
+      },
+      "1024": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0204,
+        "mediated_p50_ms": 0.0208,
+        "mediated_minus_loop_ms": 0.0004,
+        "then_minus_loop_ms": -0.0,
+        "mediated_minus_then_ms": 0.0004
+      },
+      "4096": {
+        "loop_p50_ms": 0.0213,
+        "then_p50_ms": 0.028,
+        "mediated_p50_ms": 0.0214,
+        "mediated_minus_loop_ms": 0.0001,
+        "then_minus_loop_ms": 0.0067,
+        "mediated_minus_then_ms": -0.0066
+      },
+      "16384": {
+        "loop_p50_ms": 0.0364,
+        "then_p50_ms": 0.0382,
+        "mediated_p50_ms": 0.0368,
+        "mediated_minus_loop_ms": 0.0004,
+        "then_minus_loop_ms": 0.0018,
+        "mediated_minus_then_ms": -0.0014
+      },
+      "65536": {
+        "loop_p50_ms": 0.0687,
+        "then_p50_ms": 0.0703,
+        "mediated_p50_ms": 0.0694,
+        "mediated_minus_loop_ms": 0.0007,
+        "then_minus_loop_ms": 0.0016,
+        "mediated_minus_then_ms": -0.0009
+      },
+      "100000": {
+        "loop_p50_ms": 0.0925,
+        "then_p50_ms": 0.0936,
+        "mediated_p50_ms": 0.0926,
+        "mediated_minus_loop_ms": 0.0001,
+        "then_minus_loop_ms": 0.0011,
+        "mediated_minus_then_ms": -0.001
+      }
+    },
+    "2": {
+      "0": {
+        "loop_p50_ms": 0.0205,
+        "then_p50_ms": 0.0206,
+        "mediated_p50_ms": 0.0409,
+        "mediated_minus_loop_ms": 0.0204,
+        "then_minus_loop_ms": 0.0001,
+        "mediated_minus_then_ms": 0.0203
+      },
+      "16": {
+        "loop_p50_ms": 0.0206,
+        "then_p50_ms": 0.0207,
+        "mediated_p50_ms": 0.0411,
+        "mediated_minus_loop_ms": 0.0205,
+        "then_minus_loop_ms": 0.0001,
+        "mediated_minus_then_ms": 0.0204
+      },
+      "64": {
+        "loop_p50_ms": 0.0203,
+        "then_p50_ms": 0.0204,
+        "mediated_p50_ms": 0.0407,
+        "mediated_minus_loop_ms": 0.0204,
+        "then_minus_loop_ms": 0.0001,
+        "mediated_minus_then_ms": 0.0203
+      },
+      "256": {
+        "loop_p50_ms": 0.0203,
+        "then_p50_ms": 0.0206,
+        "mediated_p50_ms": 0.0408,
+        "mediated_minus_loop_ms": 0.0205,
+        "then_minus_loop_ms": 0.0002,
+        "mediated_minus_then_ms": 0.0202
+      },
+      "1024": {
+        "loop_p50_ms": 0.0202,
+        "then_p50_ms": 0.0264,
+        "mediated_p50_ms": 0.0409,
+        "mediated_minus_loop_ms": 0.0206,
+        "then_minus_loop_ms": 0.0062,
+        "mediated_minus_then_ms": 0.0145
+      },
+      "4096": {
+        "loop_p50_ms": 0.0295,
+        "then_p50_ms": 0.0324,
+        "mediated_p50_ms": 0.045,
+        "mediated_minus_loop_ms": 0.0155,
+        "then_minus_loop_ms": 0.0029,
+        "mediated_minus_then_ms": 0.0126
+      },
+      "16384": {
+        "loop_p50_ms": 0.0474,
+        "then_p50_ms": 0.0497,
+        "mediated_p50_ms": 0.0736,
+        "mediated_minus_loop_ms": 0.0262,
+        "then_minus_loop_ms": 0.0023,
+        "mediated_minus_then_ms": 0.0239
+      },
+      "65536": {
+        "loop_p50_ms": 0.1135,
+        "then_p50_ms": 0.115,
+        "mediated_p50_ms": 0.138,
+        "mediated_minus_loop_ms": 0.0245,
+        "then_minus_loop_ms": 0.0015,
+        "mediated_minus_then_ms": 0.023
+      },
+      "100000": {
+        "loop_p50_ms": 0.1736,
+        "then_p50_ms": 0.1754,
+        "mediated_p50_ms": 0.1854,
+        "mediated_minus_loop_ms": 0.0118,
+        "then_minus_loop_ms": 0.0019,
+        "mediated_minus_then_ms": 0.0099
+      }
+    },
+    "4": {
+      "0": {
+        "loop_p50_ms": 0.0205,
+        "then_p50_ms": 0.0278,
+        "mediated_p50_ms": 0.0814,
+        "mediated_minus_loop_ms": 0.0609,
+        "then_minus_loop_ms": 0.0073,
+        "mediated_minus_then_ms": 0.0536
+      },
+      "16": {
+        "loop_p50_ms": 0.0203,
+        "then_p50_ms": 0.0276,
+        "mediated_p50_ms": 0.081,
+        "mediated_minus_loop_ms": 0.0606,
+        "then_minus_loop_ms": 0.0072,
+        "mediated_minus_then_ms": 0.0534
+      },
+      "64": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0279,
+        "mediated_p50_ms": 0.0804,
+        "mediated_minus_loop_ms": 0.0601,
+        "then_minus_loop_ms": 0.0075,
+        "mediated_minus_then_ms": 0.0525
+      },
+      "256": {
+        "loop_p50_ms": 0.0201,
+        "then_p50_ms": 0.0285,
+        "mediated_p50_ms": 0.0814,
+        "mediated_minus_loop_ms": 0.0613,
+        "then_minus_loop_ms": 0.0083,
+        "mediated_minus_then_ms": 0.0529
+      },
+      "1024": {
+        "loop_p50_ms": 0.0211,
+        "then_p50_ms": 0.031,
+        "mediated_p50_ms": 0.0812,
+        "mediated_minus_loop_ms": 0.0601,
+        "then_minus_loop_ms": 0.0099,
+        "mediated_minus_then_ms": 0.0502
+      },
+      "4096": {
+        "loop_p50_ms": 0.0367,
+        "then_p50_ms": 0.0408,
+        "mediated_p50_ms": 0.0914,
+        "mediated_minus_loop_ms": 0.0548,
+        "then_minus_loop_ms": 0.0041,
+        "mediated_minus_then_ms": 0.0507
+      },
+      "16384": {
+        "loop_p50_ms": 0.0697,
+        "then_p50_ms": 0.0734,
+        "mediated_p50_ms": 0.1485,
+        "mediated_minus_loop_ms": 0.0788,
+        "then_minus_loop_ms": 0.0037,
+        "mediated_minus_then_ms": 0.0751
+      },
+      "65536": {
+        "loop_p50_ms": 0.2015,
+        "then_p50_ms": 0.2073,
+        "mediated_p50_ms": 0.277,
+        "mediated_minus_loop_ms": 0.0755,
+        "then_minus_loop_ms": 0.0059,
+        "mediated_minus_then_ms": 0.0697
+      },
+      "100000": {
+        "loop_p50_ms": 0.3111,
+        "then_p50_ms": 0.316,
+        "mediated_p50_ms": 0.3865,
+        "mediated_minus_loop_ms": 0.0753,
+        "then_minus_loop_ms": 0.0049,
+        "mediated_minus_then_ms": 0.0704
+      }
+    },
+    "8": {
+      "0": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0325,
+        "mediated_p50_ms": 0.1613,
+        "mediated_minus_loop_ms": 0.1409,
+        "then_minus_loop_ms": 0.0121,
+        "mediated_minus_then_ms": 0.1288
+      },
+      "16": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0332,
+        "mediated_p50_ms": 0.1616,
+        "mediated_minus_loop_ms": 0.1412,
+        "then_minus_loop_ms": 0.0128,
+        "mediated_minus_then_ms": 0.1284
+      },
+      "64": {
+        "loop_p50_ms": 0.0205,
+        "then_p50_ms": 0.0335,
+        "mediated_p50_ms": 0.1623,
+        "mediated_minus_loop_ms": 0.1418,
+        "then_minus_loop_ms": 0.0131,
+        "mediated_minus_then_ms": 0.1287
+      },
+      "256": {
+        "loop_p50_ms": 0.0206,
+        "then_p50_ms": 0.0348,
+        "mediated_p50_ms": 0.1617,
+        "mediated_minus_loop_ms": 0.1411,
+        "then_minus_loop_ms": 0.0142,
+        "mediated_minus_then_ms": 0.1269
+      },
+      "1024": {
+        "loop_p50_ms": 0.0299,
+        "then_p50_ms": 0.0389,
+        "mediated_p50_ms": 0.1618,
+        "mediated_minus_loop_ms": 0.1319,
+        "then_minus_loop_ms": 0.009,
+        "mediated_minus_then_ms": 0.1229
+      },
+      "4096": {
+        "loop_p50_ms": 0.0479,
+        "then_p50_ms": 0.0548,
+        "mediated_p50_ms": 0.1858,
+        "mediated_minus_loop_ms": 0.1379,
+        "then_minus_loop_ms": 0.0069,
+        "mediated_minus_then_ms": 0.131
+      },
+      "16384": {
+        "loop_p50_ms": 0.1128,
+        "then_p50_ms": 0.1241,
+        "mediated_p50_ms": 0.297,
+        "mediated_minus_loop_ms": 0.1842,
+        "then_minus_loop_ms": 0.0113,
+        "mediated_minus_then_ms": 0.1729
+      },
+      "65536": {
+        "loop_p50_ms": 0.394,
+        "then_p50_ms": 0.4031,
+        "mediated_p50_ms": 0.556,
+        "mediated_minus_loop_ms": 0.162,
+        "then_minus_loop_ms": 0.0092,
+        "mediated_minus_then_ms": 0.1528
+      },
+      "100000": {
+        "loop_p50_ms": 0.5762,
+        "then_p50_ms": 0.5842,
+        "mediated_p50_ms": 0.7809,
+        "mediated_minus_loop_ms": 0.2047,
+        "then_minus_loop_ms": 0.008,
+        "mediated_minus_then_ms": 0.1967
+      }
+    },
+    "16": {
+      "0": {
+        "loop_p50_ms": 0.0202,
+        "then_p50_ms": 0.0407,
+        "mediated_p50_ms": 0.3244,
+        "mediated_minus_loop_ms": 0.3042,
+        "then_minus_loop_ms": 0.0205,
+        "mediated_minus_then_ms": 0.2838
+      },
+      "16": {
+        "loop_p50_ms": 0.0204,
+        "then_p50_ms": 0.0408,
+        "mediated_p50_ms": 0.325,
+        "mediated_minus_loop_ms": 0.3047,
+        "then_minus_loop_ms": 0.0204,
+        "mediated_minus_then_ms": 0.2842
+      },
+      "64": {
+        "loop_p50_ms": 0.0201,
+        "then_p50_ms": 0.0415,
+        "mediated_p50_ms": 0.323,
+        "mediated_minus_loop_ms": 0.3029,
+        "then_minus_loop_ms": 0.0214,
+        "mediated_minus_then_ms": 0.2815
+      },
+      "256": {
+        "loop_p50_ms": 0.0217,
+        "then_p50_ms": 0.043,
+        "mediated_p50_ms": 0.3249,
+        "mediated_minus_loop_ms": 0.3032,
+        "then_minus_loop_ms": 0.0212,
+        "mediated_minus_then_ms": 0.282
+      },
+      "1024": {
+        "loop_p50_ms": 0.0371,
+        "then_p50_ms": 0.0511,
+        "mediated_p50_ms": 0.3237,
+        "mediated_minus_loop_ms": 0.2865,
+        "then_minus_loop_ms": 0.0139,
+        "mediated_minus_then_ms": 0.2726
+      },
+      "4096": {
+        "loop_p50_ms": 0.0696,
+        "then_p50_ms": 0.084,
+        "mediated_p50_ms": 0.3751,
+        "mediated_minus_loop_ms": 0.3056,
+        "then_minus_loop_ms": 0.0144,
+        "mediated_minus_then_ms": 0.2911
+      },
+      "16384": {
+        "loop_p50_ms": 0.1988,
+        "then_p50_ms": 0.2162,
+        "mediated_p50_ms": 0.5959,
+        "mediated_minus_loop_ms": 0.3971,
+        "then_minus_loop_ms": 0.0174,
+        "mediated_minus_then_ms": 0.3797
+      },
+      "65536": {
+        "loop_p50_ms": 0.7395,
+        "then_p50_ms": 0.755,
+        "mediated_p50_ms": 1.1104,
+        "mediated_minus_loop_ms": 0.3709,
+        "then_minus_loop_ms": 0.0155,
+        "mediated_minus_then_ms": 0.3554
+      },
+      "100000": {
+        "loop_p50_ms": 1.0964,
+        "then_p50_ms": 1.1121,
+        "mediated_p50_ms": 1.5957,
+        "mediated_minus_loop_ms": 0.4992,
+        "then_minus_loop_ms": 0.0157,
+        "mediated_minus_then_ms": 0.4836
+      }
+    },
+    "32": {
+      "0": {
+        "loop_p50_ms": 0.0205,
+        "then_p50_ms": 0.0532,
+        "mediated_p50_ms": 0.6512,
+        "mediated_minus_loop_ms": 0.6308,
+        "then_minus_loop_ms": 0.0328,
+        "mediated_minus_then_ms": 0.598
+      },
+      "16": {
+        "loop_p50_ms": 0.0201,
+        "then_p50_ms": 0.0574,
+        "mediated_p50_ms": 0.6531,
+        "mediated_minus_loop_ms": 0.633,
+        "then_minus_loop_ms": 0.0373,
+        "mediated_minus_then_ms": 0.5957
+      },
+      "64": {
+        "loop_p50_ms": 0.0202,
+        "then_p50_ms": 0.058,
+        "mediated_p50_ms": 0.6489,
+        "mediated_minus_loop_ms": 0.6287,
+        "then_minus_loop_ms": 0.0378,
+        "mediated_minus_then_ms": 0.5909
+      },
+      "256": {
+        "loop_p50_ms": 0.0297,
+        "then_p50_ms": 0.0621,
+        "mediated_p50_ms": 0.6484,
+        "mediated_minus_loop_ms": 0.6186,
+        "then_minus_loop_ms": 0.0324,
+        "mediated_minus_then_ms": 0.5863
+      },
+      "1024": {
+        "loop_p50_ms": 0.0476,
+        "then_p50_ms": 0.0762,
+        "mediated_p50_ms": 0.6539,
+        "mediated_minus_loop_ms": 0.6063,
+        "then_minus_loop_ms": 0.0286,
+        "mediated_minus_then_ms": 0.5777
+      },
+      "4096": {
+        "loop_p50_ms": 0.1126,
+        "then_p50_ms": 0.1552,
+        "mediated_p50_ms": 0.7458,
+        "mediated_minus_loop_ms": 0.6331,
+        "then_minus_loop_ms": 0.0426,
+        "mediated_minus_then_ms": 0.5905
+      },
+      "16384": {
+        "loop_p50_ms": 0.3937,
+        "then_p50_ms": 0.4254,
+        "mediated_p50_ms": 1.1942,
+        "mediated_minus_loop_ms": 0.8004,
+        "then_minus_loop_ms": 0.0317,
+        "mediated_minus_then_ms": 0.7688
+      },
+      "65536": {
+        "loop_p50_ms": 1.4196,
+        "then_p50_ms": 1.4515,
+        "mediated_p50_ms": 2.2181,
+        "mediated_minus_loop_ms": 0.7985,
+        "then_minus_loop_ms": 0.0319,
+        "mediated_minus_then_ms": 0.7666
+      },
+      "100000": {
+        "loop_p50_ms": 2.1349,
+        "then_p50_ms": 2.1685,
+        "mediated_p50_ms": 3.1602,
+        "mediated_minus_loop_ms": 1.0252,
+        "then_minus_loop_ms": 0.0336,
+        "mediated_minus_then_ms": 0.9917
+      }
+    },
+    "64": {
+      "0": {
+        "loop_p50_ms": 0.0201,
+        "then_p50_ms": 0.0843,
+        "mediated_p50_ms": 1.2935,
+        "mediated_minus_loop_ms": 1.2733,
+        "then_minus_loop_ms": 0.0641,
+        "mediated_minus_then_ms": 1.2092
+      },
+      "16": {
+        "loop_p50_ms": 0.0203,
+        "then_p50_ms": 0.084,
+        "mediated_p50_ms": 1.3013,
+        "mediated_minus_loop_ms": 1.281,
+        "then_minus_loop_ms": 0.0637,
+        "mediated_minus_then_ms": 1.2173
+      },
+      "64": {
+        "loop_p50_ms": 0.0207,
+        "then_p50_ms": 0.086,
+        "mediated_p50_ms": 1.2897,
+        "mediated_minus_loop_ms": 1.269,
+        "then_minus_loop_ms": 0.0653,
+        "mediated_minus_then_ms": 1.2037
+      },
+      "256": {
+        "loop_p50_ms": 0.0369,
+        "then_p50_ms": 0.0949,
+        "mediated_p50_ms": 1.2894,
+        "mediated_minus_loop_ms": 1.2525,
+        "then_minus_loop_ms": 0.058,
+        "mediated_minus_then_ms": 1.1946
+      },
+      "1024": {
+        "loop_p50_ms": 0.0685,
+        "then_p50_ms": 0.1326,
+        "mediated_p50_ms": 1.2932,
+        "mediated_minus_loop_ms": 1.2247,
+        "then_minus_loop_ms": 0.0641,
+        "mediated_minus_then_ms": 1.1606
+      },
+      "4096": {
+        "loop_p50_ms": 0.1983,
+        "then_p50_ms": 0.2754,
+        "mediated_p50_ms": 1.4702,
+        "mediated_minus_loop_ms": 1.2719,
+        "then_minus_loop_ms": 0.0771,
+        "mediated_minus_then_ms": 1.1948
+      },
+      "16384": {
+        "loop_p50_ms": 0.7395,
+        "then_p50_ms": 0.7998,
+        "mediated_p50_ms": 2.3607,
+        "mediated_minus_loop_ms": 1.6213,
+        "then_minus_loop_ms": 0.0604,
+        "mediated_minus_then_ms": 1.5609
+      },
+      "65536": {
+        "loop_p50_ms": 2.7808,
+        "then_p50_ms": 2.8444,
+        "mediated_p50_ms": 4.4183,
+        "mediated_minus_loop_ms": 1.6375,
+        "then_minus_loop_ms": 0.0636,
+        "mediated_minus_then_ms": 1.5739
+      },
+      "100000": {
+        "loop_p50_ms": 4.2111,
+        "then_p50_ms": 4.275,
+        "mediated_p50_ms": 6.3257,
+        "mediated_minus_loop_ms": 2.1146,
+        "then_minus_loop_ms": 0.0639,
+        "mediated_minus_then_ms": 2.0507
+      }
+    }
+  }
+}

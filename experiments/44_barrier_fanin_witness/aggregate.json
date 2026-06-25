@@ -1,0 +1,317 @@
+{
+  "experiment": "exp44_barrier_fanin_witness",
+  "schema": "rayx-barrier-fanin-witness-1",
+  "op": "barrier_fanin(seed, leaves, quantum) -> int64",
+  "claim": "exp44 shows the RayX Runtime boundary and lane execution model preserve cooperative HPX scheduling for a barrier-gated fan-in interior: a single coarse-grained registered operation, reached through one Python/Runtime boundary crossing, launches K bare-hpx::async leaves that mutually rendezvous on a shared cooperative gate, joins them with when_all, and reduces them with a scheduled .then continuation -- completing correctly and load-bearing at --hpx:threads=1 with one observed HPX OS worker, with structural witness evidence: arrived==released==leaves, opener==last_arriver, watchdog_opened==false, ordering_violations==0, reduction_after_all_leaves==true. A non-cooperative interior would deadlock at one worker.",
+  "load_bearing_signal": "clean completion at --hpx:threads=1 with observed_os_workers==1 and the structural witness gates -- cooperative suspend/resume of the gated leaves on a single default-pool worker; a non-cooperative interior would deadlock",
+  "non_claims": [
+    "no speedup",
+    "no throughput",
+    "no latency/performance claim",
+    "no HPX faster than Ray",
+    "no Ray comparison",
+    "no parallelism-required claim",
+    "no general DAG scheduler claim",
+    "no general scheduler introspection",
+    "no public scheduler API",
+    "no arbitrary Python callbacks",
+    "no ObjectRef/object-store semantics",
+    "no endpoint/fabric claim",
+    "no parcelport",
+    "no AGAS",
+    "no multi-node",
+    "no persistent transport",
+    "max_simultaneously_suspended_leaves is coordinated suspension, NOT parallelism / throughput / worker-level concurrency"
+  ],
+  "anti_hang": "external per-child subprocess timeout = true-hang safety; the op's internal watchdog is defense-in-depth only and a watchdog-opened success run is a structural FAILURE",
+  "config": {
+    "seed": 3,
+    "quantum": 64,
+    "threads_sweep": [
+      1,
+      2,
+      4
+    ],
+    "leaves_sweep": [
+      2,
+      4,
+      8,
+      16
+    ],
+    "timeout_s_safety_bound": 60
+  },
+  "machine": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine_cpu_count": 10
+  },
+  "runs": [
+    {
+      "threads": 1,
+      "timed_out": false,
+      "rows": [
+        {
+          "leaves": 2,
+          "value": 4039,
+          "oracle": 4039,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 1,
+            "observed_os_workers": 1,
+            "leaves_requested": 2,
+            "arrived_count": 2,
+            "released_count": 2,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 2,
+            "max_simultaneously_suspended_leaves": 2
+          }
+        },
+        {
+          "leaves": 4,
+          "value": 8082,
+          "oracle": 8082,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 2,
+            "observed_os_workers": 1,
+            "leaves_requested": 4,
+            "arrived_count": 4,
+            "released_count": 4,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 4,
+            "max_simultaneously_suspended_leaves": 4
+          }
+        },
+        {
+          "leaves": 8,
+          "value": 16180,
+          "oracle": 16180,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 3,
+            "observed_os_workers": 1,
+            "leaves_requested": 8,
+            "arrived_count": 8,
+            "released_count": 8,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 8,
+            "max_simultaneously_suspended_leaves": 8
+          }
+        },
+        {
+          "leaves": 16,
+          "value": 32424,
+          "oracle": 32424,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 4,
+            "observed_os_workers": 1,
+            "leaves_requested": 16,
+            "arrived_count": 16,
+            "released_count": 16,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 16,
+            "max_simultaneously_suspended_leaves": 16
+          }
+        }
+      ],
+      "rows_ok": true,
+      "reasons": [],
+      "observed_os_workers": 1
+    },
+    {
+      "threads": 2,
+      "timed_out": false,
+      "rows": [
+        {
+          "leaves": 2,
+          "value": 4039,
+          "oracle": 4039,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 1,
+            "observed_os_workers": 2,
+            "leaves_requested": 2,
+            "arrived_count": 2,
+            "released_count": 2,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 2,
+            "max_simultaneously_suspended_leaves": 2
+          }
+        },
+        {
+          "leaves": 4,
+          "value": 8082,
+          "oracle": 8082,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 2,
+            "observed_os_workers": 2,
+            "leaves_requested": 4,
+            "arrived_count": 4,
+            "released_count": 4,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 4,
+            "max_simultaneously_suspended_leaves": 4
+          }
+        },
+        {
+          "leaves": 8,
+          "value": 16180,
+          "oracle": 16180,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 3,
+            "observed_os_workers": 2,
+            "leaves_requested": 8,
+            "arrived_count": 8,
+            "released_count": 8,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 8,
+            "max_simultaneously_suspended_leaves": 7
+          }
+        },
+        {
+          "leaves": 16,
+          "value": 32424,
+          "oracle": 32424,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 4,
+            "observed_os_workers": 2,
+            "leaves_requested": 16,
+            "arrived_count": 16,
+            "released_count": 16,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 16,
+            "max_simultaneously_suspended_leaves": 15
+          }
+        }
+      ],
+      "rows_ok": true,
+      "reasons": [],
+      "observed_os_workers": 2
+    },
+    {
+      "threads": 4,
+      "timed_out": false,
+      "rows": [
+        {
+          "leaves": 2,
+          "value": 4039,
+          "oracle": 4039,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 1,
+            "observed_os_workers": 4,
+            "leaves_requested": 2,
+            "arrived_count": 2,
+            "released_count": 2,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 2,
+            "max_simultaneously_suspended_leaves": 2
+          }
+        },
+        {
+          "leaves": 4,
+          "value": 8082,
+          "oracle": 8082,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 2,
+            "observed_os_workers": 4,
+            "leaves_requested": 4,
+            "arrived_count": 4,
+            "released_count": 4,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 4,
+            "max_simultaneously_suspended_leaves": 3
+          }
+        },
+        {
+          "leaves": 8,
+          "value": 16180,
+          "oracle": 16180,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 3,
+            "observed_os_workers": 4,
+            "leaves_requested": 8,
+            "arrived_count": 8,
+            "released_count": 8,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 8,
+            "max_simultaneously_suspended_leaves": 7
+          }
+        },
+        {
+          "leaves": 16,
+          "value": 32424,
+          "oracle": 32424,
+          "oracle_ok": true,
+          "witness": {
+            "seq": 4,
+            "observed_os_workers": 4,
+            "leaves_requested": 16,
+            "arrived_count": 16,
+            "released_count": 16,
+            "opener": "last_arriver",
+            "reduction_after_all_leaves": true,
+            "ordering_violations": 0,
+            "clean_exit": true,
+            "watchdog_opened": false,
+            "joined_count": 16,
+            "max_simultaneously_suspended_leaves": 15
+          }
+        }
+      ],
+      "rows_ok": true,
+      "reasons": [],
+      "observed_os_workers": 4
+    }
+  ],
+  "overall_structural_pass": true
+}

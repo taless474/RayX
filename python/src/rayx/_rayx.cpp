@@ -29,20 +29,27 @@
 #include "runtime_ops_hpx.hpp"  // rayx_runtime: HPX-side composed-op registry (fanout_sum)
 #include "runtime_cancel.hpp"  // rayx_runtime::RuntimeCancelToken (Slice 2a)
 #include "runtime_lane.hpp"  // rayx_runtime::RuntimeLane, the HPX-native FIFO lane (Slice 1)
+#include "endpoint_seam.hpp"  // rayx_endpoint: experimental endpoint identity seam
+#include "endpoint_transport.hpp"  // rayx_endpoint: A1 plain-IPC (AF_UNIX) transport
 
 #include <hpx/hpx.hpp>
 #include <hpx/hpx_start.hpp>
 
 #include <atomic>
+#include <condition_variable>  // RuntimeBridgeSlot drain gate
 #include <memory>
+#include <mutex>  // RuntimeBridgeSlot / ProcessHpxOwner critical sections
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <unordered_map>  // RuntimeEngine::actors_ (actor_id -> ActorRecord)
 #include <unordered_set>
+#include <utility>  // std::pair (endpoint ping status/value)
 #include <variant>  // std::visit over OpValue (int64|double) in RuntimeFuture::result
 #include <vector>
+
+#include <unistd.h>  // getpid() for the endpoint seam's cross-process discriminator
 
 namespace py = pybind11;
 
@@ -318,21 +325,12 @@ std::vector<char> to_cstr(const std::string& s) {
     return v;
 }
 
-// ---- shared process-wide HPX runtime guard + bootstrap -------------------
+// ---- shared process-wide HPX runtime owner + bootstrap -------------------
 //
-// The HPX runtime is a process resource: only ONE owner may have it started at a
-// time. Both the harness `Engine` and the experimental `RuntimeEngine`
-// (rayx.runtime) start HPX as a library, so they share this single guard/bootstrap
-// -- which is exactly what makes them mutually exclusive: whichever is constructed
-// first flips `process_runtime_active()` true, and the other's constructor then
-// raises until the first is shut down. Extracted verbatim from the original
-// Engine::active()/start_hpx()/shutdown() internals; behavior for Engine is
-// unchanged (same single atomic, same hpx::start args, same finalize+stop order).
-
-std::atomic<bool>& process_runtime_active() {
-    static std::atomic<bool> a{false};
-    return a;
-}
+// The HPX runtime is a process resource. A single ProcessHpxOwner (below) is the source
+// of truth for "is HPX up and who holds it", replacing the old process_runtime_active()
+// atomic. These two helpers are the low-level bring-up/teardown the owner calls; the
+// hpx::start args and the finalize+stop order are unchanged.
 
 void start_process_hpx(int hpx_threads) {
     std::vector<char> a0 = to_cstr("rayx");
@@ -352,6 +350,119 @@ void stop_process_hpx() {
     hpx::post([]() { hpx::finalize(); });
     hpx::stop();
 }
+
+// ProcessHpxOwner: single process-level HPX lifecycle + coexistence policy.
+//
+// Policy matrix:
+//   * ENGINE   : exclusive  -- requires no Runtime and no Endpoint; blocks all others.
+//   * RUNTIME  : singleton  -- one Runtime; may coexist with Endpoints; not with Engine.
+//   * ENDPOINT : multiple   -- coexists with Runtime and other Endpoints; not with Engine.
+//
+// HPX lifecycle: ENGINE/RUNTIME are HPX-needing -- they start HPX on the first attach and
+// stop it at the last detach (the only attachers that touch hpx::start/stop). ENDPOINT is
+// HPX-FREE: it attaches for POLICY/bookkeeping only and never starts/stops HPX (the A1
+// transport is plain native AF_UNIX IPC and the ping is computed inline). Because Engine
+// and Runtime are mutually exclusive, at most one HPX-needing owner exists at a time, so
+// its hpx_threads is authoritative and there is no thread-count negotiation.
+//
+// Synchronization: the CPython GIL serializes Python construction/teardown calls;
+// `mu_` makes the native critical sections explicit (no free-threaded / no-GIL claim).
+// stop runs on the calling (Python) thread only; NO HPX task may take `mu_` (nothing does
+// -- Endpoint is HPX-free and Runtime fully drains its lanes BEFORE it detaches).
+enum class HpxAttachKind { Engine, Runtime, Endpoint };
+
+class ProcessHpxOwner {
+public:
+    static ProcessHpxOwner& instance() {
+        static ProcessHpxOwner o;
+        return o;
+    }
+
+    // Apply the policy matrix and, for ENGINE/RUNTIME, start HPX if not already up.
+    // Throws std::runtime_error on a policy violation, leaving state unchanged.
+    void attach(HpxAttachKind kind, int hpx_threads) {
+        std::lock_guard<std::mutex> lk(mu_);
+        switch (kind) {
+            case HpxAttachKind::Engine:
+                if (engine_ || runtime_ || endpoints_ > 0)
+                    throw std::runtime_error(conflict_msg("Engine"));
+                start_hpx_locked(hpx_threads);
+                engine_ = true;
+                break;
+            case HpxAttachKind::Runtime:
+                if (engine_ || runtime_)
+                    throw std::runtime_error(conflict_msg("Runtime"));
+                start_hpx_locked(hpx_threads);
+                runtime_ = true;
+                break;
+            case HpxAttachKind::Endpoint:
+                if (engine_)
+                    throw std::runtime_error(conflict_msg("Endpoint"));
+                ++endpoints_;  // HPX-free attacher: policy/bookkeeping only
+                break;
+        }
+    }
+
+    // Detach. ENGINE/RUNTIME drop the HPX refcount (stop HPX at the last one); ENDPOINT
+    // just decrements. Guarded so a stray/duplicate detach cannot underflow or stop HPX
+    // while an HPX-needing owner remains.
+    void detach(HpxAttachKind kind) {
+        std::lock_guard<std::mutex> lk(mu_);
+        switch (kind) {
+            case HpxAttachKind::Engine:
+                if (engine_) { engine_ = false; stop_hpx_locked(); }
+                break;
+            case HpxAttachKind::Runtime:
+                if (runtime_) { runtime_ = false; stop_hpx_locked(); }
+                break;
+            case HpxAttachKind::Endpoint:
+                if (endpoints_ > 0) --endpoints_;
+                break;
+        }
+    }
+
+    bool hpx_active() {
+        std::lock_guard<std::mutex> lk(mu_);
+        return started_;
+    }
+    int endpoint_count() {
+        std::lock_guard<std::mutex> lk(mu_);
+        return endpoints_;
+    }
+
+private:
+    ProcessHpxOwner() = default;
+
+    void start_hpx_locked(int hpx_threads) {
+        if (!started_) {
+            start_process_hpx(hpx_threads);  // releases the GIL internally
+            started_ = true;
+            hpx_threads_ = hpx_threads;
+        }
+        ++hpx_refcount_;
+    }
+    void stop_hpx_locked() {
+        if (hpx_refcount_ > 0 && --hpx_refcount_ == 0 && started_) {
+            stop_process_hpx();  // releases the GIL; runs on the calling thread
+            started_ = false;
+        }
+    }
+    static std::string conflict_msg(const char* who) {
+        return std::string(who) +
+               "() cannot start: it conflicts with an already-active "
+               "Engine/Runtime/Endpoint in this process (Engine is exclusive; Runtime is "
+               "a singleton; Endpoint coexists with Runtime but not Engine). Shut down the "
+               "conflicting owner first.";
+    }
+
+    std::mutex mu_;
+    bool started_ = false;     // HPX up?
+    int hpx_threads_ = 0;      // threads HPX was started with
+    int hpx_refcount_ = 0;     // HPX-needing owners (Engine/Runtime)
+    bool engine_ = false;
+    bool runtime_ = false;
+    int endpoints_ = 0;        // live Endpoints (HPX-free)
+};
 
 class Engine {
 public:
@@ -380,19 +491,9 @@ public:
                 "lane_impl must be \"std\" or \"hpx\"");
         max_qd_per_lane_ = max_queue_depth_per_lane;
 
-        bool expected = false;
-        if (!process_runtime_active().compare_exchange_strong(expected, true)) {
-            throw std::runtime_error(
-                "an Engine or Runtime is already active in this process; call "
-                "shutdown() on it before creating another");
-        }
-
-        try {
-            start_process_hpx(hpx_threads);
-        } catch (...) {
-            process_runtime_active() = false;
-            throw;
-        }
+        // Engine is the EXCLUSIVE owner: attach starts HPX iff no Runtime/Endpoint holds
+        // the process (throws otherwise). Detach on any partial-construction failure.
+        ProcessHpxOwner::instance().attach(HpxAttachKind::Engine, hpx_threads);
 
         // Construct the lanes AFTER start_hpx: the HpxLane adapter ctor hops onto
         // an HPX thread to spawn the lane's worker, so the runtime must be up.
@@ -418,8 +519,7 @@ public:
             } catch (...) {
                 // best-effort cleanup; do not mask the original failure
             }
-            stop_process_hpx();
-            process_runtime_active() = false;
+            ProcessHpxOwner::instance().detach(HpxAttachKind::Engine);  // stops HPX
             throw;
         }
         running_ = true;
@@ -728,10 +828,10 @@ public:
     void shutdown() {
         if (!running_) return;
         running_ = false;
-        // Join lane threads first (drains queued requests), then stop HPX.
+        // Join lane threads first (drains queued requests), then detach (stops HPX as the
+        // last HPX-needing owner).
         lanes_.clear();
-        stop_process_hpx();
-        process_runtime_active() = false;
+        ProcessHpxOwner::instance().detach(HpxAttachKind::Engine);
     }
 
 private:
@@ -1021,10 +1121,83 @@ inline rayx_runtime::RuntimeLane::OpTask make_method_task(
     };
 }
 
-// Process-singleton runtime engine, sharing the SAME process_runtime_active()
-// guard as Engine (so Engine and Runtime are mutually exclusive). Slice 1 owns N
-// HPX-native RuntimeLanes (a single HPX-thread FIFO worker each), round-robins
-// submissions across them, and exposes per-lane observability via lane_stats().
+// ---- endpoint->Runtime bridge slot (v1) ---------------------------------
+//
+// Process-global handle the endpoint transport (accept thread) uses to find the live
+// Runtime and dispatch one fixed registered op. EXPERIMENTAL plumbing; proves the seam,
+// NOT HPX value. The drain gate (one mutex + condition_variable) makes Runtime shutdown
+// race-safe against an in-flight bridge request. See docs/design/endpoint_runtime_bridge.md.
+class RuntimeEngine;  // forward decl: RuntimeBridge holds a RuntimeEngine* (dispatch target)
+
+// Tiny co-owned handle. The raw engine pointer is safe to dereference ONLY while a request
+// is counted in_flight: the drain gate guarantees the engine outlives every in-flight
+// dispatch (shutdown waits for in_flight==0 before tearing down lanes / the engine).
+struct RuntimeBridge {
+    RuntimeEngine* engine;
+};
+
+// Single-mutex + condvar slot. All four pieces of state live under `mu_`; no HPX task and
+// no owner-mutex holder ever touches it, and it is never held across run_as_hpx_thread or
+// future::get(). publish() (Runtime ctor, after lanes are live) clears any prior draining
+// flag; drain_and_unpublish() (Runtime shutdown, BEFORE lane teardown) blocks new requests
+// and waits for the in-flight one to finish.
+class RuntimeBridgeSlot {
+public:
+    static RuntimeBridgeSlot& instance() {
+        static RuntimeBridgeSlot s;
+        return s;
+    }
+
+    void publish(std::shared_ptr<RuntimeBridge> b) {
+        std::lock_guard<std::mutex> lk(mu_);
+        bridge_ = std::move(b);
+        draining_ = false;
+    }
+
+    // Begin a request. On success returns the bridge and has incremented in_flight (the
+    // caller MUST call release() exactly once). On failure returns nullptr and sets
+    // out_status to CALL_RUNTIME_ABSENT / CALL_RUNTIME_DRAINING.
+    std::shared_ptr<RuntimeBridge> acquire(int& out_status) {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (!bridge_) {
+            out_status = draining_ ? rayx_endpoint::CALL_RUNTIME_DRAINING
+                                   : rayx_endpoint::CALL_RUNTIME_ABSENT;
+            return nullptr;
+        }
+        ++in_flight_;
+        return bridge_;
+    }
+
+    void release() {
+        std::lock_guard<std::mutex> lk(mu_);
+        if (in_flight_ > 0 && --in_flight_ == 0) cv_.notify_all();
+    }
+
+    // Runtime shutdown: stop admitting new requests, unpublish so new acquires see
+    // unavailable, then wait for the (at most one, serial-listener) in-flight request to
+    // finish. Returns only once no bridge dispatch is in flight, so the caller may then
+    // tear down lanes / the engine safely.
+    void drain_and_unpublish() {
+        std::unique_lock<std::mutex> lk(mu_);
+        draining_ = true;
+        bridge_.reset();
+        cv_.wait(lk, [this] { return in_flight_ == 0; });
+    }
+
+private:
+    RuntimeBridgeSlot() = default;
+    std::mutex mu_;
+    std::condition_variable cv_;
+    std::shared_ptr<RuntimeBridge> bridge_;  // published by the live Runtime, else null
+    bool draining_ = false;
+    int in_flight_ = 0;
+};
+
+// Process-singleton runtime engine. Attaches to the shared ProcessHpxOwner as RUNTIME:
+// it is the HPX owner while it lives (Engine and Runtime stay mutually exclusive; an
+// Endpoint, being HPX-free, may coexist). Slice 1 owns N HPX-native RuntimeLanes (a single
+// HPX-thread FIFO worker each), round-robins submissions across them, and exposes per-lane
+// observability via lane_stats().
 class RuntimeEngine {
 public:
     RuntimeEngine(int hpx_threads, int num_lanes,
@@ -1051,18 +1224,9 @@ public:
         max_inflight_per_lane_ = (max_inflight_per_lane < 1) ? 1
                                                              : max_inflight_per_lane;
         max_qd_per_lane_ = max_queue_depth_per_lane;
-        bool expected = false;
-        if (!process_runtime_active().compare_exchange_strong(expected, true)) {
-            throw std::runtime_error(
-                "an Engine or Runtime is already active in this process; call "
-                "shutdown() on it before creating another");
-        }
-        try {
-            start_process_hpx(hpx_threads);
-        } catch (...) {
-            process_runtime_active() = false;
-            throw;
-        }
+        // Runtime is a SINGLETON HPX owner: attach starts HPX iff no Engine/Runtime holds
+        // the process (an Endpoint may coexist). Detach on partial-construction failure.
+        ProcessHpxOwner::instance().attach(HpxAttachKind::Runtime, hpx_threads);
         // Build the lanes ON an HPX thread: each RuntimeLane ctor spawns an
         // hpx::thread worker, so the runtime must be up and the spawn must happen
         // on an HPX thread. On a partial-construction failure, stop/join whatever
@@ -1097,11 +1261,15 @@ public:
             } catch (...) {
                 // best-effort cleanup; do not mask the original failure
             }
-            stop_process_hpx();
-            process_runtime_active() = false;
+            ProcessHpxOwner::instance().detach(HpxAttachKind::Runtime);  // stops HPX
             throw;
         }
         running_ = true;
+        // Publish the endpoint->Runtime bridge ONLY now that the lanes are live, so a
+        // bridge request can never race a half-constructed engine. Unpublished + drained
+        // in shutdown() BEFORE any lane teardown.
+        RuntimeBridgeSlot::instance().publish(
+            std::make_shared<RuntimeBridge>(RuntimeBridge{this}));
     }
 
     ~RuntimeEngine() {
@@ -1110,6 +1278,52 @@ public:
         } catch (...) {
             // best-effort; never throw from a destructor
         }
+    }
+
+    // Native, pybind-FREE registered-op dispatch (the UNBOUNDED enqueue path). Looks the
+    // op up, builds the closure (make_op_task), round-robins a lane, and enqueues on an HPX
+    // thread; returns the in-flight future. Throws std::invalid_argument on unknown op /
+    // wrong arity (callers map that to a typed error). Shared by submit_operation's
+    // unbounded path (AFTER Python marshalling) and the endpoint->Runtime bridge (which
+    // builds OpArgs from the wire -- NO Python). No py:: anywhere here, so it is safe to
+    // call from the endpoint accept thread (which holds no GIL). rr_ is atomic because the
+    // bridge adds a SECOND submitting thread (the accept thread) alongside the Python
+    // driver -- lane choice is load-balancing only, so a relaxed fetch_add is sufficient.
+    //
+    // BOUNDED-ADMISSION NOTE: this is the UNBOUNDED enqueue path (plain lane.submit), so it
+    // intentionally BYPASSES max_queue_depth_per_lane -- the endpoint->Runtime bridge always
+    // uses it. That is acceptable in bridge v1 because the native AF_UNIX listener is serial
+    // (one bridge request in flight at a time), so the bridge adds at most one item to a
+    // lane and cannot meaningfully exceed the cap. If the bridge listener ever becomes
+    // concurrent (multiple in-flight bridge requests), bounded admission must be revisited
+    // (e.g. route the bridge through a try_submit path) so the cap is honored.
+    hpx::future<rayx_runtime::RuntimeResult> dispatch_op_typed(
+            const std::string& op_id, rayx_runtime::OpArgs args,
+            std::shared_ptr<rayx_runtime::RuntimeCancelToken>* out_tok) {
+        const rayx_runtime::OpEntry* entry = nullptr;
+        auto it = rayx_runtime::registry().find(op_id);
+        if (it != rayx_runtime::registry().end()) {
+            entry = &it->second;
+        } else {
+            auto hit = rayx_runtime::hpx_registry().find(op_id);
+            if (hit != rayx_runtime::hpx_registry().end()) entry = &hit->second;
+        }
+        if (!entry) throw std::invalid_argument("unknown operation id: " + op_id);
+        if (static_cast<int>(args.size()) != entry->arity)
+            throw std::invalid_argument(
+                "wrong number of arguments for operation: " + op_id);
+        const rayx_runtime::OpFn fn = entry->fn;
+        const int checkpoint_count = entry->checkpoint_count(args);
+        const rayx_runtime::DispatchPolicy policy = entry->policy;
+        const std::size_t idx =
+            rr_.fetch_add(1, std::memory_order_relaxed) % lanes_.size();
+        rayx_runtime::RuntimeLane& lane = *lanes_[idx];
+        rayx_runtime::RuntimeLane::OpTask task =
+            make_op_task(fn, std::move(args), lane.actor_id());
+        return hpx::run_as_hpx_thread(
+            [&lane, &task, checkpoint_count, policy, out_tok]() {
+                return lane.submit(std::move(task), checkpoint_count, policy, out_tok);
+            });
     }
 
     // Dispatch one registered operation through a round-robin-selected lane.
@@ -1121,7 +1335,9 @@ public:
     // run_as_hpx_thread (mirroring the harness RayxLaneAdapter). The lane's worker
     // runs the closure via hpx::async(exec_, ...).get() (cooperative HPX
     // suspension) in FIFO order; RuntimeFuture.result() later blocks (GIL
-    // released) on the returned future.
+    // released) on the returned future. The unbounded path delegates to
+    // dispatch_op_typed (shared with the endpoint bridge); the bounded path keeps its
+    // own check-and-push try_submit (which returns Python None on a full lane).
     py::object submit_operation(const std::string& op_id,
                                 const py::sequence& args) {
         if (!running_) throw std::runtime_error("Runtime is shut down");
@@ -1171,32 +1387,26 @@ public:
             }
             ++ai;
         }
-        const rayx_runtime::OpFn fn = entry->fn;  // copied into the closure
-        // Checkpoint count from the op's args (square/add/boom/scale_double/fanout_sum
-        // -> 1; busy_sum -> ceil(n/STRIDE)). It arms running-cancellability in
-        // begin_service: cancellable_ = (count > 1), so a count==1 op is queued-
-        // cancelable only. The checkpointed ops read their arg DEFENSIVELY (wrong tag
-        // -> 1), so this never throws here -- a wrong-tag bypass produces a failed row
-        // from the op body instead.
-        const int checkpoint_count = entry->checkpoint_count(targs);
-        // Internal lane-dispatch policy, read from the registry entry (NOT derived
-        // from checkpoint_count): Inline for instantaneous ops, Async (default)
-        // for parking/checkpointed/composed ops. Threaded to the lane alongside
-        // checkpoint_count; no Python surface, no row/value change.
-        const rayx_runtime::DispatchPolicy policy = entry->policy;
-        // Round-robin lane selection. rr_ advances on EVERY submit so call index i
-        // maps to lane (i % num_lanes); rr_ is engine state, not a row field.
-        rayx_runtime::RuntimeLane& lane = *lanes_[rr_ % lanes_.size()];
-        ++rr_;
-        rayx_runtime::RuntimeLane::OpTask task =
-            make_op_task(fn, std::move(targs), lane.actor_id());
         std::shared_ptr<rayx_runtime::RuntimeCancelToken> tok;
         if (max_qd_per_lane_ >= 0) {
-            // Bounded admission: try_submit check-and-pushes atomically under the
-            // lane mutex; std::nullopt means the lane was at/over the cap. On reject
-            // NOTHING is created (no future/token/promise/entry/notify) -- we return
-            // Python None and the facade raises QueueFullError; rr_ already advanced
-            // (engine state), matching the harness round-robin-on-reject behavior.
+            // Bounded admission keeps its own check-and-push path (the unbounded
+            // dispatch_op_typed cannot express a Python-None rejection). Checkpoint count
+            // from the op's args (square/add/... -> 1; busy_sum -> ceil(n/STRIDE)) arms
+            // running-cancellability; the internal Inline/Async DispatchPolicy comes from
+            // the registry entry. try_submit check-and-pushes atomically under the lane
+            // mutex; std::nullopt means the lane was at/over the cap -> return Python None
+            // and the facade raises QueueFullError. rr_ still advances (engine state),
+            // matching the harness round-robin-on-reject behavior. rr_ is atomic because
+            // the endpoint bridge submits from a second thread; lane choice is load-
+            // balancing only, so a relaxed fetch_add is sufficient.
+            const rayx_runtime::OpFn fn = entry->fn;
+            const int checkpoint_count = entry->checkpoint_count(targs);
+            const rayx_runtime::DispatchPolicy policy = entry->policy;
+            const std::size_t idx =
+                rr_.fetch_add(1, std::memory_order_relaxed) % lanes_.size();
+            rayx_runtime::RuntimeLane& lane = *lanes_[idx];
+            rayx_runtime::RuntimeLane::OpTask task =
+                make_op_task(fn, std::move(targs), lane.actor_id());
             std::optional<hpx::future<rayx_runtime::RuntimeResult>> fut =
                 hpx::run_as_hpx_thread(
                     [&lane, &task, checkpoint_count, policy, &tok, this]() {
@@ -1207,10 +1417,11 @@ public:
             return py::cast(RuntimeFuture(std::move(*fut), std::move(tok)),
                             py::return_value_policy::move);
         }
+        // Unbounded path: delegate to the shared native helper (it re-looks-up the entry,
+        // selects the round-robin lane, and enqueues). One extra registry lookup vs. the
+        // bounded path; negligible and keeps the bridge/Python paths from drifting.
         hpx::future<rayx_runtime::RuntimeResult> fut =
-            hpx::run_as_hpx_thread([&lane, &task, checkpoint_count, policy, &tok]() {
-                return lane.submit(std::move(task), checkpoint_count, policy, &tok);
-            });
+            dispatch_op_typed(op_id, std::move(targs), &tok);
         return py::cast(RuntimeFuture(std::move(fut), std::move(tok)),
                         py::return_value_policy::move);
     }
@@ -1484,6 +1695,39 @@ public:
         return d;
     }
 
+    // exp44 debug-only structural witness for the LAST barrier_fanin execution:
+    // {seq, observed_os_workers, leaves_requested, arrived_count, released_count,
+    // opener, reduction_after_all_leaves, ordering_violations, clean_exit,
+    // watchdog_opened, joined_count, max_simultaneously_suspended_leaves}. Reads the
+    // mutex-guarded process-global slot (no torn read; "racy" only means a reader may
+    // see a stale/cross-call value). barrier_fanin is the ONE side-effecting registry
+    // op; this accessor exposes ONLY that witness and does NOT touch lane_stats(),
+    // RuntimeFuture, or the JSONL schema. Single-in-flight contract for tests/experiment
+    // (one barrier_fanin at a time -> `seq` identifies the execution). Raises if the
+    // runtime is shut down, consistent with the other snapshot accessors. NOT scheduler
+    // state, NOT a synchronization primitive, NOT placement control, NOT a perf metric;
+    // max_simultaneously_suspended_leaves is COORDINATED SUSPENSION, never parallelism.
+    py::dict barrier_fanin_witness() {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        rayx_runtime::BarrierFaninWitness w =
+            rayx_runtime::read_barrier_fanin_witness();
+        py::dict d;
+        d["seq"] = w.seq;
+        d["observed_os_workers"] = w.observed_os_workers;
+        d["leaves_requested"] = w.leaves_requested;
+        d["arrived_count"] = w.arrived_count;
+        d["released_count"] = w.released_count;
+        d["opener"] = w.opener;
+        d["reduction_after_all_leaves"] = w.reduction_after_all_leaves;
+        d["ordering_violations"] = w.ordering_violations;
+        d["clean_exit"] = w.clean_exit;
+        d["watchdog_opened"] = w.watchdog_opened;
+        d["joined_count"] = w.joined_count;
+        d["max_simultaneously_suspended_leaves"] =
+            w.max_simultaneously_suspended_leaves;
+        return d;
+    }
+
     // Release ONE local native actor: shutdown()'s actor teardown scoped to a
     // single record, same fixed order while HPX is still running (the design
     // note's lifecycle contract, steps 1->2->3):
@@ -1529,6 +1773,18 @@ public:
     void shutdown() {
         if (!running_) return;
         running_ = false;
+        // Drain-gate FIRST (before any lane teardown): stop admitting bridge requests,
+        // unpublish so new ones see "runtime unavailable", and BLOCK until the at-most-one
+        // in-flight bridge dispatch finishes. Only then is it safe to cancel/join/destroy
+        // the lanes the in-flight request may be using. The GIL is RELEASED around the wait
+        // so a concurrent bridge worker (which itself runs GIL-free) can finish and so other
+        // Python threads are not blocked; the slot's own mutex (never an HPX/owner lock) is
+        // the only lock held. With v1's instantaneous bridge ops the wait is bounded by one
+        // op's service time.
+        {
+            py::gil_scoped_release release;
+            RuntimeBridgeSlot::instance().drain_and_unpublish();
+        }
         // Runtime shutdown CANCELS outstanding work, then drains -- an intentional
         // difference from the harness drain-to-completion (registered operations
         // can be long-running, so draining a queued/in-flight busy_sum to its end
@@ -1563,13 +1819,17 @@ public:
                 lanes_.clear();
             });
         }
-        stop_process_hpx();
-        process_runtime_active() = false;
+        // Lanes are drained/joined above (while HPX is up); detach now stops HPX as the
+        // last HPX-needing owner (an Endpoint, being HPX-free, never keeps HPX alive).
+        ProcessHpxOwner::instance().detach(HpxAttachKind::Runtime);
     }
 
 private:
     std::vector<std::unique_ptr<rayx_runtime::RuntimeLane>> lanes_;
-    std::size_t rr_ = 0;
+    // Atomic: the endpoint->Runtime bridge submits from the accept thread, so this round-
+    // robin cursor is read/advanced by two threads. Lane choice is load-balancing only
+    // (not correctness), so relaxed ordering is sufficient.
+    std::atomic<std::size_t> rr_{0};
     // Per-lane bounded-admission cap: -1 = unbounded (default); >= 1 = max
     // queued-but-not-started requests admitted per lane (see submit_operation).
     int max_qd_per_lane_ = -1;
@@ -1620,6 +1880,320 @@ py::dict hpx_smoke() {
     d["status"] = "ok";
     d["value"] = value;
     return d;
+}
+
+// ===== Experimental endpoint seam: Ray bootstrap + endpoint identity + A1 transport ====
+//
+// EXPERIMENTAL, NARROW, additive. NOT a fabric, NOT parcelport / AGAS, NOT multi-node,
+// NO performance claim. A1 adds PLAIN NATIVE LOCAL IPC (AF_UNIX, endpoint_transport.hpp)
+// so that, with Endpoint(transport=True), connect(peer).ping(nonce) can cross the process
+// boundary on ONE node. HPX is NOT the delivery mechanism, NOT serving the socket, and
+// NOT computing the ping: the peer-specific transform is computed INLINE on both the
+// same-process registry path and the cross-process transport path.
+//
+// VARIANT 2 LIFECYCLE: an Endpoint is HPX-FREE. It does NOT start, finalize, or stop HPX.
+// Construction attaches to the ProcessHpxOwner as an ENDPOINT (policy/bookkeeping only:
+// it coexists with a Runtime and other Endpoints, but is rejected while an Engine is
+// active) and registers a seam; close() unregisters the seam and detaches. HPX is owned
+// solely by Runtime/Engine. So a process can hold BOTH an Endpoint and a Runtime: the
+// Runtime owns HPX; the Endpoint just runs native IPC alongside it. (Endpoint -> Runtime
+// request dispatch is FUTURE work; this slice only establishes coexistence.)
+//
+// SYNCHRONIZATION: the owner (ProcessHpxOwner) serializes attach/detach and the HPX
+// lifecycle. The transport listener refcount has its own small mutex below. The CPython
+// GIL serializes Python construction calls; no free-threaded / no-GIL claim.
+
+// Forward decls (transport listener lifecycle is defined just below).
+std::mutex& endpoint_transport_mu();
+int& endpoint_transport_rc();
+
+// rayx.endpoint.shutdown(): Variant 2 retains this public symbol for API/fixture
+// compatibility ONLY. Endpoint no longer owns HPX, so this NEVER touches HPX and NEVER
+// raises. Normal endpoint cleanup is per-Endpoint.close(). As a best-effort idempotent
+// helper, when no endpoints remain it clears closed-id tombstones and, defensively, stops
+// a transport listener if one is somehow still running with a zero transport refcount.
+void endpoint_shutdown() {
+    if (ProcessHpxOwner::instance().endpoint_count() != 0)
+        return;  // endpoints still live -> nothing to do (close them via Endpoint.close())
+    std::lock_guard<std::mutex> lk(endpoint_transport_mu());
+    if (endpoint_transport_rc() == 0 &&
+        rayx_endpoint::transport_listener_running())
+        rayx_endpoint::transport_listener_stop();
+    rayx_endpoint::EndpointRegistry::instance().clear_tombstones();
+}
+
+// ---- A1 transport listener lifecycle (process-local; independent of HPX) -------------
+// One AF_UNIX listener per process, shared by all transport-enabled endpoints. Started
+// lazily by the FIRST transport endpoint and stopped when the LAST one closes. Guarded by
+// its own small mutex (no relation to HPX -- the listener is a plain std::thread).
+std::mutex& endpoint_transport_mu() {
+    static std::mutex m;
+    return m;
+}
+int& endpoint_transport_rc() {
+    static int rc = 0;
+    return rc;
+}
+
+// Start the listener if this is the first transport endpoint; return its socket path.
+// Throws (mapped to EndpointError in Python) if the listener cannot start; the refcount
+// is left untouched on failure.
+std::string endpoint_transport_acquire() {
+    std::lock_guard<std::mutex> lk(endpoint_transport_mu());
+    std::string path = rayx_endpoint::transport_listener_start();  // throws on failure
+    ++endpoint_transport_rc();
+    return path;
+}
+
+// Drop one transport share; stop the listener when the last transport endpoint closes.
+void endpoint_transport_release() {
+    std::lock_guard<std::mutex> lk(endpoint_transport_mu());
+    if (endpoint_transport_rc() > 0 && --endpoint_transport_rc() == 0)
+        rayx_endpoint::transport_listener_stop();
+}
+
+// Bridge dispatch (v1): map a closed op-code to a registered Runtime op, build typed
+// OpArgs from the wire, dispatch through the drain-gated bridge slot, block for the result
+// (on the CALLING thread -- the accept std::thread for a remote call, the Python thread for
+// the same-process path), and marshal a typed CallResult. It NEVER throws (returns a
+// CallResult status instead) and NEVER touches Python, so it is safe both on the accept
+// thread (no GIL) and behind a GIL release. Installed as the transport's CALL_OP handler
+// AND called directly for the same-process path. v1 op codes are int64-only and
+// instantaneous (no parking/checkpointed/composed ops).
+rayx_endpoint::CallResult bridge_dispatch(
+        int op_code, const std::vector<rayx_endpoint::CallOpArg>& args) {
+    using namespace rayx_endpoint;
+    try {
+        std::string op_id;
+        int arity = 0;
+        switch (op_code) {
+            case BRIDGE_OP_SQUARE:     op_id = "square";     arity = 1; break;
+            case BRIDGE_OP_ADD:        op_id = "add";        arity = 2; break;
+            // Bridge v2: composed-op structural bridge. fanout_sum's body uses nested HPX
+            // composition (hpx::async + hpx::when_all). This proves the bridged path reaches
+            // a body that runs in a valid HPX-thread context and executes that composition,
+            // returning the correct typed result -- NOT scheduling/overlap/parallelism value.
+            case BRIDGE_OP_FANOUT_SUM: op_id = "fanout_sum"; arity = 2; break;
+            default: return {CALL_OP_UNKNOWN, 0, 0};
+        }
+        if (static_cast<int>(args.size()) != arity) return {CALL_OP_BADARGS, 0, 0};
+        // Bridge v2 shutdown/drain bound (NOT a perf knob): cap fanout_sum's `n` so the
+        // non-cancellable op cannot stretch the in-flight drain. Only the UPPER bound lives
+        // here; n < 0 and parts range are delegated to the op body (-> CALL_OP_FAILED).
+        if (op_code == BRIDGE_OP_FANOUT_SUM && args[0].tag == 0 &&
+            args[0].bits > BRIDGE_FANOUT_N_MAX) {
+            return {CALL_OP_BADARGS, 0, 0};
+        }
+        rayx_runtime::OpArgs oa;
+        oa.reserve(args.size());
+        for (const auto& a : args) {
+            if (a.tag != 0) return {CALL_OP_BADARGS, 0, 0};  // bridge args are int64-only
+            oa.emplace_back(static_cast<std::int64_t>(a.bits));
+        }
+        int st = 0;
+        std::shared_ptr<RuntimeBridge> bridge =
+            RuntimeBridgeSlot::instance().acquire(st);
+        if (!bridge) return {st, 0, 0};  // CALL_RUNTIME_ABSENT / CALL_RUNTIME_DRAINING
+        struct ReleaseGuard {
+            ~ReleaseGuard() { RuntimeBridgeSlot::instance().release(); }
+        } release_guard;
+        // Enqueue (enters HPX) + block on the result OUTSIDE the slot lock. The caller is
+        // an external OS thread (accept thread or Python thread), so blocking it does not
+        // consume an HPX worker; HPX still fulfills the future even at hpx_threads=1.
+        hpx::future<rayx_runtime::RuntimeResult> fut =
+            bridge->engine->dispatch_op_typed(op_id, std::move(oa), nullptr);
+        rayx_runtime::RuntimeResult r = fut.get();
+        if (r.status == "completed" && r.has_value) {
+            CallResult cr;
+            cr.status = CALL_OK;
+            std::visit([&cr](const auto& v) {
+                using T = std::decay_t<decltype(v)>;
+                if constexpr (std::is_same_v<T, std::int64_t>) {
+                    cr.tag = 0;
+                    cr.bits = v;
+                } else {
+                    cr.tag = 1;
+                    double d = static_cast<double>(v);
+                    std::int64_t bits = 0;
+                    std::memcpy(&bits, &d, sizeof bits);
+                    cr.bits = bits;
+                }
+            }, r.value);
+            return cr;
+        }
+        return {CALL_OP_FAILED, 0, 0};  // failed / cancelled op body
+    } catch (const std::invalid_argument&) {
+        return {CALL_OP_BADARGS, 0, 0};  // unknown op-id / wrong arity from dispatch
+    } catch (const std::exception&) {
+        return {CALL_INTERNAL, 0, 0};
+    } catch (...) {
+        return {CALL_INTERNAL, 0, 0};
+    }
+}
+
+// A connection to a peer seam. Two flavors behind ONE Python-facing type:
+//   * LOCAL (same process): holds a weak_ptr to the peer seam; ping() computes the
+//     peer-specific transform INLINE (NO HPX). A closed/destroyed peer -> PEER_CLOSED.
+//   * REMOTE (cross-process, same node): a PROBED REMOTE ENDPOINT HANDLE. connect()
+//     probed reachability once; this object then holds only the peer's AF_UNIX path + id
+//     + a deadline. It does NOT own a persistent fd -- each ping() performs ONE bounded,
+//     one-shot AF_UNIX round trip (dial -> send -> recv -> close). Still NO HPX.
+// Copyable by value (py::cast): remote state is just strings + a timeout; no owned fd is
+// held between pings, so there is nothing to double-close.
+class _Connection {
+public:
+    explicit _Connection(std::weak_ptr<rayx_endpoint::EndpointSeam> peer)
+        : peer_(std::move(peer)) {}
+    _Connection(std::string sock_path, std::string peer_id, long timeout_ms)
+        : remote_(true), path_(std::move(sock_path)), peer_id_(std::move(peer_id)),
+          timeout_ms_(timeout_ms) {}
+
+    // Returns (status, value): 0 ok / 1 peer-closed / 2 conn-closed / 3 not-found /
+    // 4 proto-err / 5 timeout (see rayx_endpoint::PingStatus).
+    std::pair<int, std::int64_t> ping(std::int64_t nonce) {
+        if (closed_) return {rayx_endpoint::PING_CONN_CLOSED, 0};
+        if (remote_) {
+            py::gil_scoped_release release;  // blocking IPC off the GIL
+            return rayx_endpoint::ping_remote(path_, peer_id_, nonce, timeout_ms_);
+        }
+        auto s = peer_.lock();
+        if (!s || s->closed.load(std::memory_order_relaxed))
+            return {rayx_endpoint::PING_PEER_CLOSED, 0};
+        return {rayx_endpoint::PING_OK, s->on_ping(nonce)};  // INLINE, no HPX
+    }
+
+    // Bridge v1: call one fixed registered Runtime op in the peer's process, returning a
+    // (status, value) tuple. status is a rayx_endpoint::CallStatus; value is a Python int
+    // (tag 0) / float (tag 1) on CALL_OK, else None. NOT public API -- reached only via the
+    // private Connection._call_op. The same-process path dispatches in-process through the
+    // SAME drain-gated bridge (no socket); the remote path is one AF_UNIX round trip.
+    py::object call_op(int op_code, const std::vector<std::int64_t>& args) {
+        std::vector<rayx_endpoint::CallOpArg> av;
+        av.reserve(args.size());
+        for (std::int64_t v : args)
+            av.push_back(rayx_endpoint::CallOpArg{0, v});
+        rayx_endpoint::CallResult cr;
+        if (closed_) {
+            cr = {rayx_endpoint::CALL_CONN_CLOSED, 0, 0};
+        } else if (remote_) {
+            py::gil_scoped_release release;  // blocking IPC off the GIL
+            cr = rayx_endpoint::call_op_remote(path_, peer_id_, op_code, av, timeout_ms_);
+        } else {
+            auto s = peer_.lock();
+            if (!s || s->closed.load(std::memory_order_relaxed)) {
+                cr = {rayx_endpoint::CALL_PEER_CLOSED, 0, 0};
+            } else {
+                py::gil_scoped_release release;  // dispatch blocks on the Runtime future
+                cr = bridge_dispatch(op_code, av);
+            }
+        }
+        py::object value = py::none();
+        if (cr.status == rayx_endpoint::CALL_OK) {
+            if (cr.tag == 0) {
+                value = py::int_(cr.bits);
+            } else {
+                double d = 0;
+                std::memcpy(&d, &cr.bits, sizeof d);
+                value = py::float_(d);
+            }
+        }
+        return py::make_tuple(cr.status, value);
+    }
+
+    void close() { closed_ = true; }
+
+private:
+    std::weak_ptr<rayx_endpoint::EndpointSeam> peer_;  // local path
+    bool remote_ = false;
+    std::string path_;     // remote: peer AF_UNIX socket path
+    std::string peer_id_;  // remote: target endpoint id (carried on the wire)
+    long timeout_ms_ = 0;  // remote: single deadline for dial+send+recv
+    bool closed_ = false;
+};
+
+// One process-local endpoint (Variant 2: HPX-FREE). Construction attaches to the owner as
+// an ENDPOINT (policy only -- rejected while an Engine is active; coexists with a Runtime),
+// mints an identity, registers a seam, and optionally joins the transport listener.
+// close() unregisters the seam (tombstone), releases the transport share, and detaches;
+// it NEVER touches HPX. When the last endpoint detaches, closed-id tombstones are cleared.
+class _Endpoint {
+public:
+    explicit _Endpoint(bool transport) : transport_(transport) {
+        ProcessHpxOwner::instance().attach(HpxAttachKind::Endpoint, 0);  // policy only
+        try {
+            const std::string id = rayx_endpoint::make_endpoint_id();
+            seam_ = std::make_shared<rayx_endpoint::EndpointSeam>(
+                id, static_cast<long>(::getpid()));
+            rayx_endpoint::EndpointRegistry::instance().register_seam(seam_);
+            if (transport_)
+                transport_addr_ = endpoint_transport_acquire();  // may throw
+        } catch (...) {
+            if (seam_)
+                rayx_endpoint::EndpointRegistry::instance().unregister(
+                    seam_->endpoint_id);
+            ProcessHpxOwner::instance().detach(HpxAttachKind::Endpoint);
+            throw;
+        }
+    }
+    ~_Endpoint() { close(); }
+
+    _Endpoint(const _Endpoint&) = delete;
+    _Endpoint& operator=(const _Endpoint&) = delete;
+
+    std::string id() const { return seam_->endpoint_id; }
+    long pid() const { return seam_->pid; }
+    int proto_version() const { return seam_->proto_version; }
+    bool closed() const { return closed_; }
+    std::string transport_kind() const { return transport_ ? "unix" : "none"; }
+    std::string transport_addr() const { return transport_addr_; }
+
+    void close() {
+        if (closed_) return;  // idempotent
+        closed_ = true;
+        seam_->closed.store(true, std::memory_order_relaxed);
+        rayx_endpoint::EndpointRegistry::instance().unregister(seam_->endpoint_id);
+        if (transport_)
+            endpoint_transport_release();  // stops the listener at the last endpoint
+        auto& owner = ProcessHpxOwner::instance();
+        owner.detach(HpxAttachKind::Endpoint);  // HPX-free: never stops HPX
+        // Last endpoint gone -> drop closed-id tombstones (bounds growth; the transport
+        // listener is also down by now, so a stale peer dial fails -> Closed anyway).
+        if (owner.endpoint_count() == 0)
+            rayx_endpoint::EndpointRegistry::instance().clear_tombstones();
+    }
+
+private:
+    std::shared_ptr<rayx_endpoint::EndpointSeam> seam_;
+    bool transport_ = false;
+    std::string transport_addr_;  // AF_UNIX socket path when transport_ is true
+    bool closed_ = false;
+};
+
+// Module-level connect: resolve `peer_id` in the PROCESS-LOCAL registry. The Python
+// layer has already rejected cross-process peers (pid/host mismatch ->
+// EndpointUnreachableError) and proto mismatches BEFORE calling here, so a miss here
+// means "no such live local endpoint" -> Python raises EndpointNotFoundError. Returns
+// a _Connection on success or None on a miss.
+py::object endpoint_connect_local(const std::string& peer_id) {
+    auto seam = rayx_endpoint::EndpointRegistry::instance().resolve(peer_id);
+    if (!seam) return py::none();
+    return py::cast(_Connection(std::weak_ptr<rayx_endpoint::EndpointSeam>(seam)));
+}
+
+// Cross-process (same-node) connect over the A1 AF_UNIX transport. Probes reachability
+// within `timeout_ms` and returns (status, conn): status 0 -> a remote _Connection;
+// 5 -> timeout; 6 -> unreachable (nothing listening). Python maps 5/6 to typed errors.
+py::object endpoint_connect_unix(const std::string& peer_id,
+                                 const std::string& sock_path, long timeout_ms) {
+    int status;
+    {
+        py::gil_scoped_release release;
+        status = rayx_endpoint::transport_probe(sock_path, timeout_ms);
+    }
+    if (status == 0)
+        return py::make_tuple(
+            0, py::cast(_Connection(sock_path, peer_id, timeout_ms)));
+    return py::make_tuple(status, py::none());
 }
 
 }  // namespace
@@ -1747,6 +2321,18 @@ PYBIND11_MODULE(_rayx, m) {
              "ValueError on an unknown actor_id. lane_stats() stays "
              "op-lanes-only. Not scheduler state, not placement control, not "
              "part of any JSONL schema.")
+        .def("barrier_fanin_witness", &RuntimeEngine::barrier_fanin_witness,
+             "exp44 debug-only structural witness for the last barrier_fanin "
+             "execution: {seq, observed_os_workers, leaves_requested, "
+             "arrived_count, released_count, opener, reduction_after_all_leaves, "
+             "ordering_violations, clean_exit, watchdog_opened, joined_count, "
+             "max_simultaneously_suspended_leaves}. Mutex-guarded snapshot (no "
+             "torn read; racy only means stale/cross-call); single-in-flight for "
+             "tests/experiment. barrier_fanin is the one side-effecting registry "
+             "op. Raises if shut down. Not scheduler state, not a synchronization "
+             "primitive, not placement control, not a perf metric; "
+             "max_simultaneously_suspended_leaves is coordinated suspension, not "
+             "parallelism.")
         .def("release_actor", &RuntimeEngine::release_actor,
              py::arg("actor_id"),
              "Release ONE local native actor: cancel its queued method calls, "
@@ -1821,4 +2407,85 @@ PYBIND11_MODULE(_rayx, m) {
     }, "Return {actor_type: {init_arg_types, methods: {method_id: {arg_types, "
        "result_type}}}} typed metadata for the fixed runtime actor registry "
        "(counter add/get/reset). Not wired into the rayx.runtime Python layer yet.");
+
+    // ---- experimental endpoint identity seam --------------------------------
+    // Thin native surface; rayx.endpoint wraps these with validation + typed errors.
+    // NOT a fabric / transport / socket; no performance claim.
+    py::class_<_Connection>(m, "_EndpointConnection")
+        .def("ping", &_Connection::ping, py::arg("nonce"),
+             "Peer-specific typed int64 handshake. Same-process: computed INLINE against "
+             "the registered seam. Cross-process: one plain-IPC (AF_UNIX) round-trip. NO "
+             "HPX in either path. Returns (status, value): 0 ok / 1 peer-closed / 2 "
+             "conn-closed / 3 not-found / 4 proto-err / 5 timeout.")
+        .def("call_op", &_Connection::call_op, py::arg("op_code"), py::arg("args"),
+             "EXPERIMENTAL endpoint->Runtime bridge (v1): call one fixed registered Runtime "
+             "op (closed op-code enum) in the peer's process and return (status, value). "
+             "Same-process dispatches in-process through the drain-gated bridge; cross-"
+             "process is one AF_UNIX round trip. status is a CallStatus; value is int/float "
+             "on CALL_OK else None. Plumbing only -- no HPX value/performance claim.")
+        .def("close", &_Connection::close, "Mark this connection closed (idempotent).");
+
+    py::class_<_Endpoint>(m, "_Endpoint")
+        .def(py::init<bool>(), py::arg("transport") = false,
+             "Mint a process-local endpoint identity (rtb-ep-<16 hex>) and register its "
+             "seam. Variant 2: an endpoint is HPX-FREE -- it attaches to the shared HPX "
+             "owner as ENDPOINT for policy/bookkeeping only and never starts HPX. With "
+             "transport=True also join the process-local AF_UNIX listener (started lazily "
+             "for the first transport endpoint) so cross-process pings can be delivered "
+             "(A1 plain IPC, not HPX). Coexists with a Runtime and other Endpoints; raises "
+             "only if an exclusive Engine is active.")
+        .def("id", &_Endpoint::id)
+        .def("pid", &_Endpoint::pid)
+        .def("proto_version", &_Endpoint::proto_version)
+        .def("closed", &_Endpoint::closed)
+        .def("transport_kind", &_Endpoint::transport_kind,
+             "'unix' if this endpoint joined the A1 transport listener, else 'none'.")
+        .def("transport_addr", &_Endpoint::transport_addr,
+             "The AF_UNIX socket path peers dial for cross-process delivery, or '' when "
+             "transport is off.")
+        .def("close", &_Endpoint::close,
+             "Unregister the seam (tombstone), drop this endpoint's transport share "
+             "(stopping the listener at the last transport endpoint), and detach the "
+             "ENDPOINT policy slot. Variant 2: HPX-free -- this NEVER touches HPX. "
+             "Idempotent.");
+
+    m.def("_endpoint_connect_local", &endpoint_connect_local, py::arg("peer_id"),
+          "Resolve peer_id in the PROCESS-LOCAL endpoint registry. Returns an "
+          "_EndpointConnection, or None if no such live local endpoint. Cross-process "
+          "peers go through _endpoint_connect_unix instead.");
+
+    m.def("_endpoint_connect_unix", &endpoint_connect_unix, py::arg("peer_id"),
+          py::arg("sock_path"), py::arg("timeout_ms"),
+          "Cross-process (same-node) connect over the A1 AF_UNIX transport. Returns "
+          "(status, conn): 0 -> _EndpointConnection, 5 -> timeout, 6 -> unreachable. "
+          "Plain native local IPC; NO HPX.");
+
+    m.def("_endpoint_shutdown", &endpoint_shutdown,
+          "Idempotent endpoint cleanup helper (Variant 2): endpoints are HPX-free, so this "
+          "NEVER stops HPX and NEVER raises. Normal cleanup is per-Endpoint.close(); this "
+          "only clears tombstones / a stray listener when no endpoints remain.");
+    m.def("_process_hpx_active", []() {
+              return ProcessHpxOwner::instance().hpx_active();
+          },
+          "True iff the process HPX runtime is up (owned by a Runtime/Engine). Endpoints "
+          "are HPX-free and never make this True. Debug/test gating only.");
+
+    m.attr("_ENDPOINT_PROTO_VERSION") = rayx_endpoint::ENDPOINT_PROTO_VERSION;
+    m.attr("_ENDPOINT_PING_XOR") =
+        static_cast<std::int64_t>(rayx_endpoint::ENDPOINT_PING_XOR);
+
+    // Install the endpoint->Runtime bridge (v1) CALL_OP handler so the transport accept
+    // thread can perform drain-gated Runtime dispatch. Set once at module load; it consults
+    // the RuntimeBridgeSlot per call, so it correctly reports "runtime unavailable" whenever
+    // no Runtime is attached. NOT public API.
+    rayx_endpoint::bridge_call_op_handler() = bridge_dispatch;
+
+    // Bridge closed op-code enum (mirror _BRIDGE_OPS in rayx/endpoint/__init__.py).
+    m.attr("_BRIDGE_OP_SQUARE") = static_cast<int>(rayx_endpoint::BRIDGE_OP_SQUARE);
+    m.attr("_BRIDGE_OP_ADD") = static_cast<int>(rayx_endpoint::BRIDGE_OP_ADD);
+    m.attr("_BRIDGE_OP_FANOUT_SUM") =
+        static_cast<int>(rayx_endpoint::BRIDGE_OP_FANOUT_SUM);
+    // Bridge v2 fanout_sum `n` cap (shutdown/drain bound only; not a perf knob).
+    m.attr("_BRIDGE_FANOUT_N_MAX") =
+        static_cast<std::int64_t>(rayx_endpoint::BRIDGE_FANOUT_N_MAX);
 }

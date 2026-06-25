@@ -387,6 +387,13 @@ def section_typed_signatures_and_int64_range():
         "fanout_sum": (["int64", "int64"], "int64"),
         "scale_double": (["double", "double"], "double"),
         "park_ms": (["int64"], "int64"),
+        # exp39: chain_sum_loop / chain_sum_then (seed, steps, quantum) -> int64.
+        "chain_sum_loop": (["int64", "int64", "int64"], "int64"),
+        "chain_sum_then": (["int64", "int64", "int64"], "int64"),
+        # exp40: chain_fanout (seed, count, steps, quantum) -> int64.
+        "chain_fanout": (["int64", "int64", "int64", "int64"], "int64"),
+        # exp44: barrier_fanin (seed, leaves, quantum) -> int64.
+        "barrier_fanin": (["int64", "int64", "int64"], "int64"),
     }
     if set(tbl) != set(expected):
         _fail(f"runtime_op_table ops {sorted(tbl)} != {sorted(expected)}")

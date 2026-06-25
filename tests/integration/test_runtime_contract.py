@@ -492,6 +492,18 @@ def test_runtime_op_table_typed_signatures():
         "scale_double": {"arg_types": ["double", "double"],
                          "result_type": "double"},
         "park_ms": {"arg_types": ["int64"], "result_type": "int64"},
+        # exp39: chain_sum_loop / chain_sum_then share (seed, steps, quantum) -> int64.
+        "chain_sum_loop": {"arg_types": ["int64", "int64", "int64"],
+                           "result_type": "int64"},
+        "chain_sum_then": {"arg_types": ["int64", "int64", "int64"],
+                           "result_type": "int64"},
+        # exp40: chain_fanout (seed, count, steps, quantum) -> int64.
+        "chain_fanout": {"arg_types": ["int64", "int64", "int64", "int64"],
+                         "result_type": "int64"},
+        # exp44: barrier_fanin (seed, leaves, quantum) -> int64 (witnessed
+        # barrier-gated fan-in; the one side-effecting registry op).
+        "barrier_fanin": {"arg_types": ["int64", "int64", "int64"],
+                          "result_type": "int64"},
     }
     assert set(tbl) == set(expected)
     for op, sig in expected.items():

@@ -1,0 +1,149 @@
+{
+  "experiment": "exp43_endpoint_transport_ping_floor",
+  "schema": "rayx-endpoint-ping-floor-1",
+  "claim": "characterizes the local one-shot endpoint ping round-trip floor WITHOUT Runtime dispatch, using the real endpoint API path (EP0 same-process inline; EP1 cross-process one-shot dial-per-call). EPraw is included ONLY as a same-shape Python AF_UNIX echo control, NOT as a raw OS lower bound",
+  "ep1_framing": "EP1 is a ONE-SHOT dial-per-call endpoint ping round trip: every ping is a fresh socket/connect/accept/send/recv/close. This is NOT 'AF_UNIX transport cost', NOT fabric/persistent-transport cost, NOT endpoint->Runtime cost. The dominant term is likely connection setup/teardown, not moving 55 bytes.",
+  "epraw_framing": "EPraw is a SAME-SHAPE PYTHON AF_UNIX echo control (plain accept/recv/send/close, no rayx, no HPX). It uses the same one-shot connect/accept/recv/send/close envelope and 39B/16B byte sizes as EP1. IMPORTANT: EPraw's server AND client are interpreted PYTHON while EP1's serving side is a NATIVE C++ accept thread, so EPraw is NOT a raw OS lower floor, is NOT a minimal C/native socket floor, does NOT isolate kernel AF_UNIX cost, and is NOT guaranteed to be lower than EP1 (the observed EP1 - EPraw sign is negative purely because the Python accept-poll/recv/send loop is slower than the native one). EP1 - EPraw is retained ONLY as a cross-implementation observation, dominated by Python-vs-native server/client differences and the EPraw accept-poll loop; it is NOT rayx endpoint overhead, NOT listener/framing/registry overhead, and NOT fabric evidence.",
+  "non_claims": [
+    "no endpoint->Runtime bridge claim",
+    "no HPX mechanism / scheduling / value / design result",
+    "no speedup",
+    "no throughput claim",
+    "no general latency claim",
+    "no Ray comparison",
+    "no distributed fabric",
+    "no persistent transport / channel claim",
+    "no parcelport",
+    "no AGAS",
+    "no multi-node",
+    "no public endpoint-call API beyond the existing ping",
+    "no exact decomposition of exp42 P2",
+    "no mechanical P2 - EP1 subtraction",
+    "no EP1 - EPraw overhead claim",
+    "no raw OS floor claim (EPraw is a same-shape Python control, not an OS floor)",
+    "EP1 is NOT a stable layer constant: sequential single-in-flight calls may include OS scheduler wake-up latency on the blocked accept()/recv()",
+    "OS-local timing (see machine.platform); NON-TRANSFERABLE across OSes"
+  ],
+  "caveats": {
+    "os_scheduler_wakeup": "Sequential single-in-flight pings maximize idle gaps; each EP1/EPraw call may pay OS wake-up latency for a blocked accept()/recv() on the server. Analogous to exp42's HPX idle-backoff caveat, but located in the kernel/OS scheduler. IQR-significance is the primary guard against over-reading.",
+    "non_transferable_os": "AF_UNIX connect/accept cost profiles differ by OS (Darwin/macOS vs Linux). These are OS-local observations and are non-transferable.",
+    "vs_exp42_p2": "exp42 P2's child runs a live HPX Runtime + worker threads contending with its accept thread; exp43 EP1's child has no HPX workers. Do NOT subtract EP1 from P2 to get 'Runtime dispatch cost' -- EP1 is a runtime-less lower reference only.",
+    "distributed_fabric_fence": "exp43 does NOT inform the distributed-fabric/transport question directly. One-shot local AF_UNIX is not a persistent inter-node parcelport."
+  },
+  "paths": {
+    "EP0": "Endpoint(); connect(self.metadata()); conn.ping(nonce)  [same pid -> registry/inline, no socket, no Runtime, HPX inactive]",
+    "EP1": "child Endpoint(transport=True) ONLY; connect(child_meta); conn.ping(nonce)  [pid != getpid -> one-shot dial-per-call AF_UNIX, no Runtime, HPX inactive both sides]",
+    "EPraw": "child plain socket.AF_UNIX echo server; per call connect + 39B request + 16B fixed reply + close  [same-shape PYTHON control, no rayx, no HPX; NOT a raw OS floor / NOT a lower bound on EP1]"
+  },
+  "config": {
+    "ping_nonce": 81985529216486895,
+    "correctness_nonces": [
+      0,
+      1,
+      -1,
+      81985529216486895,
+      -81985529216486895,
+      4611686018427387904
+    ],
+    "reps": 200,
+    "warmup": 30,
+    "include_raw": true,
+    "raw_req_len": 39,
+    "raw_resp_len": 16,
+    "sequential_single_in_flight": true,
+    "gc_disabled_in_loop": true,
+    "hpx_threads_sweep": "none (no HPX starts in any exp43 path)"
+  },
+  "controls": {
+    "parent_hpx_active": false,
+    "child_hpx_active": false,
+    "child_runtime_created": false,
+    "ep1_child_clean_exit": true,
+    "epraw_child_clean_exit": true,
+    "runtime_created": false
+  },
+  "machine": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine_cpu_count": 10,
+    "sock_dir": "/tmp/rayx-ep-exp43",
+    "raw_sock_dir": "/tmp/rayx-ep-exp43-raw"
+  },
+  "floors": {
+    "empty_loop_floor_ns": 41
+  },
+  "measurements": [
+    {
+      "path": "EP0",
+      "reps": 200,
+      "warmup": 30,
+      "runtimes_active": 0,
+      "machine_cpu_count": 10,
+      "median_ns": 208,
+      "p25_ns": 167,
+      "p75_ns": 208,
+      "iqr_ns": 41,
+      "value": 1725212710810092771,
+      "oracle": 1725212710810092771,
+      "result_equal_ok": true,
+      "below_resolution": false,
+      "kind": "same_process_inline",
+      "hpx_active_serving_side": false
+    },
+    {
+      "path": "EP1",
+      "reps": 200,
+      "warmup": 30,
+      "runtimes_active": 0,
+      "machine_cpu_count": 10,
+      "median_ns": 9916,
+      "p25_ns": 9666,
+      "p75_ns": 10167,
+      "iqr_ns": 501,
+      "value": -717828686583945689,
+      "oracle": -717828686583945689,
+      "result_equal_ok": true,
+      "below_resolution": false,
+      "kind": "cross_process_one_shot_dial_per_call",
+      "child_hpx_active": false,
+      "child_runtime_created": false,
+      "transport_kind": "unix"
+    },
+    {
+      "path": "EPraw",
+      "reps": 200,
+      "warmup": 30,
+      "runtimes_active": 0,
+      "machine_cpu_count": 10,
+      "median_ns": 20708,
+      "p25_ns": 19167,
+      "p75_ns": 27625,
+      "iqr_ns": 8458,
+      "kind": "raw_os_one_shot_af_unix",
+      "reply_equal_ok": true,
+      "req_len": 39,
+      "resp_len": 16,
+      "below_resolution": false
+    }
+  ],
+  "deltas": {
+    "EP1_minus_EP0": {
+      "delta_ns": 9708,
+      "pooled_iqr_ns": 501,
+      "below_resolution": false,
+      "within_jitter": false,
+      "meaningful_above_jitter": true,
+      "interpretation_status": "end_to_end_observation_only"
+    },
+    "EP1_minus_EPraw": {
+      "delta_ns": -10792,
+      "pooled_iqr_ns": 8458,
+      "below_resolution": false,
+      "within_jitter": false,
+      "meaningful_above_jitter": true,
+      "interpretation_status": "cross_implementation_observation_only"
+    }
+  },
+  "correctness_failures": [],
+  "control_failures": [],
+  "overall_structural_pass": true
+}

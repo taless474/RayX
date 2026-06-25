@@ -26,6 +26,10 @@ __all__ = [
     "ROW_FIELDS",
     "PARTS_MAX",
     "PARK_MS_MAX",
+    "CHAIN_STEPS_MAX",
+    "CHAIN_QUANTUM_MAX",
+    "CHAIN_FANOUT_K_MAX",
+    "FANIN_LEAVES_MAX",
     "INT64_MIN",
     "INT64_MAX",
     "validate_timeout",
@@ -45,6 +49,29 @@ PARTS_MAX = 1024
 # Mirror of PARK_MS_MAX in python/src/rayx/runtime_ops.hpp -- keep the two in sync.
 # Keeps any cooperatively parked lane bounded by construction (60 s).
 PARK_MS_MAX = 60_000
+
+# Upper bounds on the chain_sum_* (exp39) `steps` / `quantum` arguments, enforced at
+# the Python boundary. Mirror of CHAIN_STEPS_MAX / CHAIN_QUANTUM_MAX in
+# python/src/rayx/runtime_ops.hpp -- keep the two in sync. STEPS bounds the dependent
+# chain length (so chain_sum_then cannot build an unbounded continuation chain and the
+# Python-mediated fold issues a bounded number of submits); QUANTUM bounds per-stage
+# on-core work. The chain ops are queued-cancelable only, so the product is kept
+# modest by construction to bound an uninterruptible call / teardown.
+CHAIN_STEPS_MAX = 10_000
+CHAIN_QUANTUM_MAX = 100_000
+
+# Upper bound on the chain_fanout (exp40) `count` argument -- the number of independent
+# child chains the op fans out via hpx::async. Mirror of CHAIN_FANOUT_K_MAX in
+# python/src/rayx/runtime_ops.hpp -- keep the two in sync. Bounds the internal fan-out
+# so an absurd child count cannot spawn an unbounded number of tasks (the FANOUT_PARTS_MAX
+# posture for the launch-all op).
+CHAIN_FANOUT_K_MAX = 256
+
+# Upper bound on the barrier_fanin (exp44) `leaves` argument -- the number of bare-hpx::async
+# children that mutually rendezvous on the cooperative gate. Mirror of FANIN_LEAVES_MAX in
+# python/src/rayx/runtime_ops.hpp -- keep the two in sync. Small so the gated interior +
+# diagnostic witness stay bounded; well under CHAIN_FANOUT_K_MAX.
+FANIN_LEAVES_MAX = 64
 
 # Inclusive int64 range. Python ints are arbitrary-precision, so a value that does not
 # fit a C++ std::int64_t must be rejected EXPLICITLY at the boundary (deterministic,
@@ -188,6 +215,68 @@ def validate_call(op_id, args, op_table):
         if out[0] > PARK_MS_MAX:
             raise ValueError(f"operation 'park_ms' argument 0 (ms) must be <= "
                              f"{PARK_MS_MAX}, got {out[0]}")
+    # chain_sum_loop / chain_sum_then (exp39): chain_sum_*(seed, steps, quantum).
+    # seed (arg 0) is any int64; steps and quantum are bounded non-negative. Arity (3)
+    # and the int/non-bool/int64-range checks above are generic; these are the per-op
+    # domain bounds, mirrored by the native defensive re-check in the op bodies.
+    if op_id in ("chain_sum_loop", "chain_sum_then"):
+        steps, quantum = out[1], out[2]
+        if steps < 0:
+            raise ValueError(f"operation {op_id!r} argument 1 (steps) must be >= 0, "
+                             f"got {steps}")
+        if steps > CHAIN_STEPS_MAX:
+            raise ValueError(f"operation {op_id!r} argument 1 (steps) must be <= "
+                             f"{CHAIN_STEPS_MAX}, got {steps}")
+        if quantum < 0:
+            raise ValueError(f"operation {op_id!r} argument 2 (quantum) must be >= 0, "
+                             f"got {quantum}")
+        if quantum > CHAIN_QUANTUM_MAX:
+            raise ValueError(f"operation {op_id!r} argument 2 (quantum) must be <= "
+                             f"{CHAIN_QUANTUM_MAX}, got {quantum}")
+    # chain_fanout (exp40): chain_fanout(seed, count, steps, quantum). seed (arg 0) is
+    # any int64; count (arg 1) is in [1, CHAIN_FANOUT_K_MAX]; steps/quantum bounded
+    # non-negative as for the chain_sum_* ops. Arity (4) and the int/non-bool/int64-range
+    # checks above are generic; these are the per-op domain bounds, mirrored by the
+    # native defensive re-check in the chain_fanout body.
+    if op_id == "chain_fanout":
+        count, steps, quantum = out[1], out[2], out[3]
+        if count < 1:
+            raise ValueError(f"operation 'chain_fanout' argument 1 (count) must be "
+                             f">= 1, got {count}")
+        if count > CHAIN_FANOUT_K_MAX:
+            raise ValueError(f"operation 'chain_fanout' argument 1 (count) must be "
+                             f"<= {CHAIN_FANOUT_K_MAX}, got {count}")
+        if steps < 0:
+            raise ValueError(f"operation 'chain_fanout' argument 2 (steps) must be "
+                             f">= 0, got {steps}")
+        if steps > CHAIN_STEPS_MAX:
+            raise ValueError(f"operation 'chain_fanout' argument 2 (steps) must be "
+                             f"<= {CHAIN_STEPS_MAX}, got {steps}")
+        if quantum < 0:
+            raise ValueError(f"operation 'chain_fanout' argument 3 (quantum) must be "
+                             f">= 0, got {quantum}")
+        if quantum > CHAIN_QUANTUM_MAX:
+            raise ValueError(f"operation 'chain_fanout' argument 3 (quantum) must be "
+                             f"<= {CHAIN_QUANTUM_MAX}, got {quantum}")
+    # barrier_fanin (exp44): barrier_fanin(seed, leaves, quantum). seed (arg 0) is any
+    # int64; leaves (arg 1) is in [1, FANIN_LEAVES_MAX]; quantum (arg 2) is bounded
+    # non-negative as for the chain ops. Arity (3) and the int/non-bool/int64-range checks
+    # above are generic; these are the per-op domain bounds, mirrored by the native
+    # defensive re-check in the barrier_fanin body.
+    if op_id == "barrier_fanin":
+        leaves, quantum = out[1], out[2]
+        if leaves < 1:
+            raise ValueError(f"operation 'barrier_fanin' argument 1 (leaves) must be "
+                             f">= 1, got {leaves}")
+        if leaves > FANIN_LEAVES_MAX:
+            raise ValueError(f"operation 'barrier_fanin' argument 1 (leaves) must be "
+                             f"<= {FANIN_LEAVES_MAX}, got {leaves}")
+        if quantum < 0:
+            raise ValueError(f"operation 'barrier_fanin' argument 2 (quantum) must be "
+                             f">= 0, got {quantum}")
+        if quantum > CHAIN_QUANTUM_MAX:
+            raise ValueError(f"operation 'barrier_fanin' argument 2 (quantum) must be "
+                             f"<= {CHAIN_QUANTUM_MAX}, got {quantum}")
     return out
 
 

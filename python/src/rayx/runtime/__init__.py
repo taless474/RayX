@@ -673,6 +673,26 @@ class Runtime:
             raise RuntimeError("Runtime is shut down")
         return self._engine.lane_stats()
 
+    def barrier_fanin_witness(self):
+        """exp44 debug-only structural witness for the LAST ``barrier_fanin`` call.
+
+        Returns a dict ``{seq, observed_os_workers, leaves_requested, arrived_count,
+        released_count, opener, reduction_after_all_leaves, ordering_violations,
+        clean_exit, watchdog_opened, joined_count,
+        max_simultaneously_suspended_leaves}`` snapshotting the most recent
+        ``barrier_fanin`` execution. ``barrier_fanin`` is the one side-effecting
+        registry op; this is a mutex-guarded snapshot (no torn read -- "racy" means
+        only that a reader may see a stale/cross-call value), so tests and the
+        experiment are SINGLE-IN-FLIGHT (one ``barrier_fanin`` at a time, identified by
+        ``seq``). Raises if the runtime is shut down. Not scheduler state, not a
+        synchronization primitive, not placement control, and not a performance metric;
+        ``max_simultaneously_suspended_leaves`` is coordinated cooperative suspension,
+        never parallelism/throughput/worker-level concurrency.
+        """
+        if self._closed:
+            raise RuntimeError("Runtime is shut down")
+        return self._engine.barrier_fanin_witness()
+
     def shutdown(self):
         """Stop the runtime and release the process HPX-runtime guard."""
         if self._closed:
