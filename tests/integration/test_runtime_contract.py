@@ -504,6 +504,14 @@ def test_runtime_op_table_typed_signatures():
         # barrier-gated fan-in; the one side-effecting registry op).
         "barrier_fanin": {"arg_types": ["int64", "int64", "int64"],
                           "result_type": "int64"},
+        # exp46: diamond_fanin (seed, quantum) -> int64 (one fixed non-linear
+        # diamond DAG; cross-edge join via hpx::dataflow, no witness/side effect).
+        "diamond_fanin": {"arg_types": ["int64", "int64"],
+                          "result_type": "int64"},
+        # exp47: overlap_probe (seed, quantum, mode) -> int64 (two independent
+        # bare-hpx::async arms + when_all; witnessed nested-overlap observation).
+        "overlap_probe": {"arg_types": ["int64", "int64", "int64"],
+                          "result_type": "int64"},
     }
     assert set(tbl) == set(expected)
     for op, sig in expected.items():

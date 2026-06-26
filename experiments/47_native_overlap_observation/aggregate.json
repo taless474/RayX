@@ -1,0 +1,778 @@
+{
+  "experiment": "exp47_native_overlap_observation",
+  "schema": "rayx-native-overlap-1",
+  "claim": "exp47's load-bearing result is Runtime/lane-boundary faithfulness/liveness: two INDEPENDENT bare-hpx::async arms launched inside a single coarse Runtime op (overlap_probe) and joined with when_all below the one Python/Runtime boundary schedule, join, and return the bit-identical closed int64 (triangulated against a pure-Python oracle AND chain_fanout) -- this holds deterministically (overall_structural_pass). Separately, WHEN the debug-only witness observes both arms in flight together within the bracketed arm compute (max_in_flight>=2), exp47 CLASSIFIES that overlap from per-chunk hpx::get_worker_thread_num() samples as cooperative_interleaving (consistent with one observed worker -- NOT OS-thread parallelism) or worker_parallel (distinct workers observed). The overlap observation is conditioned on the yielding arm-kernel shape and the host scheduler; it is reported separately (observation_met / observation_warnings) and no overlap is claimed for any regime where observation_met is false. In-process, structural, observation-only.",
+  "load_bearing_is_structural_pass": true,
+  "non_claims": [
+    "no speedup",
+    "no throughput",
+    "no latency/performance claim",
+    "no HPX faster than Ray",
+    "no Ray comparison",
+    "no real inference",
+    "no endpoint/fabric claim",
+    "no parcelport",
+    "no AGAS",
+    "no multi-node",
+    "no ObjectRef/object-store semantics",
+    "no arbitrary Python execution",
+    "no arbitrary-parallelism / general-DAG claim",
+    "no scheduler control",
+    "no placement control",
+    "cooperative suspension is NOT OS-thread parallelism",
+    "'worker_parallel' means only 'distinct workers observed', not parallel speedup",
+    "the witness is racy/debug-only, not scheduler state, not a sync primitive",
+    "no claim that Python orchestration is 'bad'",
+    "no wall-clock value is asserted"
+  ],
+  "config": {
+    "threads_regimes": [
+      1,
+      2
+    ],
+    "seeds": [
+      3,
+      7
+    ],
+    "quanta": [
+      9000,
+      16384,
+      49152
+    ],
+    "arms": 2,
+    "busy_sum_stride": 8192,
+    "process_model": "one subprocess per hpx_threads regime (HPX is started once per process at a fixed --hpx:threads and not re-init'd)",
+    "value_unit": "overlap_probe(seed, quantum, mode) == chain_fanout(seed, 2, 1, quantum); mode selects the arm kernel only (value-independent)"
+  },
+  "machine": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine_cpu_count": 10
+  },
+  "rows": [
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 9000,
+      "mode": 0,
+      "result": 80991007,
+      "oracle": 80991007,
+      "chain_fanout": 80991007,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 9000,
+      "mode": 1,
+      "result": 80991007,
+      "oracle": 80991007,
+      "chain_fanout": 80991007,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 16384,
+      "mode": 0,
+      "result": 268419079,
+      "oracle": 268419079,
+      "chain_fanout": 268419079,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 16384,
+      "mode": 1,
+      "result": 268419079,
+      "oracle": 268419079,
+      "chain_fanout": 268419079,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 49152,
+      "mode": 0,
+      "result": 268386311,
+      "oracle": 268386311,
+      "chain_fanout": 268386311,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 3,
+      "quantum": 49152,
+      "mode": 1,
+      "result": 268386311,
+      "oracle": 268386311,
+      "chain_fanout": 268386311,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        5,
+        5
+      ],
+      "event_count": 14,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 9000,
+      "mode": 0,
+      "result": 80991015,
+      "oracle": 80991015,
+      "chain_fanout": 80991015,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 9000,
+      "mode": 1,
+      "result": 80991015,
+      "oracle": 80991015,
+      "chain_fanout": 80991015,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 16384,
+      "mode": 0,
+      "result": 268419087,
+      "oracle": 268419087,
+      "chain_fanout": 268419087,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 16384,
+      "mode": 1,
+      "result": 268419087,
+      "oracle": 268419087,
+      "chain_fanout": 268419087,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 49152,
+      "mode": 0,
+      "result": 268386319,
+      "oracle": 268386319,
+      "chain_fanout": 268386319,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 1,
+      "seed": 7,
+      "quantum": 49152,
+      "mode": 1,
+      "result": 268386319,
+      "oracle": 268386319,
+      "chain_fanout": 268386319,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 1,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "cooperative_interleaving",
+      "per_arm_worker_ids": [
+        [
+          0
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        5,
+        5
+      ],
+      "event_count": 14,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 9000,
+      "mode": 0,
+      "result": 80991007,
+      "oracle": 80991007,
+      "chain_fanout": 80991007,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 9000,
+      "mode": 1,
+      "result": 80991007,
+      "oracle": 80991007,
+      "chain_fanout": 80991007,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 16384,
+      "mode": 0,
+      "result": 268419079,
+      "oracle": 268419079,
+      "chain_fanout": 268419079,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 16384,
+      "mode": 1,
+      "result": 268419079,
+      "oracle": 268419079,
+      "chain_fanout": 268419079,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "worker_parallel",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 49152,
+      "mode": 0,
+      "result": 268386311,
+      "oracle": 268386311,
+      "chain_fanout": 268386311,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 3,
+      "quantum": 49152,
+      "mode": 1,
+      "result": 268386311,
+      "oracle": 268386311,
+      "chain_fanout": 268386311,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "worker_parallel",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        5,
+        5
+      ],
+      "event_count": 14,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 9000,
+      "mode": 0,
+      "result": 80991015,
+      "oracle": 80991015,
+      "chain_fanout": 80991015,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 9000,
+      "mode": 1,
+      "result": 80991015,
+      "oracle": 80991015,
+      "chain_fanout": 80991015,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "worker_parallel",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 16384,
+      "mode": 0,
+      "result": 268419087,
+      "oracle": 268419087,
+      "chain_fanout": 268419087,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 16384,
+      "mode": 1,
+      "result": 268419087,
+      "oracle": 268419087,
+      "chain_fanout": 268419087,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "worker_parallel",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        1,
+        1
+      ],
+      "event_count": 6,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 49152,
+      "mode": 0,
+      "result": 268386319,
+      "oracle": 268386319,
+      "chain_fanout": 268386319,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 1,
+      "both_in_flight": false,
+      "classification": "serial",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        0,
+        0
+      ],
+      "event_count": 4,
+      "event_trace_overflowed": false
+    },
+    {
+      "hpx_threads": 2,
+      "seed": 7,
+      "quantum": 49152,
+      "mode": 1,
+      "result": 268386319,
+      "oracle": 268386319,
+      "chain_fanout": 268386319,
+      "value_ok": true,
+      "structural_ok": true,
+      "observed_os_workers": 2,
+      "max_in_flight": 2,
+      "both_in_flight": true,
+      "classification": "worker_parallel",
+      "per_arm_worker_ids": [
+        [
+          1
+        ],
+        [
+          0
+        ]
+      ],
+      "per_arm_chunk_event_count": [
+        5,
+        5
+      ],
+      "event_count": 14,
+      "event_trace_overflowed": false
+    }
+  ],
+  "value_failures": [],
+  "structural_failures": [],
+  "overall_structural_pass": true,
+  "observation_met": {
+    "mode1_threads1": {
+      "expected_classification": "cooperative_interleaving",
+      "met": true,
+      "observed": [
+        "cooperative_interleaving"
+      ]
+    }
+  },
+  "observation_warnings": [],
+  "observed_classification_by_regime": {
+    "mode0_threads1": [
+      "serial"
+    ],
+    "mode1_threads1": [
+      "cooperative_interleaving"
+    ],
+    "mode0_threads2": [
+      "serial"
+    ],
+    "mode1_threads2": [
+      "serial",
+      "worker_parallel"
+    ]
+  }
+}

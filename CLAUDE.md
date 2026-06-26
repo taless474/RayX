@@ -14,6 +14,8 @@ RayX is not a Ray replacement, not Ray Serve, not Ray Train, not a Ray object-st
 
 The benchmark harness remains synthetic. The repo also contains an experimental `rayx.runtime` prototype for fixed registered native operations and local native actors only; it is not arbitrary Python remote execution and not an object store.
 
+The repo also contains experiment-only HPX connect-mode / Ray-orchestrated HPX-island probes. These are standalone mechanism experiments, not shipped `rayx.runtime` API, not endpoint work, not production code, and not performance evidence.
+
 Do not clone, modify, or vendor Ray internals unless explicitly requested.
 
 ## Session startup
@@ -65,13 +67,13 @@ Use these as durable interpretation constraints unless new evidence changes them
 * The std::thread `ServiceLane` remains the stable actor-like comparison anchor unless an experiment explicitly opts into another lane mechanism.
 * Opt-in HPX-thread/cooperative-lane probes are mechanism experiments, not replacements for the main corpus.
 * `lane_impl` selects the rayx lane backend: `"std"` / `ServiceLane` is the default stable comparison anchor; `"hpx"` / `HpxLane` is an opt-in cooperative HPX-thread lane behind the *same* RayX contract (FIFO, `actor_id`, `lane_stats()` queue_depth/active, bounded admission/`QueueFullError`, queued + chunk-boundary running cancellation, get/wait/as_completed). Backend choice is visible only via the `actor_id` prefix (`act-hpx-` vs `act-hpxl-`); no HPX internals are exposed to Python and the v1 JSONL schema is unchanged.
-* `rayx.runtime` is a separate experimental subpackage for fixed registered native work over HPX-native FIFO `RuntimeLane`s. Registered native operations currently include `square`, `add`, `boom`, `busy_sum`, `fanout_sum`, `scale_double`, `park_ms`, `chain_sum_loop`, `chain_sum_then`, and `barrier_fanin`; the closed value model is `int64` / `double`. Runtime operation-lane ids use `rt-hpx-<16 lowercase hex>`. `chain_sum_loop` and `chain_sum_then` are synthetic in-process native-composition probes for exp39; they carry no real inference, Ray, multi-node, Python-callback, or HPX-fabric claim. `barrier_fanin` is the exp44 diagnostic barrier-gated fan-in op: it returns a closed `int64` value and writes an opt-in structural witness side channel only; it carries no speedup, throughput, latency, Ray-comparison, endpoint, fabric, parcelport, AGAS, or multi-node claim.
+* `rayx.runtime` is a separate experimental subpackage for fixed registered native work over HPX-native FIFO `RuntimeLane`s. Registered native operations currently include `square`, `add`, `boom`, `busy_sum`, `fanout_sum`, `scale_double`, `park_ms`, `chain_sum_loop`, `chain_sum_then`, `barrier_fanin`, and `diamond_fanin` when present in the built registry/write-ups. The closed value model is `int64` / `double`. Runtime operation-lane ids use `rt-hpx-<16 lowercase hex>`. `chain_sum_loop` and `chain_sum_then` are synthetic in-process native-composition probes for exp39; they carry no real inference, Ray, multi-node, Python-callback, or HPX-fabric claim. `barrier_fanin` is the exp44 diagnostic barrier-gated fan-in op: it returns a closed `int64` value and writes an opt-in structural witness side channel only; it carries no speedup, throughput, latency, Ray-comparison, endpoint, fabric, parcelport, AGAS, or multi-node claim. `diamond_fanin` and related exp45–48 probes are in-process Runtime-boundary / in-substrate-reference characterization only; they carry no Ray actor, endpoint, parcelport, AGAS, distributed locality, multi-node, performance, or fabric claim.
 * `park_ms(ms)` is synthetic cooperative PARKED work (chunked `hpx::this_thread::sleep_for`, capped at 60 s, cancellable at chunk boundaries) — the parked-wait analog of the CPU-bound `busy_sum` diagnostic. It is not real I/O, not inference, and carries no performance claim; park-related tests are structural/stats-gated and never assert wall-clock values.
 * `rayx.runtime` also includes an experimental local native actor MVP: `Runtime.create_actor("counter", initial)` returns an `ActorHandle`, and `ActorHandle.call("add" / "get" / "reset", ...)` dispatches fixed registered native methods on a native `CounterActor`. Actor method calls return the existing `RuntimeFuture` / `OperationResult` path and work with `get` / `wait` / `as_completed`. Actor lane ids use `rt-act-<16 lowercase hex>`.
 * `ActorHandle.stats()` is a non-consuming, point-in-time, racy per-actor debug snapshot (`{actor_id, queue_depth, active}`; the in-service call is not counted in `queue_depth`) for debugging/test-gating only — not scheduler state, not placement control, not a synchronization primitive, and no counters / `actor_type` field / all-actors enumeration. `Runtime.lane_stats()` remains op-lanes-only.
 * `Runtime.barrier_fanin_witness()` is the exp44 debug-only structural witness accessor. It is a guarded snapshot for single-in-flight tests/experiments; stale/cross-call reads are possible, but torn reads should not be. It is not scheduler state, not placement control, not a synchronization primitive, not a public scheduler API, and `max_simultaneously_suspended_leaves` means coordinated suspension, not parallelism, throughput, or worker-level concurrency.
-* Current post-exp44 direction: the in-process HPX-inside-Ray-actors story is now strengthened around boundary reduction plus HPX-faithful native composition behind one coarse Python/Runtime boundary. The next credible work should either harden that in-process story or design a fair fixed-granularity boundary-crossing comparison; the future distributed-fabric direction remains gated and must not be pulled forward from endpoint/IPC evidence alone.
-* `rayx.runtime` still has no `ObjectRef`, no object store, no arbitrary Python callables, no HPX actions/components, no distributed locality, no module-level `rayx.get` / `rayx.wait`, no `.remote()` actor API, no `Runtime.lane_impl`, and no performance claim.
+* Current post-exp52 direction: the in-process HPX-inside-Ray-actors story remains valid, but the future distributed-fabric direction now has a separate evidence arc. exp49 proved Ray-free HPX connect-mode graceful join → remote action → disconnect → re-admit. exp50 characterized ungraceful non-root locality loss: root can still serve a fresh connector by set-difference targeting, but shutdown is poisoned by stale locality state. exp51 showed bounded finalize and local-cache cleanup do not rescue the poisoned root; whole-island external restart is the safe recovery boundary. exp52 showed Ray can bootstrap the already-validated clean HPX island as launcher/supervisor while HPX carries the action/data path. This is still single-node, loopback TCP, closed-int64 only, and no performance, fault-tolerance, multi-node, production, or general-fabric claim is allowed.
+* `rayx.runtime` still has no `ObjectRef`, no object store, no arbitrary Python callables, no HPX actions/components, no distributed locality, no module-level `rayx.get` / `rayx.wait`, no `.remote()` actor API, no `Runtime.lane_impl`, and no performance claim. The standalone exp49–52 HPX connect-mode binaries are experiment-only mechanism probes and do not add HPX actions/components/distributed locality to the `rayx.runtime` Python API.
 * The HpxLane evidence arc is exp16 (native single-lane feasibility/timer behavior) → exp20 (task/dataflow pools are *not* drop-in RayX lane backends) → exp21 (RayX backend contract parity) → exp22 (load-divergence mechanism, observation-only) → exp23 (adapter-hop cost, observation-only). See `docs/reference/hpxlane_backend_arc.md` for the consolidated reading guide.
 * exp22/exp23 timings (and the spin divergence) are observation-only and machine-specific: do not use them as performance claims, and do not state an "HpxLane is faster/slower than ServiceLane" verdict.
 * Synthetic service timing should not be described as real inference work.
@@ -258,7 +260,7 @@ For the runtime test split:
 * runtime unit tests include import-light operation and actor validation.
 * runtime integration tests include native runtime and local actor contract coverage.
 * do not run runtime integration tests or runtime smokes in repo-sanity.
-* Ray-hosting smoke checks may live only in a native/Ray-capable smoke tier and must skip cleanly when Ray or built `_rayx` is unavailable.
+* Ray-hosting and Ray-orchestrated HPX-island smoke checks may live only in a native/Ray/HPX-capable smoke tier and must skip cleanly when Ray, the built `_rayx` extension, or the required standalone HPX experiment binary is unavailable.
 * Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38, in normal CI.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
@@ -280,14 +282,17 @@ Every slice should end with a clear report:
 For every completed benchmark, diagnostic, or experiment report, include a short interpretation and roadmap-impact section:
 
 * Experiment interpretation: what passed structurally, what the measured result suggests, what hypothesis it supports or weakens, what remains ambiguous, and what should not be claimed.
-* Roadmap impact: classify the result as one of `No roadmap change`, `Roadmap strengthened`, `Roadmap narrowed`, `Roadmap changed`, or `Roadmap blocked`, with a short reason.
-* Updated roadmap: keep tracks separated.
 
-  * in-process HPX inside Ray actors track: local scheduling, nonblocking lanes, native continuation/composition, Python-boundary characterization, serving-shaped synthetic workloads, and concurrency/overlap.
-  * future distributed HPX fabric track: Ray as placement/bootstrap/lifecycle, HPX locality-to-locality or lighter HPX-managed inter-actor communication, endpoint discovery, remote-action prototype, and multi-node comparison.
+* Roadmap impact: classify the result as one of `No roadmap change`, `Roadmap strengthened`, `Roadmap narrowed`, `Roadmap changed`, or `Roadmap blocked`, with a short reason.
+
+* Updated roadmap: keep directions separated.
+
+  * in-process HPX-inside-Ray-actors direction: local scheduling, nonblocking lanes, native continuation/composition, Python-boundary characterization, serving-shaped synthetic workloads, and concurrency/overlap.
+  * future distributed-fabric direction: Ray as placement/bootstrap/lifecycle supervision, HPX locality-to-locality action/data-plane probes, whole-island restart policy, Ray-orchestrated HPX bootstrap, and eventual multi-node comparison only when justified.
+
 * Next recommended step: end with one concrete technical next step, not a vague list.
 
-Do not let Track B pull Track A forward prematurely. Track B remains gated until Track A gives enough evidence and the project has evidence about whether Ray’s relevant cost is boundary/orchestration versus actual transport.
+Do not let the future distributed-fabric direction pull the in-process direction forward prematurely. The future distributed-fabric direction remains claim-gated: exp49–52 are mechanism/bootstrap evidence only, not performance, fault-tolerance, multi-node, production API, or general-fabric evidence.
 
 When a benchmark, diagnostic, or new CLI behavior is added, include a small smoke command or smoke test that can run quickly on a laptop.
 

@@ -1,0 +1,185 @@
+{
+  "experiment": "exp46_diamond_join_dag",
+  "schema": "rayx-diamond-join-1",
+  "claim": "exp46 compares two boundary placements for one fixed non-linear (diamond/join) dependency DAG: a single coarse Runtime op (diamond_fanin) that resolves the cross-edge join natively below the Python/Runtime boundary via HPX shared_future continuations + hpx::dataflow, versus a Python-mediated decomposition into fixed value-in/value-out Runtime ops (chain_sum_loop per node) that must materialize each intermediate node value in Python to satisfy data dependencies. Both return the bit-identical closed int64 (triangulated against a pure-Python oracle). The coarse path is 1/1/2 with 0 intermediate materializations; the Python-mediated path is 4/4/8 with 3. The counts are analytically predictable; the run is a faithfulness/liveness confirmation, not a discovery. This is boundary-placement / orchestration-count evidence for one fixed diamond DAG only.",
+  "counts_are_analytically_predictable": true,
+  "boundary_crossing_formulas": {
+    "path_a": "submissions=1, retirements=1, boundary_crossings=2, intermediate_materializations=0 (independent of the DAG)",
+    "path_b": "submissions=N=4, retirements=4, boundary_crossings=2N=8, intermediate_materializations=N-1=3 (A, B, C; sink D is the output)"
+  },
+  "dataflow_is_representational": "The 2-vs-8 crossing difference is NOT caused by hpx::dataflow -- any native coarse body has one crossing pair. shared_future/.then/hpx::dataflow matter because they express and resolve the diamond cross-edge join below the boundary in HPX-native form. No overlap/concurrency claim (canonical --hpx-threads=1).",
+  "equivalence": "result_a == result_b == pure-Python oracle for every (seed, quantum); the oracle mirrors per-step native masking",
+  "non_claims": [
+    "no speedup",
+    "no throughput",
+    "no latency/performance claim (timing is opt-in, observation-only, tautological)",
+    "no HPX faster than Ray",
+    "no Ray comparison",
+    "no real inference",
+    "no endpoint/fabric claim",
+    "no parcelport",
+    "no AGAS",
+    "no multi-node",
+    "no ObjectRef/object-store semantics",
+    "no arbitrary Python execution",
+    "no parallelism/overlap/scheduling claim (canonical --hpx-threads=1)",
+    "not a proof about arbitrary DAGs (one fixed diamond)",
+    "no claim that Python orchestration is 'bad' (it is a legitimate, flexible pattern; exp46 only COUNTS its Runtime-boundary transits for this workload)"
+  ],
+  "config": {
+    "hpx_threads": 1,
+    "seeds": [
+      1,
+      3,
+      7
+    ],
+    "quanta": [
+      16,
+      64
+    ],
+    "nodes": 4,
+    "timing_enabled": false,
+    "node_unit": "chain_sum_loop(x, 1, quantum) == one chain_stage == a diamond node (no new op)"
+  },
+  "machine": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine_cpu_count": 10
+  },
+  "rows": [
+    {
+      "seed": 1,
+      "quantum": 16,
+      "result_a": 605,
+      "result_b": 605,
+      "oracle": 605,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "seed": 1,
+      "quantum": 64,
+      "result_a": 10085,
+      "result_b": 10085,
+      "oracle": 10085,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "seed": 3,
+      "quantum": 16,
+      "result_a": 609,
+      "result_b": 609,
+      "oracle": 609,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 10089,
+      "result_b": 10089,
+      "oracle": 10089,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "seed": 7,
+      "quantum": 16,
+      "result_a": 617,
+      "result_b": 617,
+      "oracle": 617,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "seed": 7,
+      "quantum": 64,
+      "result_a": 10097,
+      "result_b": 10097,
+      "oracle": 10097,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "intermediate_materializations": 0
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "intermediate_materializations": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    }
+  ],
+  "correctness_failures": [],
+  "count_failures": [],
+  "overall_structural_pass": true
+}

@@ -26,6 +26,7 @@
 
 #include <hpx/hpx.hpp>  // hpx::async, hpx::when_all, hpx::future, hpx::this_thread::sleep_for,
                         // hpx::promise, hpx::shared_future, hpx::get_os_thread_count
+#include <hpx/runtime_local/get_worker_thread_num.hpp>  // hpx::get_worker_thread_num (exp47)
 
 #include <atomic>     // std::atomic (barrier_fanin gate bookkeeping)
 #include <chrono>     // std::chrono::milliseconds (park_ms chunk, barrier_fanin watchdog)
@@ -473,6 +474,297 @@ inline const std::unordered_map<std::string, OpEntry>& hpx_registry() {
              one_checkpoint,
              // Typed signature: barrier_fanin(int64 seed, int64 leaves, int64 quantum)
              // -> int64.
+             {OpType::Int64, OpType::Int64, OpType::Int64}, OpType::Int64}},
+        // diamond_fanin(seed, quantum) -> int64: exp46 fixed non-linear (diamond) DAG.
+        // A -> {B, C} -> D, expressed with HPX-native composition so the CROSS-EDGE JOIN
+        // (D depends on BOTH B and C) is resolved BELOW the Python/Runtime boundary:
+        // hpx::shared_future forks the two arms off the single root A; two .then(launch::
+        // async) continuations compute B and C; hpx::dataflow(launch::async) fires the
+        // join only once BOTH arms are ready. chain_stage is the SAME kernel chain_sum_loop
+        // uses, so each node is byte-identical to chain_sum_loop(x, 1, quantum) and the
+        // closed value is Python-checkable:
+        //   A = chain_stage(seed,            quantum)
+        //   B = chain_stage(A + 1,           quantum)
+        //   C = chain_stage(A + 2,           quantum)
+        //   D = chain_stage((B + C) & BUSY_SUM_MASK, quantum)   (commutative -> order-free)
+        // The body runs inside the lane's hpx::async(exec_, task).get(), so the terminal
+        // fD.get() is a COOPERATIVE suspension of the lane worker (no OS-thread block),
+        // exactly the chain_sum_then / fanout_sum posture. The hpx::dataflow is
+        // REPRESENTATIONAL: it expresses the join natively but is NOT what makes the op a
+        // single boundary crossing (any native body would be). ONE fixed diamond, NOT
+        // general DAG scheduling: NO speedup/throughput/latency/overlap/parallelism/Ray
+        // claim. No witness, no side effect -- a pure value function like the other ops.
+        // Queued-cancelable only (launch-all-style: no honest running-cancel boundary once
+        // the continuation graph is launched).
+        {"diamond_fanin", OpEntry{2,
+             [](const OpArgs& a, const StopCheckpoint&) -> OpOutcome {
+                 const std::int64_t seed = as_int64(a, 0, "diamond_fanin");
+                 const std::int64_t quantum = as_int64(a, 1, "diamond_fanin");
+                 // Defensive native guard (public boundary already rejects this; protects
+                 // the private/native bypass). Throw -> status="failed" row, never a crash.
+                 if (quantum < 0 || quantum > CHAIN_QUANTUM_MAX) {
+                     throw std::invalid_argument(
+                         "diamond_fanin requires 0 <= quantum <= "
+                         + std::to_string(CHAIN_QUANTUM_MAX));
+                 }
+                 const std::int64_t q = quantum;
+                 // Root A; shared so both arms (B, C) can attach continuations off it.
+                 hpx::shared_future<std::int64_t> fA =
+                     hpx::async(hpx::launch::async, [seed, q]() {
+                         return chain_stage(seed, q);
+                     }).share();
+                 // Arms B, C: scheduled continuations off A (launch::async so they are
+                 // genuine tasks, not inlined onto the completing thread).
+                 hpx::future<std::int64_t> fB = fA.then(hpx::launch::async,
+                     [q](hpx::shared_future<std::int64_t> a) {
+                         return chain_stage(a.get() + 1, q);
+                     });
+                 hpx::future<std::int64_t> fC = fA.then(hpx::launch::async,
+                     [q](hpx::shared_future<std::int64_t> a) {
+                         return chain_stage(a.get() + 2, q);
+                     });
+                 // Cross-edge join D: hpx::dataflow invokes the callable only once BOTH B
+                 // and C are ready. (B + C) under the mask is associative/commutative, so
+                 // the value is independent of the arms' completion order.
+                 hpx::future<std::int64_t> fD = hpx::dataflow(hpx::launch::async,
+                     [q](hpx::future<std::int64_t> b, hpx::future<std::int64_t> c) {
+                         const std::uint64_t joined =
+                             (static_cast<std::uint64_t>(b.get())
+                              + static_cast<std::uint64_t>(c.get())) & BUSY_SUM_MASK;
+                         return chain_stage(static_cast<std::int64_t>(joined), q);
+                     },
+                     std::move(fB), std::move(fC));
+                 OpOutcome o;
+                 o.value = fD.get();  // terminal cooperative suspension of the lane worker
+                 o.has_value = true;
+                 o.status = "completed";
+                 return o;
+             },
+             // Queued-cancelable only (launch-all-style). Always 1 (ignores args).
+             one_checkpoint,
+             // Typed signature: diamond_fanin(int64 seed, int64 quantum) -> int64.
+             {OpType::Int64, OpType::Int64}, OpType::Int64}},
+        // overlap_probe(seed, quantum, mode) -> int64: exp47 in-process nested-overlap
+        // observation. "barrier_fanin WITHOUT the gate": two INDEPENDENT bare-hpx::async
+        // arms on the DEFAULT pool (--hpx:threads sizes it), joined with when_all; the
+        // lane runs this body inside hpx::async(exec_, task).get(), so when_all().get() is
+        // a COOPERATIVE suspension of the lane worker. The closed value is value-model
+        // V3 int64 and INDEPENDENT of mode:
+        //   leaf0 = chain_stage(seed,     quantum)
+        //   leaf1 = chain_stage(seed + 1, quantum)
+        //   overlap_probe = (leaf0 + leaf1) & BUSY_SUM_MASK   == chain_fanout(seed,2,1,quantum)
+        // mode selects only the ARM KERNEL SHAPE (never the value):
+        //   mode 0 -- non-yielding: one flat chain_stage sweep, no interior yield.
+        //   mode 1 -- chunked-yielding: the SAME masked sum split into BUSY_SUM_STRIDE
+        //     chunks with hpx::this_thread::yield() at each chunk boundary INSIDE the
+        //     compute (value-identical because masked add is mod-2^31, associative; the
+        //     chunk-equals-flat invariant run_masked_checkpoint_loop already relies on).
+        // The instrumented in_flight++/in_flight-- BRACKETS the FULL arm compute (++ before
+        // the kernel loop, -- after it), so any observed max_in_flight>=2 encloses real
+        // chunked work, never a post-compute yield. Worker identity is sampled with
+        // hpx::get_worker_thread_num() at entry + each chunk (HPX threads may MIGRATE after
+        // a suspension point, so a per-arm SET is kept, not a single sample). Like
+        // barrier_fanin this writes a debug-only structural witness (OverlapWitness) and
+        // touches nothing else. Queued-cancelable only (one_checkpoint; launch-all, no
+        // honest running-cancel boundary once both arms launch). NO speedup/throughput/
+        // latency/Ray/scheduler-control/placement-control/parallelism claim: cooperative
+        // interleaving is NOT OS-thread parallelism, and "worker_parallel" is only
+        // "distinct workers observed".
+        {"overlap_probe", OpEntry{3,
+             [](const OpArgs& a, const StopCheckpoint&) -> OpOutcome {
+                 const std::int64_t seed = as_int64(a, 0, "overlap_probe");
+                 const std::int64_t quantum = as_int64(a, 1, "overlap_probe");
+                 const std::int64_t mode = as_int64(a, 2, "overlap_probe");
+                 // Defensive native guard (the public boundary already rejects these;
+                 // protects the private/native bypass). Throw -> status="failed" row.
+                 if (quantum < 0 || quantum > CHAIN_QUANTUM_MAX ||
+                     (mode != 0 && mode != 1)) {
+                     throw std::invalid_argument(
+                         "overlap_probe requires 0 <= quantum <= "
+                         + std::to_string(CHAIN_QUANTUM_MAX)
+                         + " and mode in {0, 1}");
+                 }
+                 const int m = static_cast<int>(mode);
+
+                 // Per-call instrumentation: atomics for the concurrent counters; a local
+                 // mutex guards the witness aggregate the two arms write into. The witness
+                 // is finalized + recorded AFTER when_all().get() (both arms joined).
+                 std::atomic<int> in_flight{0};
+                 std::atomic<int> max_in_flight{0};
+                 std::atomic<int> arms_completed{0};
+                 std::atomic<std::int64_t> event_seq{0};
+                 std::atomic<int> ordering_violations{0};
+                 std::mutex wmu;
+                 OverlapWitness w;
+                 w.mode = m;
+                 w.arms_launched = OVERLAP_ARMS;
+
+                 auto bump_max = [&](int v) {
+                     int cur = max_in_flight.load();
+                     while (v > cur &&
+                            !max_in_flight.compare_exchange_weak(cur, v)) { /*retry*/ }
+                 };
+                 auto sample_wid = []() -> long long {
+                     const std::size_t n = hpx::get_worker_thread_num();
+                     return (n == static_cast<std::size_t>(-1))
+                                ? -1LL : static_cast<long long>(n);
+                 };
+                 // Dedup-append a worker-id sample into the per-arm capped set (under wmu).
+                 auto record_worker = [&](int arm, long long wid) {
+                     std::lock_guard<std::mutex> g(wmu);
+                     auto& ids = w.per_arm_worker_ids[arm];
+                     for (long long x : ids) if (x == wid) return;
+                     if (static_cast<int>(ids.size()) < OVERLAP_WORKER_ID_SET_CAP)
+                         ids.push_back(wid);
+                     else
+                         w.per_arm_worker_ids_overflowed[arm] = true;
+                 };
+                 // Stamp a monotonic event seq and append to the bounded trace (under wmu).
+                 auto push_event = [&](int arm, const char* phase, long long wid)
+                         -> std::int64_t {
+                     const std::int64_t s = event_seq.fetch_add(1);
+                     std::lock_guard<std::mutex> g(wmu);
+                     if (static_cast<int>(w.events.size())
+                             < OVERLAP_ARMS * (2 + OVERLAP_CHUNK_EVENTS_CAP)) {
+                         OverlapEvent e;
+                         e.arm_id = arm;
+                         e.phase = phase;
+                         e.seq = s;
+                         e.worker_id = wid;
+                         w.events.push_back(std::move(e));
+                     } else {
+                         w.event_trace_overflowed = true;
+                     }
+                     return s;
+                 };
+
+                 // Arm j over input x: enter (in_flight++ BEFORE compute) -> compute (mode 1
+                 // yields mid-loop) -> leave (in_flight-- AFTER compute). Value == chain_stage.
+                 auto arm = [&](int j, std::int64_t x) -> std::int64_t {
+                     const long long wid0 = sample_wid();
+                     record_worker(j, wid0);
+                     const std::int64_t enter_seq = push_event(j, "enter", wid0);
+                     {
+                         std::lock_guard<std::mutex> g(wmu);
+                         if (w.per_arm_enter_seq[j] != -1) ordering_violations.fetch_add(1);
+                         w.per_arm_enter_seq[j] = enter_seq;
+                     }
+                     const int cur = in_flight.fetch_add(1) + 1;  // IN FLIGHT (pre-compute)
+                     bump_max(cur);
+
+                     std::int64_t v;
+                     if (m == 0) {
+                         v = chain_stage(x, quantum);  // flat non-yielding kernel
+                     } else {
+                         // Chunked-yielding kernel: value-identical to chain_stage(x, quantum).
+                         std::uint64_t acc = 0;
+                         const int n_chunks = busy_sum_checkpoints(quantum);
+                         for (int k = 0; k < n_chunks; ++k) {
+                             if (k > 0) {
+                                 const long long wid = sample_wid();
+                                 record_worker(j, wid);
+                                 push_event(j, "chunk", wid);
+                                 {
+                                     std::lock_guard<std::mutex> g(wmu);
+                                     ++w.per_arm_chunk_event_count[j];
+                                 }
+                                 hpx::this_thread::yield();  // cooperative checkpoint, mid-compute
+                             }
+                             const std::int64_t begin =
+                                 static_cast<std::int64_t>(k) * BUSY_SUM_STRIDE;
+                             const std::int64_t end =
+                                 std::min<std::int64_t>(begin + BUSY_SUM_STRIDE, quantum);
+                             for (std::int64_t i = begin; i < end; ++i)
+                                 acc = (acc + static_cast<std::uint64_t>(i)) & BUSY_SUM_MASK;
+                         }
+                         v = static_cast<std::int64_t>(
+                             (static_cast<std::uint64_t>(x) + acc) & BUSY_SUM_MASK);
+                     }
+
+                     in_flight.fetch_sub(1);  // NO LONGER IN FLIGHT (post-compute)
+                     const long long wid1 = sample_wid();
+                     record_worker(j, wid1);
+                     const std::int64_t leave_seq = push_event(j, "leave", wid1);
+                     {
+                         std::lock_guard<std::mutex> g(wmu);
+                         if (w.per_arm_leave_seq[j] != -1) ordering_violations.fetch_add(1);
+                         w.per_arm_leave_seq[j] = leave_seq;
+                     }
+                     arms_completed.fetch_add(1);
+                     return v;
+                 };
+
+                 // Two INDEPENDENT bare hpx::async arms on the default pool (seed + 1 via
+                 // unsigned wrap so seed == INT64_MAX cannot signed-overflow).
+                 const std::int64_t seed1 = static_cast<std::int64_t>(
+                     static_cast<std::uint64_t>(seed) + 1ULL);
+                 std::vector<hpx::future<std::int64_t>> futs;
+                 futs.reserve(static_cast<std::size_t>(OVERLAP_ARMS));
+                 futs.push_back(hpx::async(arm, 0, seed));
+                 futs.push_back(hpx::async(arm, 1, seed1));
+                 // Join below the boundary; the lane worker cooperatively suspends here.
+                 std::vector<hpx::future<std::int64_t>> done =
+                     hpx::when_all(futs).get();
+                 const std::int64_t leaf0 = done[0].get();
+                 const std::int64_t leaf1 = done[1].get();
+                 const std::int64_t value = static_cast<std::int64_t>(
+                     (static_cast<std::uint64_t>(leaf0)
+                      + static_cast<std::uint64_t>(leaf1)) & BUSY_SUM_MASK);
+
+                 // Finalize the witness (both arms joined -> no more concurrent writers).
+                 w.observed_os_workers =
+                     static_cast<int>(hpx::get_os_thread_count());
+                 w.arms_completed = arms_completed.load();
+                 w.max_in_flight = max_in_flight.load();
+                 w.both_in_flight = (w.max_in_flight >= 2);
+                 w.ordering_violations = ordering_violations.load();
+                 w.event_count = static_cast<int>(w.events.size());
+                 bool clean = (w.arms_completed == OVERLAP_ARMS);
+                 for (int j = 0; j < OVERLAP_ARMS; ++j) {
+                     if (w.per_arm_enter_seq[j] < 0 || w.per_arm_leave_seq[j] < 0 ||
+                         w.per_arm_leave_seq[j] <= w.per_arm_enter_seq[j])
+                         clean = false;
+                 }
+                 w.clean_exit = clean;
+
+                 // Classification (native): serial / cooperative_interleaving /
+                 // worker_parallel / inconclusive. Worker-id evidence disambiguates the
+                 // overlap; unknown/overflowed/empty sets fall to inconclusive.
+                 if (w.max_in_flight < 2) {
+                     w.classification = "serial";
+                 } else {
+                     bool unknown = false, overflowed = false;
+                     for (int j = 0; j < OVERLAP_ARMS; ++j) {
+                         if (w.per_arm_worker_ids_overflowed[j]) overflowed = true;
+                         if (w.per_arm_worker_ids[j].empty()) unknown = true;
+                         for (long long x : w.per_arm_worker_ids[j])
+                             if (x < 0) unknown = true;
+                     }
+                     if (unknown || overflowed) {
+                         w.classification = "inconclusive";
+                     } else {
+                         std::vector<long long> uni;
+                         for (int j = 0; j < OVERLAP_ARMS; ++j)
+                             for (long long x : w.per_arm_worker_ids[j]) {
+                                 bool p = false;
+                                 for (long long y : uni) if (y == x) { p = true; break; }
+                                 if (!p) uni.push_back(x);
+                             }
+                         w.classification = (uni.size() == 1)
+                             ? "cooperative_interleaving" : "worker_parallel";
+                     }
+                 }
+                 record_overlap_witness(std::move(w));
+
+                 OpOutcome o;
+                 o.value = value;  // -> OpValue (int64)
+                 o.has_value = true;
+                 o.status = "completed";
+                 return o;
+             },
+             // Queued-cancelable only (launch-all-style). Always 1 (ignores args).
+             one_checkpoint,
+             // Typed signature: overlap_probe(int64 seed, int64 quantum, int64 mode) -> int64.
              {OpType::Int64, OpType::Int64, OpType::Int64}, OpType::Int64}},
     };
     return r;

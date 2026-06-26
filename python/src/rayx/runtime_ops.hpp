@@ -32,6 +32,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -262,6 +263,26 @@ inline std::int64_t chain_stage(std::int64_t x, std::int64_t q) {
     return static_cast<std::int64_t>(acc);
 }
 
+// --- diamond_fanin HPX-free metadata (body lives in runtime_ops_hpx.hpp) ------
+//
+// diamond_fanin(seed, quantum) is the exp46 fixed non-linear (diamond) DAG op. Its
+// HPX body (runtime_ops_hpx.hpp) expresses A -> {B, C} -> D with hpx::shared_future +
+// two .then continuations + an hpx::dataflow JOIN, so the cross-edge (D depends on BOTH
+// B and C) is resolved below the Python/Runtime boundary. It reuses chain_stage (the
+// single source of truth) and CHAIN_QUANTUM_MAX (no new constant), so each node is
+// byte-identical to chain_sum_loop(x, 1, quantum) and the closed value is Python-checkable:
+//
+//   A = chain_stage(seed,            quantum)
+//   B = chain_stage(A + 1,           quantum)
+//   C = chain_stage(A + 2,           quantum)
+//   diamond_fanin(seed, quantum) = D = chain_stage((B + C) & BUSY_SUM_MASK, quantum)
+//
+// (B + C) is commutative, so the value is independent of the two arms' completion order.
+// ONE fixed diamond, NOT general DAG scheduling. The hpx::dataflow is REPRESENTATIONAL
+// (it expresses the join natively); it is NOT what makes the op a single boundary
+// crossing -- any native body would be. NO speedup/throughput/latency/overlap/
+// parallelism/Ray claim. Only the bounds reuse lives here so this header stays HPX-free.
+
 // --- barrier_fanin (exp44) HPX-free metadata + diagnostic witness -------------
 //
 // barrier_fanin(seed, leaves, quantum) is the exp44 "witnessed barrier-gated fan-in"
@@ -345,6 +366,94 @@ inline void record_barrier_fanin_witness(BarrierFaninWitness w) {
 inline BarrierFaninWitness read_barrier_fanin_witness() {
     std::lock_guard<std::mutex> g(barrier_fanin_witness_mutex());
     return barrier_fanin_witness_slot();
+}
+
+// --- exp47 overlap_probe debug-only structural witness ------------------------
+//
+// overlap_probe(seed, quantum, mode) is the SECOND side-effecting registry op (after
+// barrier_fanin): it launches two INDEPENDENT bare-hpx::async arms ("barrier_fanin
+// without the gate"), joins with when_all, and returns a closed int64. Its body
+// additionally writes this witness for structural test/experiment gating. It does NOT
+// touch OpOutcome, RuntimeResult, lane_stats(), or the v1 JSONL schema. The snapshot is
+// mutex-guarded (no torn read); "racy" means only that a reader may observe a stale /
+// cross-call value. Tests and the experiment are SINGLE-IN-FLIGHT (one overlap_probe at a
+// time), under which `seq` identifies the execution. This is NOT scheduler state, NOT a
+// synchronization primitive, NOT placement control, and NOT public scheduler
+// introspection. The witness observes that both arms are ACTIVE / IN FLIGHT within the
+// bracketed arm compute -- it does NOT assert both are executing CPU instructions at the
+// same instant (in the cooperative-yielding one-worker case they interleave on one
+// worker). "worker_parallel" means only "distinct workers OBSERVED" -- a candidate, never
+// a proof of speedup/throughput/latency/general parallel execution.
+
+// Structural caps for the overlap witness (NOT value constants; they bound the witness
+// memory only and never affect the returned value).
+inline constexpr int OVERLAP_ARMS = 2;                 // fixed two-arm fork
+inline constexpr int OVERLAP_WORKER_ID_SET_CAP = 4;    // per-arm deduped worker-id set cap
+inline constexpr int OVERLAP_CHUNK_EVENTS_CAP = 8;     // per-arm chunk events kept in trace
+
+// One entry in the bounded overlap event trace. Ordered by `seq` (a monotonic counter
+// stamped within the single op execution), NOT by wall clock -- no timestamp is recorded.
+struct OverlapEvent {
+    int arm_id = 0;            // 0 .. OVERLAP_ARMS-1
+    std::string phase;        // "enter" | "chunk" | "leave"
+    std::int64_t seq = 0;     // monotonic event order within this execution
+    long long worker_id = -1; // hpx::get_worker_thread_num() sample; -1 == unknown/off-worker
+};
+
+struct OverlapWitness {
+    std::int64_t seq = 0;            // monotonic id of the last recorded execution
+    int mode = 0;                    // 0 non-yielding / 1 chunked-yielding arm kernel
+    int observed_os_workers = 0;     // hpx::get_os_thread_count() -- CONTEXT ONLY, not the
+                                     // disambiguator (it is the static pool size)
+    int arms_launched = 0;           // OVERLAP_ARMS
+    int arms_completed = 0;
+    // Peak count of arms simultaneously IN FLIGHT (entered, not yet left) within the
+    // bracketed compute. >= 2 means both arms were in flight together. This is an
+    // OBSERVATION, never a pass/fail gate; in the one-worker yielding case it reflects
+    // cooperative interleaving, NOT OS-thread parallelism.
+    int max_in_flight = 0;
+    bool both_in_flight = false;     // max_in_flight >= 2
+    std::int64_t per_arm_enter_seq[OVERLAP_ARMS] = {-1, -1};  // event seq at enter, -1 if unseen
+    std::int64_t per_arm_leave_seq[OVERLAP_ARMS] = {-1, -1};  // event seq at leave, -1 if unseen
+    int per_arm_chunk_event_count[OVERLAP_ARMS] = {0, 0};
+    // Per-arm deduped set (capped) of observed hpx::get_worker_thread_num() samples at
+    // entry + each chunk. HPX threads may MIGRATE between workers after a suspension
+    // point, so a set (not a single sample) is recorded and never over-read.
+    std::vector<long long> per_arm_worker_ids[OVERLAP_ARMS];
+    bool per_arm_worker_ids_overflowed[OVERLAP_ARMS] = {false, false};
+    int ordering_violations = 0;     // defensive invariant breaches; expected 0
+    bool clean_exit = false;         // both arms entered & left exactly once; all completed
+    // "serial" | "cooperative_interleaving" | "worker_parallel" | "inconclusive".
+    // inconclusive covers unknown/overflowed worker sets or malformed traces.
+    std::string classification = "inconclusive";
+    int event_count = 0;
+    bool event_trace_overflowed = false;
+    std::vector<OverlapEvent> events;
+};
+
+inline std::mutex& overlap_witness_mutex() {
+    static std::mutex m;
+    return m;
+}
+
+inline OverlapWitness& overlap_witness_slot() {
+    static OverlapWitness w;
+    return w;
+}
+
+// Record one execution's witness under the mutex (single write site; the op body calls
+// this exactly once at completion, AFTER both arms have joined). Stamps a fresh `seq`.
+inline void record_overlap_witness(OverlapWitness w) {
+    std::lock_guard<std::mutex> g(overlap_witness_mutex());
+    OverlapWitness& slot = overlap_witness_slot();
+    w.seq = slot.seq + 1;
+    slot = std::move(w);
+}
+
+// Snapshot the last witness under the mutex (no torn read). Returns by value.
+inline OverlapWitness read_overlap_witness() {
+    std::lock_guard<std::mutex> g(overlap_witness_mutex());
+    return overlap_witness_slot();
 }
 
 // Operation signature: typed args (OpArgs = vector<variant<int64,double>>) + a

@@ -1728,6 +1728,64 @@ public:
         return d;
     }
 
+    // exp47 debug-only structural witness for the LAST overlap_probe execution:
+    // {seq, mode, observed_os_workers, arms_launched, arms_completed, max_in_flight,
+    // both_in_flight, per_arm_enter_seq, per_arm_leave_seq, per_arm_chunk_event_count,
+    // per_arm_worker_ids, per_arm_worker_ids_overflowed, ordering_violations, clean_exit,
+    // classification, event_count, event_trace_overflowed, events}. overlap_probe is the
+    // second side-effecting registry op (after barrier_fanin); this accessor exposes ONLY
+    // that witness and does NOT touch lane_stats(), RuntimeFuture, or the JSONL schema.
+    // Mutex-guarded snapshot (no torn read; "racy" only means stale/cross-call);
+    // single-in-flight contract for tests/experiment (one overlap_probe at a time -> `seq`
+    // identifies the execution). Raises if the runtime is shut down. NOT scheduler state,
+    // NOT a synchronization primitive, NOT placement control, NOT a perf metric;
+    // "in flight" means active within the bracketed arm compute (not necessarily executing
+    // CPU instructions at the same instant), and "worker_parallel" means only "distinct
+    // workers observed", never proof of speedup/parallel execution.
+    py::dict overlap_witness() {
+        if (!running_) throw std::runtime_error("Runtime is shut down");
+        rayx_runtime::OverlapWitness w = rayx_runtime::read_overlap_witness();
+        py::dict d;
+        d["seq"] = w.seq;
+        d["mode"] = w.mode;
+        d["observed_os_workers"] = w.observed_os_workers;
+        d["arms_launched"] = w.arms_launched;
+        d["arms_completed"] = w.arms_completed;
+        d["max_in_flight"] = w.max_in_flight;
+        d["both_in_flight"] = w.both_in_flight;
+        d["ordering_violations"] = w.ordering_violations;
+        d["clean_exit"] = w.clean_exit;
+        d["classification"] = w.classification;
+        d["event_count"] = w.event_count;
+        d["event_trace_overflowed"] = w.event_trace_overflowed;
+        py::list enter_seq, leave_seq, chunk_counts, worker_ids, worker_overflow;
+        for (int j = 0; j < rayx_runtime::OVERLAP_ARMS; ++j) {
+            enter_seq.append(w.per_arm_enter_seq[j]);
+            leave_seq.append(w.per_arm_leave_seq[j]);
+            chunk_counts.append(w.per_arm_chunk_event_count[j]);
+            py::list ids;
+            for (long long x : w.per_arm_worker_ids[j]) ids.append(x);
+            worker_ids.append(ids);
+            worker_overflow.append(w.per_arm_worker_ids_overflowed[j]);
+        }
+        d["per_arm_enter_seq"] = enter_seq;
+        d["per_arm_leave_seq"] = leave_seq;
+        d["per_arm_chunk_event_count"] = chunk_counts;
+        d["per_arm_worker_ids"] = worker_ids;
+        d["per_arm_worker_ids_overflowed"] = worker_overflow;
+        py::list events;
+        for (const auto& e : w.events) {
+            py::dict ed;
+            ed["arm_id"] = e.arm_id;
+            ed["phase"] = e.phase;
+            ed["seq"] = e.seq;
+            ed["worker_id"] = e.worker_id;
+            events.append(ed);
+        }
+        d["events"] = events;
+        return d;
+    }
+
     // Release ONE local native actor: shutdown()'s actor teardown scoped to a
     // single record, same fixed order while HPX is still running (the design
     // note's lifecycle contract, steps 1->2->3):
@@ -2333,6 +2391,20 @@ PYBIND11_MODULE(_rayx, m) {
              "primitive, not placement control, not a perf metric; "
              "max_simultaneously_suspended_leaves is coordinated suspension, not "
              "parallelism.")
+        .def("overlap_witness", &RuntimeEngine::overlap_witness,
+             "exp47 debug-only structural witness for the last overlap_probe "
+             "execution: {seq, mode, observed_os_workers, arms_launched, "
+             "arms_completed, max_in_flight, both_in_flight, per_arm_enter_seq, "
+             "per_arm_leave_seq, per_arm_chunk_event_count, per_arm_worker_ids, "
+             "per_arm_worker_ids_overflowed, ordering_violations, clean_exit, "
+             "classification, event_count, event_trace_overflowed, events}. "
+             "Mutex-guarded snapshot (no torn read; racy only means stale/cross-call); "
+             "single-in-flight for tests/experiment. overlap_probe is the second "
+             "side-effecting registry op. Raises if shut down. Not scheduler state, not "
+             "a synchronization primitive, not placement control, not a perf metric; "
+             "'in flight' is active within the bracketed arm compute (cooperative "
+             "interleaving is not OS-thread parallelism), and 'worker_parallel' means "
+             "only distinct workers observed.")
         .def("release_actor", &RuntimeEngine::release_actor,
              py::arg("actor_id"),
              "Release ONE local native actor: cancel its queued method calls, "

@@ -1,0 +1,58 @@
+{
+  "experiment": "52_ray_bootstrap_clean_island",
+  "kind": "ray_orchestrated_hpx_bootstrap_clean_path",
+  "ray_free": false,
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "supervision_plane": "ray",
+  "data_plane": "hpx",
+  "binary": "clean_island_spike",
+  "note": "Plumbing test only. From HPX's view this is exp49 launched by a different parent; HPX cannot observe its parent. Ray is the launcher/supervisor (the role mpirun/srun/hpxrun.py play). The only HPX bootstrap datum carried by Ray is the AGAS endpoint; rendezvous files are harness sync, not HPX bootstrap and not a data path. The HPX action travels HPX->HPX; Ray never carries the result. Re-validates no new HPX property. Not fault tolerance; whole-island-fatal policy assumed, not exercised.",
+  "overall": "pass",
+  "findings": {
+    "overall": "pass",
+    "ray_available": true,
+    "binary_available": true,
+    "ray_launched_root": true,
+    "ray_launched_connector": true,
+    "root_child_started": true,
+    "connector_child_started": true,
+    "root_ready": true,
+    "connector_joined": true,
+    "connector_locality_id": 1,
+    "root_locality_id": 0,
+    "action_proved_remote": true,
+    "action_result_returned_through_ray": false,
+    "graceful_teardown_clean": true,
+    "root_finalized_clean": true,
+    "binary_self_locating_rpath": true,
+    "child_started_without_dyld_env": true,
+    "hpx_ignore_batch_env_used": true,
+    "root_launch_failed": false,
+    "connector_launch_failed": false,
+    "root_bind_failed": false,
+    "connector_bind_failed": false,
+    "root_ready_timeout": false,
+    "connector_join_timeout": false,
+    "ray_bootstrap_plumbing_only": true,
+    "bootstrap_metadata_via_ray_only": true,
+    "ports": {
+      "root": "127.0.0.1:61616",
+      "connector": "127.0.0.1:61617"
+    },
+    "actor_A_root": {
+      "role": "root",
+      "ready": true,
+      "agas_endpoint": "127.0.0.1:61616",
+      "finalized_clean": true,
+      "exit_rc": 0
+    },
+    "actor_B_connector": {
+      "role": "connector",
+      "joined": true,
+      "locality_id": 1,
+      "disconnected_clean": true,
+      "exit_rc": 0
+    }
+  }
+}

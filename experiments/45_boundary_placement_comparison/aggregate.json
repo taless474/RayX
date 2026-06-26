@@ -1,0 +1,189 @@
+{
+  "experiment": "exp45_boundary_placement_comparison",
+  "schema": "rayx-boundary-placement-1",
+  "claim": "exp45 compares two boundary placements for the same closed fan-in/reduction workload: one coarse Runtime operation (barrier_fanin) versus Python-mediated orchestration of fixed Runtime operations (chain_sum_loop per leaf plus a Python masked fold). It shows the two are value-equivalent while the coarse native path uses one Runtime submission/retirement, O(1) Python/Runtime crossings, and the Python-mediated path uses L submissions/retirements, O(L) crossings. This is boundary-placement/orchestration-count evidence only.",
+  "boundary_crossing_formulas": {
+    "path_a": "submissions=1, retirements=1, boundary_crossings=2 (O(1), independent of L)",
+    "path_b": "submissions=L, retirements=L, boundary_crossings=2L (O(L)); python_fold_ops=L-1 cross NO Runtime boundary"
+  },
+  "equivalence": "result_a == result_b == pure-Python oracle for every L (triangulated; the oracle mirrors per-step native masking)",
+  "non_claims": [
+    "no speedup",
+    "no throughput",
+    "no latency/performance claim (timing is opt-in, observation-only, tautological)",
+    "no HPX faster than Ray",
+    "no Ray comparison",
+    "no real inference",
+    "no endpoint/fabric claim",
+    "no parcelport",
+    "no AGAS",
+    "no multi-node",
+    "no ObjectRef/object-store semantics",
+    "no arbitrary Python execution",
+    "no parallelism/scheduling claim (the barrier_fanin gate is incidental here)",
+    "no claim that Python orchestration is 'bad' (it is a legitimate, flexible pattern; exp45 only COUNTS its Runtime-boundary transits for this workload)"
+  ],
+  "config": {
+    "seed": 3,
+    "quantum": 64,
+    "hpx_threads": 2,
+    "leaves_sweep": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+    ],
+    "timing_enabled": false,
+    "leaf_unit": "chain_sum_loop(seed+j, 1, quantum) == one chain_stage == a barrier_fanin leaf (no new op)"
+  },
+  "machine": {
+    "platform": "macOS-26.5-arm64-arm-64bit",
+    "machine_cpu_count": 10
+  },
+  "rows": [
+    {
+      "leaves": 1,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 2019,
+      "result_b": 2019,
+      "oracle": 2019,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "python_fold_ops": 0
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "leaves": 2,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 4039,
+      "result_b": 4039,
+      "oracle": 4039,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 2,
+        "runtime_retirements": 2,
+        "boundary_crossings": 4,
+        "python_fold_ops": 1
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "leaves": 4,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 8082,
+      "result_b": 8082,
+      "oracle": 8082,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 4,
+        "runtime_retirements": 4,
+        "boundary_crossings": 8,
+        "python_fold_ops": 3
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "leaves": 8,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 16180,
+      "result_b": 16180,
+      "oracle": 16180,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 8,
+        "runtime_retirements": 8,
+        "boundary_crossings": 16,
+        "python_fold_ops": 7
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "leaves": 16,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 32424,
+      "result_b": 32424,
+      "oracle": 32424,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 16,
+        "runtime_retirements": 16,
+        "boundary_crossings": 32,
+        "python_fold_ops": 15
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    },
+    {
+      "leaves": 32,
+      "seed": 3,
+      "quantum": 64,
+      "result_a": 65104,
+      "result_b": 65104,
+      "oracle": 65104,
+      "result_equal_ok": true,
+      "path_a": {
+        "runtime_submissions": 1,
+        "runtime_retirements": 1,
+        "boundary_crossings": 2,
+        "witness_structural_ok": true
+      },
+      "path_b": {
+        "runtime_submissions": 32,
+        "runtime_retirements": 32,
+        "boundary_crossings": 64,
+        "python_fold_ops": 31
+      },
+      "a_counts_match_formula": true,
+      "b_counts_match_formula": true
+    }
+  ],
+  "correctness_failures": [],
+  "count_failures": [],
+  "witness_failures": [],
+  "overall_structural_pass": true
+}

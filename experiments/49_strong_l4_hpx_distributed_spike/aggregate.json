@@ -1,0 +1,148 @@
+{
+  "experiment": "49_strong_l4_hpx_distributed_spike",
+  "kind": "strong_l4_mechanism_feasibility",
+  "ray_free": true,
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "hpx_caps": {
+    "networking": true,
+    "distributed_runtime": true,
+    "parcelport_tcp": true,
+    "connect_mode": true,
+    "source": "verified in linked hpx-install config/defines.hpp + runtime_mode.hpp"
+  },
+  "binary": "dist_probe_spike",
+  "overall": "pass",
+  "findings": {
+    "strong_l4_mechanism_demonstrated": true,
+    "coordinated_launch_worked": false,
+    "connect_mode_worked": true,
+    "hpx_main_runs_only_on_console": true,
+    "connect_mode_needs_expect_flag": true,
+    "connect_mode_independent_disconnect": true,
+    "root_survives_and_readmits": true,
+    "teardown_sequence": "post(disconnect)+stop",
+    "note": "Connect-mode late join formed the distributed runtime and proved remote action execution; bare Popen coordinated launch did not rendezvous in this experiment (root cause not fully diagnosed; not evidence that HPX coordinated TCP launch is unsupported). Phase 2b adds the active lifecycle: each connector self-disconnects and the root re-admits a second one. Connect mode is the future distributed-fabric path: Ray launches actors independently, like connect mode."
+  },
+  "phase1_coordinated": {
+    "question": "coordinated 2-locality launch + action locality0 -> locality1",
+    "result": "fail",
+    "diagnosis": "hpx::init blocked: the two bare Popen processes did not rendezvous over loopback TCP (no hpx_main ran). Root cause not fully diagnosed; an mpirun/srun/nodefile launch or an AGAS/parcelport debug-log pass may be relevant. NOT evidence that HPX coordinated TCP launch is unsupported -- connect mode (Phase 2) worked here.",
+    "launch": "fixed --hpx:localities=2",
+    "ports": {
+      "root_parcelport": "127.0.0.1:61617",
+      "worker_parcelport": "127.0.0.1:61618"
+    },
+    "hpx_args_root": [
+      "--hpx:localities=2",
+      "--hpx:agas=127.0.0.1:61617",
+      "--hpx:hpx=127.0.0.1:61617",
+      "--hpx:threads=1",
+      "--hpx:bind=none"
+    ],
+    "localities_seen": null,
+    "reached_two": false,
+    "action": {
+      "name": "dist_probe",
+      "x": 7,
+      "result": null,
+      "oracle": null,
+      "match": null,
+      "executed_on_locality": null,
+      "remote_locality": null,
+      "proved_remote": false
+    },
+    "hpx_main_ran_on": [],
+    "hpx_main_console_only": null,
+    "shutdown": {
+      "root_exited": false,
+      "root_rc": -9,
+      "root_killed": true,
+      "worker_exited": false,
+      "worker_killed": true,
+      "clean": false,
+      "timed_out": true
+    }
+  },
+  "phase2_connect_mode": {
+    "question": "late join via runtime_mode::connect + same action",
+    "result": "pass",
+    "launch": "sequenced root then connect",
+    "root_ready": true,
+    "ports": {
+      "root_parcelport": "127.0.0.1:61621",
+      "connect_parcelport": "127.0.0.1:61622"
+    },
+    "localities_seen": 2,
+    "reached_two": true,
+    "late_join_needed_fixed_count": false,
+    "late_join_needed_expect_flag": true,
+    "connector": {
+      "locality_id": null,
+      "pid": null
+    },
+    "action": {
+      "name": "dist_probe",
+      "x": 7,
+      "result": 1380014433,
+      "oracle": 1380014433,
+      "match": true,
+      "executed_on_locality": 1,
+      "remote_locality": 1,
+      "proved_remote": true
+    },
+    "hpx_main_ran_on": [
+      "p2_root_loc0"
+    ],
+    "hpx_main_runs_only_on_console": true,
+    "connector_shutdown": {
+      "model": "passive: hpx_main runs only on console; joiner torn down by root finalize",
+      "app_level_disconnect_invoked": false,
+      "connector_exited": true,
+      "connector_killed": false,
+      "clean": true
+    },
+    "shutdown": {
+      "root_exited": true,
+      "root_rc": 0,
+      "root_killed": false,
+      "clean": true,
+      "timed_out": false
+    }
+  },
+  "phase2b_connect_disconnect": {
+    "question": "two sequential connect-mode connectors, each served + self-disconnecting, root survives and re-admits",
+    "result": "pass",
+    "root_threads": 2,
+    "teardown_sequence": "post(disconnect)+stop",
+    "root_ready": true,
+    "ports": {
+      "root": "127.0.0.1:61625",
+      "connector1": "127.0.0.1:61626",
+      "connector2": "127.0.0.1:61627"
+    },
+    "connector1": {
+      "connector1_joined": true,
+      "locality_id": 1,
+      "connector1_action_match": true,
+      "connector1_proved_remote": true,
+      "connector1_disconnected_clean": true,
+      "exited": true,
+      "killed": false
+    },
+    "root_observed_after_connector1": true,
+    "connector2": {
+      "connector2_joined": true,
+      "locality_id": 2,
+      "connector2_action_match": true,
+      "connector2_proved_remote": true,
+      "connector2_disconnected_clean": true,
+      "exited": true,
+      "killed": false
+    },
+    "root_served_second_connector": true,
+    "root_finalized_clean": true,
+    "timed_out": false,
+    "any_killed": false
+  }
+}

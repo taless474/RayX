@@ -277,6 +277,37 @@ def validate_call(op_id, args, op_table):
         if quantum > CHAIN_QUANTUM_MAX:
             raise ValueError(f"operation 'barrier_fanin' argument 2 (quantum) must be "
                              f"<= {CHAIN_QUANTUM_MAX}, got {quantum}")
+    # diamond_fanin (exp46): diamond_fanin(seed, quantum). seed (arg 0) is any int64;
+    # quantum (arg 1) is bounded non-negative as for the chain / barrier_fanin ops (the
+    # fixed diamond DAG reuses chain_stage, so it inherits the per-stage quantum bound).
+    # Arity (2) and the int/non-bool/int64-range checks above are generic; this is the
+    # per-op domain bound, mirrored by the native defensive re-check in the diamond_fanin
+    # body.
+    if op_id == "diamond_fanin":
+        quantum = out[1]
+        if quantum < 0:
+            raise ValueError(f"operation 'diamond_fanin' argument 1 (quantum) must be "
+                             f">= 0, got {quantum}")
+        if quantum > CHAIN_QUANTUM_MAX:
+            raise ValueError(f"operation 'diamond_fanin' argument 1 (quantum) must be "
+                             f"<= {CHAIN_QUANTUM_MAX}, got {quantum}")
+    # overlap_probe (exp47): overlap_probe(seed, quantum, mode). seed (arg 0) is any
+    # int64; quantum (arg 1) is bounded non-negative (reuses CHAIN_QUANTUM_MAX); mode
+    # (arg 2) selects the arm-kernel shape and must be 0 (non-yielding) or 1
+    # (chunked-yielding) -- it never changes the returned value. Arity (3) and the
+    # int/non-bool/int64-range checks above are generic; these are the per-op domain
+    # bounds, mirrored by the native defensive re-check in the overlap_probe body.
+    if op_id == "overlap_probe":
+        quantum, mode = out[1], out[2]
+        if quantum < 0:
+            raise ValueError(f"operation 'overlap_probe' argument 1 (quantum) must be "
+                             f">= 0, got {quantum}")
+        if quantum > CHAIN_QUANTUM_MAX:
+            raise ValueError(f"operation 'overlap_probe' argument 1 (quantum) must be "
+                             f"<= {CHAIN_QUANTUM_MAX}, got {quantum}")
+        if mode not in (0, 1):
+            raise ValueError(f"operation 'overlap_probe' argument 2 (mode) must be 0 or "
+                             f"1, got {mode}")
     return out
 
 

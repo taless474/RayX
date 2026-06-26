@@ -693,6 +693,30 @@ class Runtime:
             raise RuntimeError("Runtime is shut down")
         return self._engine.barrier_fanin_witness()
 
+    def overlap_witness(self):
+        """exp47 debug-only structural witness for the LAST ``overlap_probe`` call.
+
+        Returns a dict ``{seq, mode, observed_os_workers, arms_launched, arms_completed,
+        max_in_flight, both_in_flight, per_arm_enter_seq, per_arm_leave_seq,
+        per_arm_chunk_event_count, per_arm_worker_ids, per_arm_worker_ids_overflowed,
+        ordering_violations, clean_exit, classification, event_count,
+        event_trace_overflowed, events}`` snapshotting the most recent ``overlap_probe``
+        execution. ``overlap_probe`` is the second side-effecting registry op (after
+        ``barrier_fanin``); this is a mutex-guarded snapshot (no torn read -- "racy" means
+        only that a reader may see a stale/cross-call value), so tests and the experiment
+        are SINGLE-IN-FLIGHT (one ``overlap_probe`` at a time, identified by ``seq``).
+        Raises if the runtime is shut down. Not scheduler state, not a synchronization
+        primitive, not placement control, and not a performance metric. ``max_in_flight``
+        observes that both arms were ACTIVE / IN FLIGHT within the bracketed arm compute
+        -- not that both executed CPU instructions at the same instant (in the cooperative
+        one-worker case they interleave on one worker); ``classification`` of
+        ``"worker_parallel"`` means only "distinct workers observed", never proof of
+        speedup/throughput/latency/parallel execution.
+        """
+        if self._closed:
+            raise RuntimeError("Runtime is shut down")
+        return self._engine.overlap_witness()
+
     def shutdown(self):
         """Stop the runtime and release the process HPX-runtime guard."""
         if self._closed:

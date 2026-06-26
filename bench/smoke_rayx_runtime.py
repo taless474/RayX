@@ -394,6 +394,10 @@ def section_typed_signatures_and_int64_range():
         "chain_fanout": (["int64", "int64", "int64", "int64"], "int64"),
         # exp44: barrier_fanin (seed, leaves, quantum) -> int64.
         "barrier_fanin": (["int64", "int64", "int64"], "int64"),
+        # exp46: diamond_fanin (seed, quantum) -> int64 (one fixed diamond DAG).
+        "diamond_fanin": (["int64", "int64"], "int64"),
+        # exp47: overlap_probe (seed, quantum, mode) -> int64 (nested-overlap probe).
+        "overlap_probe": (["int64", "int64", "int64"], "int64"),
     }
     if set(tbl) != set(expected):
         _fail(f"runtime_op_table ops {sorted(tbl)} != {sorted(expected)}")
@@ -1289,6 +1293,89 @@ def section_release_actor():
           "shutdown after release)")
 
 
+def section_overlap_probe():
+    # exp47: overlap_probe(seed, quantum, mode) -> int64. Two INDEPENDENT bare-hpx::async
+    # arms + when_all below ONE Runtime boundary ("barrier_fanin without the gate"). The
+    # value is mode-INDEPENDENT and equals chain_fanout(seed, 2, 1, quantum); mode only
+    # selects the arm kernel (0 = non-yielding, 1 = chunked-yielding, value-identical).
+    # The witness is a debug-only STRUCTURAL observation: we assert its deterministic
+    # shape/gates only and REPORT (never assert) the scheduler-sensitive classification --
+    # no timing, no parallelism claim. quantum > BUSY_SUM_STRIDE (8192) so mode 1 yields.
+    MASK = 0x7FFFFFFF
+    U64 = (1 << 64) - 1
+
+    def _stage(x, q):
+        acc = 0
+        for i in range(q):
+            acc = (acc + i) & MASK
+        return ((x & U64) + acc) & MASK
+
+    def _oracle(seed, q):
+        return (_stage(seed, q) + _stage(seed + 1, q)) & MASK
+
+    with Runtime(num_lanes=1, hpx_threads=2) as rt:
+        for seed, q in [(3, 0), (3, 100), (7, 9000), (1, 16384)]:
+            ref = _oracle(seed, q)
+            for mode in (0, 1):
+                res = rt.submit_operation("overlap_probe", seed, q, mode).result()
+                if res.row["status"] != "completed":
+                    _fail(f"overlap_probe({seed},{q},{mode}) status "
+                          f"{res.row['status']!r}, expected completed")
+                if res.value != ref:
+                    _fail(f"overlap_probe({seed},{q},{mode}).value == {res.value!r}, "
+                          f"expected {ref} (mode-independent oracle)")
+                _check_runtime_row(res.row, f"overlap_probe({seed},{q},{mode})")
+            # Same closed value as the existing fixed fanout op (different mechanism).
+            cf = rt.submit_operation("chain_fanout", seed, 2, 1, q).result().value
+            if cf != ref:
+                _fail(f"overlap_probe oracle {ref} != chain_fanout(seed,2,1,q) {cf}")
+        # Witness shape + DETERMINISTIC structural gates (single-in-flight: read right
+        # after the call). Classification is REPORTED, not asserted.
+        rt.submit_operation("overlap_probe", 5, 16384, 1).result()
+        w = rt.overlap_witness()
+        for k in ("seq", "mode", "observed_os_workers", "arms_launched",
+                  "arms_completed", "max_in_flight", "both_in_flight", "classification",
+                  "clean_exit", "ordering_violations", "per_arm_enter_seq",
+                  "per_arm_leave_seq", "per_arm_worker_ids", "events"):
+            if k not in w:
+                _fail(f"overlap_witness missing key {k!r}: {sorted(w)}")
+        if w["arms_launched"] != 2 or w["arms_completed"] != 2:
+            _fail(f"overlap_witness arms {w['arms_launched']}/{w['arms_completed']} "
+                  "!= 2/2")
+        if w["clean_exit"] is not True:
+            _fail("overlap_witness clean_exit must be True for a completed call")
+        if w["ordering_violations"] != 0:
+            _fail(f"overlap_witness ordering_violations {w['ordering_violations']} != 0")
+        if w["mode"] != 1:
+            _fail(f"overlap_witness mode {w['mode']} != 1 (last call was mode 1)")
+        if w["classification"] not in (
+                "serial", "cooperative_interleaving", "worker_parallel", "inconclusive"):
+            _fail(f"overlap_witness classification {w['classification']!r} not in the "
+                  "closed set")
+        # seq advances across calls.
+        s1 = rt.overlap_witness()["seq"]
+        rt.submit_operation("overlap_probe", 5, 16384, 1).result()
+        if rt.overlap_witness()["seq"] != s1 + 1:
+            _fail("overlap_witness seq must advance by 1 per overlap_probe call")
+        # Boundary validation rejects BEFORE any RuntimeFuture is created.
+        _expect(ValueError, lambda: rt.submit_operation("overlap_probe", 3, 64),
+                "overlap_probe wrong arity")
+        _expect(ValueError, lambda: rt.submit_operation("overlap_probe", 3, -1, 0),
+                "overlap_probe quantum<0")
+        _expect(ValueError, lambda: rt.submit_operation("overlap_probe", 3, 64, 2),
+                "overlap_probe mode=2")
+        _expect(TypeError, lambda: rt.submit_operation("overlap_probe", 3, 64, True),
+                "overlap_probe bool mode")
+    # Witness accessor refuses cleanly once the runtime is shut down.
+    rt_closed = Runtime(num_lanes=1)
+    rt_closed.shutdown()
+    _expect(RuntimeError, lambda: rt_closed.overlap_witness(),
+            "overlap_witness after shutdown")
+    print("PASS: overlap_probe (exp47) value==oracle (mode-independent, == chain_fanout); "
+          "witness shape + deterministic gates (arms 2/2, clean_exit, ordering 0, seq "
+          "advances); classification reported; boundary validation; shut-down refusal)")
+
+
 def main():
     section_namespace_isolation()
     section_error_hierarchy()
@@ -1299,6 +1386,7 @@ def main():
     section_busy_sum_value()
     section_typed_signatures_and_int64_range()
     section_fanout_sum()
+    section_overlap_probe()
     section_scale_double()
     section_park_ms()
     section_short_busy_sum_cancel_invariant()
