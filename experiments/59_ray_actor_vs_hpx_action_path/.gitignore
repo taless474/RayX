@@ -1,0 +1,37 @@
+# exp59 artifact hygiene — mirrors the exp58 hardened-writer policy.
+# Keep curated top-level notes/schema/aggregates trackable; ignore build/raw run/log artifacts.
+
+# build outputs
+build/
+*.so
+*.o
+*.dylib
+__pycache__/
+*.pyc
+
+# raw run artifacts (per-run scratch, ignored)
+_ray_runs/
+
+# raw logs (Ray session logs, HPX parcel logs, etc.)
+*.log
+hpx.parcel.*.log
+logs/
+ray_session*/
+
+# raw run index stays ignored
+ray_index.jsonl
+
+# Aggregate-write policy (mirror of exp58 safe_write_aggregate; see ray_actor_vs_hpx_action_path.md):
+#   TRACKABLE curated PASS aggregates (written only by a pass; never end in _skip/_fail/_redirected):
+#     - ray_actor_same_host_aggregate.json            (Slice 1 same-host control)
+#     - ray_actor_two_node_placement_aggregate.json   (Slice 2 two-node placement proof)
+#     - ray_actor_aggregate.json             (later)
+#     - hpx_reference_aggregate.json         (later)
+#     - comparison_aggregate.json            (later)
+#   IGNORED non-curated aggregates (skip/fail + redirected run-id siblings):
+*aggregate*_skip.json
+*aggregate*_fail.json
+*aggregate*local_skip.json
+*aggregate*_other.json
+# run-id redirect siblings from the overwrite guard
+*aggregate*_redirected_*.json

@@ -1,0 +1,16 @@
+# exp56 -- keep machine-specific build products and raw run artifacts out of version control.
+# Curated files stay tracked: two_node_tcp_spike.cpp, CMakeLists.txt, run_two_node_tcp.py,
+# two_node_hpx_tcp_parcelport.md, aggregate.json, and this .gitignore.
+
+build/
+__pycache__/
+*.pyc
+
+_two_node_runs/
+manual_*/
+manual_boot_*/
+manual_two_node_*/
+rostam_shared*/
+*.stdout
+*.stderr
+*.log

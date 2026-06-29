@@ -1,0 +1,17 @@
+# exp57 -- keep machine-specific build products and raw run artifacts out of version control.
+# Curated files stay tracked: two_node_island_spike.cpp, CMakeLists.txt,
+# run_ray_slurm_supervised_two_node.py, settle_attribution.json, this .gitignore, and (later) the
+# Slice B write-up + aggregate.json.
+
+build/
+__pycache__/
+*.pyc
+
+_two_node_runs/
+manual_*/
+manual_boot_*/
+manual_two_node_*/
+rostam_shared*/
+*.stdout
+*.stderr
+*.log

@@ -1,0 +1,105 @@
+{
+  "experiment": "57_ray_slurm_supervised_two_node_island",
+  "phase": "slurm_localize",
+  "ray_free": true,
+  "bootstrap_dir": "/work/bitayekrang/RayX/experiments/57_ray_slurm_supervised_two_node_island/_two_node_runs/exp57_localize_eozv0sdl",
+  "shared_dir_source": "default (experiment-local _two_node_runs)",
+  "run_id": "exp57_localize_eozv0sdl",
+  "nodeA": "medusa00",
+  "nodeB": "medusa01",
+  "nodeA_ip": "10.42.6.30",
+  "nodeB_ip": "10.42.6.31",
+  "selected_interface": "ibp94s0/ibp94s0",
+  "selected_subnet": "10.42.6.",
+  "slow_node": "medusa01",
+  "getent": {
+    "nodeA_name": {
+      "argv": "getent hosts medusa00",
+      "elapsed_ms": 3,
+      "rc": 0,
+      "stdout_tail": "10.42.6.30      medusa00.rostam.cct.lsu.edu",
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeB_name": {
+      "argv": "getent hosts medusa01",
+      "elapsed_ms": 2,
+      "rc": 0,
+      "stdout_tail": "10.42.6.31      medusa01.rostam.cct.lsu.edu",
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeA_ip": {
+      "argv": "getent hosts 10.42.6.30",
+      "elapsed_ms": 2,
+      "rc": 0,
+      "stdout_tail": "10.42.6.30      medusa00.rostam.cct.lsu.edu",
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeB_ip": {
+      "argv": "getent hosts 10.42.6.31",
+      "elapsed_ms": 2,
+      "rc": 0,
+      "stdout_tail": "10.42.6.31      medusa01.rostam.cct.lsu.edu",
+      "stderr_tail": null,
+      "ok": true
+    }
+  },
+  "getent_ladder_suspected": false,
+  "srun_true": {
+    "nodeA_no_overlap": {
+      "argv": "srun -N1 -n1 --nodelist=medusa00 true",
+      "elapsed_ms": 90,
+      "rc": 0,
+      "stdout_tail": null,
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeB_no_overlap": {
+      "argv": "srun -N1 -n1 --nodelist=medusa01 true",
+      "elapsed_ms": 92,
+      "rc": 0,
+      "stdout_tail": null,
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeA_overlap": {
+      "argv": "srun --overlap -N1 -n1 --nodelist=medusa00 true",
+      "elapsed_ms": 85,
+      "rc": 0,
+      "stdout_tail": null,
+      "stderr_tail": null,
+      "ok": true
+    },
+    "nodeB_overlap": {
+      "argv": "srun --overlap -N1 -n1 --nodelist=medusa01 true",
+      "elapsed_ms": 87,
+      "rc": 0,
+      "stdout_tail": null,
+      "stderr_tail": null,
+      "ok": true
+    }
+  },
+  "srun_true_no_overlap_ms": {
+    "nodeA": 90,
+    "nodeB": 92
+  },
+  "srun_true_overlap_ms": {
+    "nodeA": 85,
+    "nodeB": 87
+  },
+  "overlap_supported": true,
+  "overlap_delta_ms": 5,
+  "overlap_helps": false,
+  "srun_probe_nodeA_ms": 25286,
+  "srun_probe_nodeB_ms": 334,
+  "srun_probe_nodeA_stdout": "1782540814.166184513\nmedusa00.rostam.cct.lsu.edu",
+  "srun_probe_nodeB_stdout": "1782540814.216660055\nmedusa01.rostam.cct.lsu.edu",
+  "srun_vvv_slow_node_ms": 95,
+  "srun_vvv_tail": "srun: debug2: Validated IO connection from 10.42.6.31:42542, node rank 0, sd=11\nsrun: debug2: eio_message_socket_accept: got message connection from 10.42.6.31:33540 12\nsrun: debug2: received task launch\nsrun: Node medusa01, 1 tasks started\nsrun: debug2: Called _file_readable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_readable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_writable\nsrun: debug2: Entering _file_write\nsrun: debug2: Leaving  _file_write\nsrun: debug2: Called _file_readable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_readable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_writable\nsrun: debug2: eio_message_socket_accept: got message connection from 10.42.6.31:33546 11\nsrun: debug2: received task exit\nsrun: Received task exit notification for 1 task of StepId=158486.83 (status=0x0000).\nsrun: medusa01: task 0: Completed\nsrun: debug:  task 0 done\nsrun: debug2:   false, shutdown\nsrun: debug2:   false, shutdown\nsrun: debug2: Called _file_readable\nsrun: debug2: Called _file_writable\nsrun: debug2: Called _file_writable\nsrun: debug2:   false, shutdown\nsrun: debug:  IO thread exiting",
+  "localized_cause": "inconclusive",
+  "recommended_slice_a_srun_flags": "none determined; rerun A.0 and inspect srun_vvv_tail manually before designing Slice A",
+  "overall": "inconclusive",
+  "claim_fence": "exp57 Slice A.0 Ray-free localization diagnostic ONLY. It attributes WHERE the ~25 s node-specific srun launch stall comes from (name resolution / non-overlapping Slurm steps / node prolog-cgroup) before Slice A is built on top of it. It is NOT Slice A, NOT Ray supervision, NOT an HPX launch, NOT a performance/latency/throughput claim, NOT a fabric claim; supervisor-wall timing only."
+}

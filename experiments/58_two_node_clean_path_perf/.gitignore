@@ -1,0 +1,35 @@
+# exp58 artifact hygiene — keep curated top-level notes/schema/aggregate trackable,
+# ignore build outputs and raw run/log artifacts.
+
+# build outputs
+build/
+*.so
+*.o
+*.dylib
+__pycache__/
+*.pyc
+
+# raw run artifacts (per-run scratch, ignored)
+_perf_runs/
+
+# raw logs / HPX parcel logs
+*.log
+hpx.parcel.*.log
+logs/
+
+# perf_index.jsonl is a raw run index and stays ignored
+perf_index.jsonl
+
+# Aggregate-write policy (see safe_write_aggregate / perf_characterization.md §21):
+#   TRACKABLE curated PASS aggregates (one per phase, written only by a cluster pass):
+#     - perf_aggregate_rayfree.json
+#     - perf_aggregate_ray_supervised.json
+#   IGNORED non-curated aggregates (local/skip/fail + redirected run-id siblings + deprecated name):
+# DEPRECATED generic name; no longer written (stale local skip on disk)
+perf_aggregate.json
+perf_aggregate_*_skip.json
+perf_aggregate_*_fail.json
+perf_aggregate_local_skip.json
+perf_aggregate_other*.json
+# run-id redirect siblings from the overwrite guard
+perf_aggregate_*_redirected_*.json

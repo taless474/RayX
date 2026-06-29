@@ -97,13 +97,22 @@ jobs:
           print(f"OK: {checked} local markdown links/images resolve")
           PY
 
-      - name: Curated aggregate.json must stay tracked-eligible
-        # .gitignore ignores aggregate.json globally but re-includes the curated
-        # ones under benchmarks/** and experiments/** via ! exceptions. Assert
-        # those curated files are NOT ignored, so the exception can't silently
-        # break and drop curated evidence from future commits.
+      - name: Curated aggregate JSON must stay tracked-eligible and valid
+        # Recognizes ANY *aggregate*.json (not just files named exactly
+        # aggregate.json), so the exp58/59/60 evidence arc (perf_aggregate_*.json,
+        # ray_actor_aggregate.json, ray_vs_hpx_plane_labeled_aggregate.json,
+        # hpx_same_node_control_aggregate.json, ...) is covered. Two guarantees,
+        # no benchmark rerun and no timing assertions:
+        #   (1) canonical files named exactly aggregate.json must NEVER be ignored
+        #       (the original .gitignore ! re-include can't silently break);
+        #   (2) every TRACKABLE (curated, not git-ignored) *aggregate*.json must be
+        #       valid JSON. Intentionally-ignored siblings (skip/fail/redirected,
+        #       deprecated names) are raw scratch and are skipped, not validated.
+        # Skip-clean: if no such files exist (e.g. evidence dirs not yet committed)
+        # the check passes trivially.
         run: |
           python - <<'PY'
+          import json
           import pathlib
           import subprocess
           import sys
@@ -111,23 +120,42 @@ jobs:
           files = sorted(
               str(p)
               for d in ("benchmarks", "experiments")
-              for p in pathlib.Path(d).rglob("aggregate.json")
+              for p in pathlib.Path(d).rglob("*aggregate*.json")
           )
           if not files:
-              print("No curated aggregate.json found to check")
+              print("No *aggregate*.json found to check")
               sys.exit(0)
 
-          ignored = subprocess.run(
+          ignored = set(subprocess.run(
               ["git", "check-ignore", *files],
               capture_output=True, text=True
-          ).stdout.split()
+          ).stdout.split())
 
-          if ignored:
+          # (1) exact-name aggregate.json must stay tracked-eligible
+          exact = [f for f in files if pathlib.Path(f).name == "aggregate.json"]
+          wrongly_ignored = [f for f in exact if f in ignored]
+          if wrongly_ignored:
               print("Curated aggregate.json wrongly ignored by .gitignore:")
-              for f in ignored:
+              for f in wrongly_ignored:
                   print("  " + f)
               sys.exit(1)
-          print(f"OK: {len(files)} curated aggregate.json tracked-eligible")
+
+          # (2) every curated (not-ignored) *aggregate*.json must be valid JSON
+          curated = [f for f in files if f not in ignored]
+          bad = []
+          for f in curated:
+              try:
+                  json.loads(pathlib.Path(f).read_text())
+              except (OSError, ValueError) as e:
+                  bad.append(f"{f}: {e}")
+          if bad:
+              print("Curated aggregate JSON is not valid JSON:")
+              for b in bad:
+                  print("  " + b)
+              sys.exit(1)
+
+          print(f"OK: {len(exact)} exact aggregate.json tracked-eligible; "
+                f"{len(curated)} curated *aggregate*.json valid JSON")
           PY
 
       - name: Check no raw artifacts are tracked
@@ -151,20 +179,36 @@ jobs:
               ".pyc",
           )
 
-          bad = []
+          # Raw per-run / build / log directories must never be tracked, including
+          # extension-less contents (e.g. a compiled binary under build/, or a
+          # run_aggregate.json under _control_runs/). Matched as a path segment so
+          # both "build/x" (root) and "experiments/NN/build/x" are caught; curated
+          # top-level *aggregate*.json (which live in the experiment dir, NOT under
+          # these dirs) are unaffected.
+          forbidden_dir_segments = (
+              "/_ray_runs/",
+              "/_control_runs/",
+              "/_perf_runs/",
+              "/build/",
+              "/logs/",
+          )
+
+          bad = set()
           for path in tracked:
               if path.startswith("results/"):
-                  bad.append(path)
+                  bad.add(path)
               if "__pycache__/" in path or path.endswith("__pycache__"):
-                  bad.append(path)
+                  bad.add(path)
               if ".dSYM/" in path or path.endswith(".dSYM"):
-                  bad.append(path)
+                  bad.add(path)
               if path.endswith(forbidden_suffixes):
-                  bad.append(path)
+                  bad.add(path)
+              if any(seg in f"/{path}" for seg in forbidden_dir_segments):
+                  bad.add(path)
 
           if bad:
               print("Forbidden tracked raw/build artifacts:")
-              for path in bad:
+              for path in sorted(bad):
                   print("  " + path)
               sys.exit(1)
           PY
@@ -202,4 +246,66 @@ jobs:
               if "processed" not in data["lanes"][0]:
                   print(f"{path}: lane missing processed")
                   sys.exit(1)
+          PY
+
+      - name: Claim-fence guard (exp59 Slice 5 + exp60, skip-clean)
+        # Pure-Python structural guard over the curated comparison/control JSON.
+        # Protects the claim FENCES (boolean policy flags + provenance presence)
+        # from silent drift -- it never reads/asserts p50/p99 timing numbers, never
+        # reruns a benchmark, and skips cleanly if a file is absent (the evidence
+        # dirs may not be committed yet). It does NOT pin exp60 overall/r_count/
+        # is_full_band (run-specific), only durable policy flags + gate presence.
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          failures = []
+
+          def load(path):
+              p = pathlib.Path(path)
+              if not p.exists():
+                  print(f"skip (absent): {path}")
+                  return None
+              try:
+                  return json.loads(p.read_text())
+              except (OSError, ValueError) as e:
+                  failures.append(f"{path}: not valid JSON: {e}")
+                  return None
+
+          def want(path, d, key, expected):
+              if d.get(key) is not expected:
+                  failures.append(f"{path}: {key} must be {expected}, got {d.get(key)!r}")
+
+          slice5 = "experiments/59_ray_actor_vs_hpx_action_path/ray_vs_hpx_plane_labeled_aggregate.json"
+          d = load(slice5)
+          if d is not None:
+              for k in ("same_axis_comparison", "speedup_computed", "ratio_reported",
+                        "verdict_allowed", "perf_claim_allowed"):
+                  want(slice5, d, k, False)
+              if not (d.get("qd1_only") is True
+                      or d.get("pipeline_excluded_from_comparison") is True):
+                  failures.append(f"{slice5}: expected qd1_only==true OR "
+                                  "pipeline_excluded_from_comparison==true")
+              sa = d.get("source_artifacts")
+              if not (isinstance(sa, list) and sa):
+                  failures.append(f"{slice5}: source_artifacts must be a non-empty list")
+
+          exp60 = "experiments/60_hpx_same_node_locality_control/hpx_same_node_control_aggregate.json"
+          d = load(exp60)
+          if d is not None:
+              want(exp60, d, "is_within_hpx_decomposition", True)
+              want(exp60, d, "is_ray_vs_hpx_comparison", False)
+              want(exp60, d, "perf_claim_allowed", False)
+              gates = d.get("gates") or {}
+              if "every_island_no_orphans" not in gates:
+                  failures.append(f"{exp60}: gates missing 'every_island_no_orphans'")
+
+          if failures:
+              print("Claim-fence guard failures:")
+              for f in failures:
+                  print("  " + f)
+              sys.exit(1)
+          print("OK: claim-fence guard passed (absent files skipped)")
           PY

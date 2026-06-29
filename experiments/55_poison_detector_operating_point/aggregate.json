@@ -1,0 +1,339 @@
+{
+  "experiment": "55_poison_detector_operating_point",
+  "kind": "poison_detector_clean_marker_timeout_calibration",
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "supervision_plane": "ray",
+  "data_plane": "hpx",
+  "predicate": "connector_not_alive \u2227 clean_disconnect_absent \u2227 \u00acclean_completion_within_T \u2227 root_not_cleanly_exited",
+  "predicate_source": "run_ray_autonomous_poison_detection.IslandSupervisor.evaluate_health_predicate (54_ray_autonomous_poison_detection/run_ray_autonomous_poison_detection.py)",
+  "predicate_imported_not_copied": true,
+  "binary": "autonomous_poison_spike",
+  "detector_times": "clean_completion_marker_arrival_NOT_distributed_finalize",
+  "clean_root_marker_is_pre_finalize": true,
+  "clean_root_uses_instant_dist_probe_not_sleep_probe": true,
+  "preflight": {
+    "ran": true,
+    "shutdown_timeouts_ms": [
+      5000,
+      15000
+    ],
+    "baseline_no_timeout": {
+      "shutdown_timeout_ms": -1,
+      "is_baseline": true,
+      "root_ready": true,
+      "connector_registered_before_crash": true,
+      "reached_finalize": true,
+      "poisoned_root_self_exited": true,
+      "external_kill_required": false,
+      "time_to_poisoned_exit_ms": 0.2,
+      "root_exit_rc": 0,
+      "root_exit_signal": null
+    },
+    "results": [
+      {
+        "shutdown_timeout_ms": 5000,
+        "is_baseline": false,
+        "root_ready": true,
+        "connector_registered_before_crash": true,
+        "reached_finalize": true,
+        "poisoned_root_self_exited": true,
+        "external_kill_required": false,
+        "time_to_poisoned_exit_ms": 0.2,
+        "root_exit_rc": 0,
+        "root_exit_signal": null
+      },
+      {
+        "shutdown_timeout_ms": 15000,
+        "is_baseline": false,
+        "root_ready": true,
+        "connector_registered_before_crash": true,
+        "reached_finalize": true,
+        "poisoned_root_self_exited": true,
+        "external_kill_required": false,
+        "time_to_poisoned_exit_ms": 0.2,
+        "root_exit_rc": 0,
+        "root_exit_signal": null
+      }
+    ],
+    "hpx_self_bounds_poisoned_shutdown": "inconclusive",
+    "interpretation": "Poisoned root self-exited even WITHOUT hpx.shutdown_timeout (in ~0.2 ms, rc=0); this idle-cap path does NOT reproduce the exp51 runtime_distributed::wait() hang on this build, so exits cannot be attributed to the shutdown-timeout config. Recommend a dedicated exp56 preflight that reproduces exp50/51 ungraceful-loss timing. External Ray timeout remains the working policy."
+  },
+  "grid": {
+    "root_progress_timeout_ms_axis": [
+      10000,
+      14000,
+      15000,
+      16000,
+      18000,
+      20000,
+      25000
+    ],
+    "crash_delay_ms": 1000,
+    "clean_arm_sleep_ms": 8000,
+    "repeats": 3
+  },
+  "cells": [
+    {
+      "root_progress_timeout_ms": 10000,
+      "clean_arm": {
+        "verdicts": [
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison"
+        ],
+        "stable": false
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": false
+    },
+    {
+      "root_progress_timeout_ms": 14000,
+      "clean_arm": {
+        "verdicts": [
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison"
+        ],
+        "stable": false
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": false
+    },
+    {
+      "root_progress_timeout_ms": 15000,
+      "clean_arm": {
+        "verdicts": [
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison",
+          "late_clean_result_after_poison"
+        ],
+        "stable": false
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": false
+    },
+    {
+      "root_progress_timeout_ms": 16000,
+      "clean_arm": {
+        "verdicts": [
+          "clean_correct",
+          "clean_correct",
+          "clean_correct"
+        ],
+        "stable": true
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": true
+    },
+    {
+      "root_progress_timeout_ms": 18000,
+      "clean_arm": {
+        "verdicts": [
+          "clean_correct",
+          "clean_correct",
+          "clean_correct"
+        ],
+        "stable": true
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": true
+    },
+    {
+      "root_progress_timeout_ms": 20000,
+      "clean_arm": {
+        "verdicts": [
+          "clean_correct",
+          "clean_correct",
+          "clean_correct"
+        ],
+        "stable": true
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": true
+    },
+    {
+      "root_progress_timeout_ms": 25000,
+      "clean_arm": {
+        "verdicts": [
+          "clean_correct",
+          "clean_correct",
+          "clean_correct"
+        ],
+        "stable": true
+      },
+      "self_crash_arm": {
+        "verdicts": [
+          "poison_correct",
+          "poison_correct",
+          "poison_correct"
+        ],
+        "stable": true
+      },
+      "cell_stable": true
+    }
+  ],
+  "timing": {
+    "time_to_marker_ms": {
+      "n": 21,
+      "min": 15240.5,
+      "p50": 15242.8,
+      "max": 15309.3,
+      "p99": null
+    },
+    "time_to_finalize_ms": {
+      "n": 21,
+      "min": 10.1,
+      "p50": 35.4,
+      "max": 59.1,
+      "p99": null
+    },
+    "note": "time_to_marker_ms is what the detector races and is sleep_ms-independent for this binary; time_to_finalize_ms is the downstream shutdown tail."
+  },
+  "sleep_ms_control": {
+    "timeout_ms": 20000,
+    "groups": [
+      {
+        "sleep_ms": 2000,
+        "time_to_marker_ms_samples": [
+          15256.4,
+          15241.0
+        ],
+        "time_to_marker_ms": {
+          "n": 2,
+          "min": 15241.0,
+          "p50": 15248.7,
+          "max": 15256.4,
+          "p99": null
+        }
+      },
+      {
+        "sleep_ms": 8000,
+        "time_to_marker_ms_samples": [
+          15241.6,
+          15243.7
+        ],
+        "time_to_marker_ms": {
+          "n": 2,
+          "min": 15241.6,
+          "p50": 15242.7,
+          "max": 15243.7,
+          "p99": null
+        }
+      },
+      {
+        "sleep_ms": 14000,
+        "time_to_marker_ms_samples": [
+          15238.6,
+          15240.5
+        ],
+        "time_to_marker_ms": {
+          "n": 2,
+          "min": 15238.6,
+          "p50": 15239.5,
+          "max": 15240.5,
+          "p99": null
+        }
+      }
+    ],
+    "clean_marker_independent_of_sleep_ms": true,
+    "note": "clean root uses instant dist_probe; sleep_ms governs only the failure root's dist_sleep_probe, so clean-marker timing does not depend on sleep_ms."
+  },
+  "registration_boundary_probe": {
+    "ran": true,
+    "sleep_ms": 8000,
+    "points": [
+      {
+        "crash_point": "before_join_marker",
+        "crash_delay_ms": null,
+        "status": "not_supported_reused_binary",
+        "reason": "self_crash connector writes connect.joined1 before sleeping/aborting; pre-join crash would require a new connector mode (forbidden in exp55)."
+      },
+      {
+        "crash_point": "immediately_after_join",
+        "crash_delay_ms": 0,
+        "status": "ran",
+        "connector_registered_before_death": true,
+        "action_was_in_flight": false,
+        "classification": "poisoned",
+        "connector_self_crashed": true,
+        "connector_exit_signal": 4
+      },
+      {
+        "crash_point": "after_action_in_flight",
+        "crash_delay_ms": 4000,
+        "status": "ran",
+        "connector_registered_before_death": true,
+        "action_was_in_flight": true,
+        "classification": "poisoned",
+        "connector_self_crashed": true,
+        "connector_exit_signal": 4
+      }
+    ],
+    "classification_changes_across_boundary": false
+  },
+  "summary": {
+    "false_positive_cells": [],
+    "false_negative_cells": [],
+    "indeterminate_cells": [],
+    "late_clean_after_poison_cells": [
+      10000,
+      14000,
+      15000
+    ],
+    "safe_marker_timeout_floor_ms": 16000,
+    "recommended_root_progress_timeout_ms": 17309,
+    "recommended_margin_ms": 2000,
+    "time_to_marker_ms_tail": 15309.3,
+    "time_to_finalize_ms_tail": 59.1,
+    "clean_marker_independent_of_sleep_ms": true,
+    "absolute_floor_is_workload_specific": true,
+    "no_orphan_hpx_processes": true,
+    "orphan_pids": [],
+    "ray_carried_bootstrap_metadata_only": true
+  },
+  "note": "Orchestrator-side detector calibration. Reuses the exp54 autonomous_poison_spike binary and IMPORTS the exact exp54 evaluate_health_predicate (not rederived). The clean root writes clean_root.json BEFORE hpx::finalize() and uses the INSTANT dist_probe (not dist_sleep_probe), so the detector races marker arrival -- independent of sleep_ms -- not distributed shutdown completion. Phase 0 only observes whether HPX self-bounds a poisoned shutdown on this build/config. Loopback single-node lower bound; the floor is NOT a portable constant. Re-validates no HPX property.",
+  "overall": "pass"
+}

@@ -1,0 +1,92 @@
+{
+  "artifact": "exp59 Slice 5 -- Ray actor path vs HPX action path, plane-labeled juxtaposition",
+  "comparison_kind": "plane_labeled_juxtaposition_only",
+  "same_axis_comparison": false,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "verdict_allowed": false,
+  "perf_claim_allowed": false,
+  "qd1_only": true,
+  "pipeline_excluded_from_comparison": true,
+  "pipeline_note": "QD8/QD32/QD128 pipeline rows exist on both sides (Ray object-refs + ray.get(list); HPX wait_all over futures) but are OUT OF SCOPE for this comparison -- different batching mechanisms, amortized makespan/N is not a latency.",
+
+  "ray_plane": "ray_caller_observed_python_ray_get_rtt",
+  "hpx_plane": "hpx_caller_observed_cpp_async_get_rtt",
+  "plane_asymmetry_note": "Ray numbers are observed in Python around ray.get (full actor RTT: Python frame + core-worker gRPC IPC + object-ref ownership/ray.get + cross-node transport + remote exec + result fetch). HPX numbers are caller-observed C++ hpx::async(...).get() RTT on the root locality (future suspend/resume + TCP parcel serialization + transport), NO Python boundary and NO object-ref ownership protocol. These are two different rulers, NOT two runtimes on one axis.",
+  "ray_plane_includes": ["python_interpreter_frame", "ray_core_worker_gRPC_IPC", "object_ref_ownership_and_ray_get", "cross_node_transport", "remote_actor_execution", "result_fetch_to_python"],
+  "ray_plane_excludes": ["hpx_runtime", "C++_in_runtime_instrumentation"],
+  "ray_plane_attribution_caveat": "per-call steady-state floor is dominated by the Python boundary + core-worker IPC + object-ref/ray.get path; it is NOT cloudpickle (amortized by warmup) and NOT plasma (closed-int64 is inlined, not a plasma round-trip).",
+  "hpx_plane_includes": ["hpx_future_suspend_resume_on_root_thread", "tcp_parcel_serialization", "tcp_parcelport_software", "transport_leg", "remote_action_execution"],
+  "hpx_plane_excludes": ["python_interpreter", "object_ref_ownership_protocol", "object_store"],
+  "hpx_parcelport": "tcp",
+  "hpx_tcp_nodelay_verified": false,
+  "hpx_idle_backoff": "disabled",
+
+  "clock_ray": "time.perf_counter_ns",
+  "clock_ray_overhead_ns": 79,
+  "clock_hpx": "std::chrono::steady_clock",
+  "clock_hpx_overhead_ns": 21,
+  "warmup_ray": "1 prewarm + W=100 warmups dropped (K=1000 steady)",
+  "warmup_hpx": "1 prewarm + W=100 warmups dropped (K=1000 steady)",
+  "band_construction": "per_island_median_of_per_island_percentiles_plus_min_max_spread (nearest-rank ceil(p*n)-1); pooled NOT used; identical on both sides",
+  "decision_rule": "a gap inside the across-island jitter band is NOT a separable effect; the across-island min/max spread bounds what the per-island median can claim",
+
+  "placement_proof_basis_ray": "hard NodeAffinitySchedulingStrategy(soft=False) + resolved Ray node_id + FQDN-normalized hostname (caller@nodeA != callee@nodeB), off_node_sample_count==0. Oracle correctness proves the intended actor executed and returned the expected closed-int64 result; the oracle value ALONE does not prove physical node placement.",
+  "placement_proof_basis_hpx": "HPX locality id (here_locality != remote_locality) + same-node co-location (root/connector hostname == medusa00) for L1 / distinct localities for L2. Oracle correctness proves the intended locality executed and returned the expected closed-int64 result; the oracle value ALONE does not prove placement.",
+
+  "node_parity": {
+    "ray_cross_node_pair": "medusa00/medusa01",
+    "hpx_cross_node_pair": "medusa00/medusa01",
+    "matches_exp58_node_pair": true,
+    "interface_parity_with_exp58": true,
+    "selected_subnet": "10.42.5.",
+    "hpx_same_node": "medusa00 (both localities, kernel loopback)"
+  },
+
+  "ray_same_host_p50_ns": 608695,
+  "ray_same_host_p99_ns": 732816,
+  "ray_same_host_r_count": 1,
+  "ray_cross_node_p50_ns": 741661,
+  "ray_cross_node_p90_ns": 1056005,
+  "ray_cross_node_p99_ns": 1190016,
+  "ray_cross_node_r_count": 5,
+  "ray_cross_node_increment_ns": 132966,
+  "ray_cross_node_increment_note": "ray_cross_node_p50 - ray_same_host_p50 = 741661 - 608695. WITHIN-RAY decomposition only. Same-host control is R=1 (indicative, not a band), so the increment is approximate; it shows most of the Ray QD1 floor (~609 us of ~742 us, ~82%) is present with NO network.",
+
+  "hpx_same_node_p50_ns": 76625,
+  "hpx_same_node_p90_ns": 86792,
+  "hpx_same_node_p99_ns": 101823,
+  "hpx_same_node_r_count": 5,
+  "hpx_cross_node_p50_ns": 115831,
+  "hpx_cross_node_p90_ns": 153779,
+  "hpx_cross_node_p99_ns": 185662,
+  "hpx_cross_node_r_count": 5,
+  "hpx_cross_node_increment_ns": 39206,
+  "hpx_cross_node_increment_note": "hpx_cross_node_p50 - hpx_same_node_p50 = 115831 - 76625. WITHIN-HPX decomposition only (both R=5 banded). Shows ~76.6 us of ~115.8 us (~66%) is local HPX stack + TCP-over-loopback software; only ~39 us is the eno16 wire. p99 wire increment ~83.8 us. loopback != zero cost; tcp_nodelay unverified -> Nagle held constant, not removed.",
+
+  "two_within_runtime_decompositions_never_crossed": "The Ray cross-node increment (~133 us) and the HPX wire increment (~39 us) are EACH within their own runtime and are NEVER subtracted or ratioed across runtimes. The shared finding is qualitative and per-runtime: in each runtime the QD1 floor is dominated by local stack, not network.",
+
+  "fairness_caveats": [
+    "Ray plane = Python/Ray-actor-observed ray.get RTT; HPX plane = caller-observed C++ hpx::async(...).get() RTT. NOT the same measurement axis; no ratio/speedup is computable or reported.",
+    "Both sides per-island-primary R=5 bands with identical nearest-rank + median-of-medians construction; the Ray same-host control is R=1 (indicative only).",
+    "HPX is TCP-parcelport-specific (HPX's slowest parcelport); tcp_nodelay unverified -> Nagle/delayed-ACK is a possible QD1 confound held CONSTANT across L1/L2, not eliminated.",
+    "HPX kernel loopback (L1) is not zero-cost; the wire increment isolates only the physical leg above the loopback software path.",
+    "closed-int64 micro-workload; Rostam-allocation-specific; parity gated to medusa00/medusa01 and 10.42.5.",
+    "pipeline/QD8/QD32/QD128 are out of scope (different batching mechanisms); only QD1 is juxtaposed."
+  ],
+  "claim_fences": [
+    "plane-labeled juxtaposition ONLY: no Ray-vs-HPX speedup, no ratio, no same-axis comparison, no 'HPX beats Ray'.",
+    "two within-runtime decompositions are reported per-runtime and are never crossed into a cross-runtime number.",
+    "no production / API / failure / restart / multi-node / general-fabric claim; no real inference.",
+    "Ray placement proven by hard NodeAffinity + Ray node_id + FQDN-normalized hostname; oracle correctness proves the intended actor executed and returned the expected closed-int64, NOT physical placement by itself.",
+    "HPX numbers are runtime-internal C++ caller RTT; they are NOT user-facing Python call-path numbers and are not on the Ray axis."
+  ],
+
+  "source_artifacts": [
+    {"role": "ray_cross_node_R5", "path": "experiments/59_ray_actor_vs_hpx_action_path/ray_actor_aggregate.json", "run_id": "20260629T125451_134715", "sha256_16": "74e1c3244a4951bd", "p50_ns": 741661, "p90_ns": 1056005, "p99_ns": 1190016},
+    {"role": "ray_same_host_R1", "path": "experiments/59_ray_actor_vs_hpx_action_path/_ray_runs/ray_index.jsonl", "row": "same-host-control medusa00 (exp59_sh_r0_r7p3hwq6)", "sha256_16": "488a3a0a70ce9318", "p50_ns": 608695, "p90_ns": 651220, "p99_ns": 732816},
+    {"role": "hpx_inter_node_R5_L2", "path": "experiments/58_two_node_clean_path_perf/perf_aggregate_ray_supervised.json", "sha256_16": "7e5999fba6b6b3b3", "p50_ns": 115831, "p90_ns": 153779, "p99_ns": 185662, "note": "Ray-supervised primary L2; Ray-free L2 p50 120270 / p99 187957 is consistent."},
+    {"role": "hpx_same_node_R5_L1", "path": "experiments/60_hpx_same_node_locality_control/hpx_same_node_control_aggregate.json", "run_id": "20260629T133109_139979", "sha256_16": "f4ca71ef2e3ffb4f", "p50_ns": 76625, "p90_ns": 86792, "p99_ns": 101823, "note": "reuses the exp58 binary UNMODIFIED; an earlier consistent R=5 band (run 20260629T132649_139184: p50 75847 / p99 101376) is preserved as the redirected sibling."}
+  ],
+  "provenance_note": "All percentiles copied read-only from the source aggregates above; this artifact is hand-curated and computes only the two within-runtime increments (subtraction within a single runtime's two bands). No source artifact was modified."
+}

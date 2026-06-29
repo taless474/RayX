@@ -1,0 +1,143 @@
+{
+  "phase": "same-host-control",
+  "baseline_kind": "ray_actor_same_host_control",
+  "overall": "pass",
+  "ray_available": true,
+  "ray_init_ok": true,
+  "ray_version": "2.55.1",
+  "ray_supervisor_used": false,
+  "failure_restart_used": false,
+  "python_version": "3.12.3",
+  "slurm_present": true,
+  "same_host_only": true,
+  "not_two_node_comparison": true,
+  "hpx_comparison_performed": false,
+  "params": {
+    "K": 1000,
+    "W": 100,
+    "pipeline_depths": "8,32,128",
+    "repetitions": 1,
+    "x": 7,
+    "caller": "actor"
+  },
+  "statistics_policy": {
+    "per_island_primary": true,
+    "pooled_stats_allowed": false,
+    "pooled_note": "pooled K*R supplementary only; R may be 1 in Slice 1"
+  },
+  "per_island_stats": [
+    {
+      "count": 1000,
+      "min_ns": 536359,
+      "max_ns": 1308966,
+      "mean_ns": 614261,
+      "p50_ns": 608695,
+      "p90_ns": 651220,
+      "p99_ns": 732816
+    }
+  ],
+  "across_island_stats": {
+    "p50_ns_median": 608695,
+    "p50_ns_min": 608695,
+    "p50_ns_max": 608695,
+    "p90_ns_median": 651220,
+    "p90_ns_min": 651220,
+    "p90_ns_max": 651220,
+    "p99_ns_median": 732816,
+    "p99_ns_min": 732816,
+    "p99_ns_max": 732816,
+    "mean_ns_median": 614261,
+    "mean_ns_min": 614261,
+    "mean_ns_max": 614261
+  },
+  "pooled_stats_supplementary": {
+    "count": 1000,
+    "min_ns": 536359,
+    "max_ns": 1308966,
+    "mean_ns": 614261,
+    "p50_ns": 608695,
+    "p90_ns": 651220,
+    "p99_ns": 732816
+  },
+  "fairness_caveats": [
+    "Ray QD1 is Python/Ray-observed; the exp58 HPX QD1 is runtime-internal C++ (different planes)",
+    "Ray call path includes object-store result retrieval (ray.get); HPX has no object-store analog",
+    "pipeline batching differs: ray object-refs + ray.get(list) vs HPX parcel coalescing"
+  ],
+  "claim_fences": [
+    "local/same-host Ray actor path control only",
+    "NOT two-node; NOT compared to HPX; NOT a Ray-vs-HPX result",
+    "NOT a production/API claim; NOT failure/restart",
+    "closed-int64 micro-workload only; Rostam/local-allocation-specific"
+  ],
+  "shared_dir": "/work/bitayekrang/RayX/experiments/59_ray_actor_vs_hpx_action_path/_ray_runs",
+  "islands": [
+    {
+      "rep_index": 0,
+      "phase": "same-host-control",
+      "bootstrap_dir": "/work/bitayekrang/RayX/experiments/59_ray_actor_vs_hpx_action_path/_ray_runs/exp59_sh_r0_r7p3hwq6",
+      "measurement_point": "pinned_python_caller_actor",
+      "measurement_plane": "python_actor_observed",
+      "python_boundary_included": true,
+      "driver_observed": false,
+      "ray_driver_to_raylet_path_included": false,
+      "ray_get_included": true,
+      "ray_object_store_in_result_path": true,
+      "ray_result_retrieval": "ray.get",
+      "ray_result_serialization_path_included": true,
+      "hpx_object_store_in_result_path": false,
+      "hpx_comparator_kind": "in_substrate_cpp_action_floor",
+      "hpx_python_boundary_included": false,
+      "python_boundary_asymmetry_disclosed": true,
+      "hpx_comparison_performed": false,
+      "caller_role": "pinned_caller_actor",
+      "caller_is_driver": false,
+      "caller_is_pinned_actor": true,
+      "driver_hostname": "medusa00.rostam.cct.lsu.edu",
+      "driver_node_id": "d8a559a031eb8d3d5f6f8997360c1e1776c188778976d6111552e0f0",
+      "caller_hostname": "medusa00.rostam.cct.lsu.edu",
+      "caller_node_id": "d8a559a031eb8d3d5f6f8997360c1e1776c188778976d6111552e0f0",
+      "callee_hostname": "medusa00.rostam.cct.lsu.edu",
+      "callee_node_id": "d8a559a031eb8d3d5f6f8997360c1e1776c188778976d6111552e0f0",
+      "callee_pid": 2147487,
+      "callee_actor_id": "57036b672774b8b99fe7bf1001000000",
+      "placement_strategy": "same_host_default",
+      "placement_soft": null,
+      "cross_node_placement_verified": false,
+      "same_host_placement_verified": true,
+      "off_node_sample_count": 0,
+      "pipeline_batching_mechanism": "ray_object_refs_plus_ray_get_list",
+      "pipeline_cross_runtime_ratio_allowed": false,
+      "pipeline_ratio_note": "no cross-runtime ratio in this slice; HPX side not measured here and batching mechanisms differ (parcel coalescing vs ray.get(list))",
+      "same_host_ray_control_available": true,
+      "same_host_ray_control_run": true,
+      "same_host_ray_control_purpose": "decompose Ray software call-path overhead from the future inter-node leg, analogous to the exp58 loopback control",
+      "gates": {
+        "ray_started": true,
+        "actor_created": true,
+        "depth1_all_correct": true,
+        "pipeline_correct_matches_depths": true,
+        "first_last_proof": true,
+        "placement_metadata_present": true,
+        "raw_arrays_preserved": true,
+        "same_host_placement_verified": true,
+        "off_node_sample_gate_passed": true
+      },
+      "island_valid": true,
+      "island_stats_from_raw": {
+        "count": 1000,
+        "min_ns": 536359,
+        "max_ns": 1308966,
+        "mean_ns": 614261,
+        "p50_ns": 608695,
+        "p90_ns": 651220,
+        "p99_ns": 732816
+      }
+    }
+  ],
+  "artifact_write_policy": "phase-specific top-level aggregates; skip/fail never overwrite a curated pass; pass-over-pass requires same phase + --allow-overwrite-pass; atomic temp+fsync+rename writes",
+  "top_level_overwrite_guard_active": true,
+  "top_level_aggregate_path": "ray_actor_same_host_aggregate.json",
+  "redirected_from_path": null,
+  "overwrite_refused": false
+}

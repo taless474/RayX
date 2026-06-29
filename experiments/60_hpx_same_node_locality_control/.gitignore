@@ -1,0 +1,35 @@
+# exp60 artifact hygiene — keep the curated top-level control aggregate trackable,
+# ignore build outputs and raw run/log artifacts. exp60 reuses the exp58 binary by
+# explicit path and builds NOTHING of its own.
+
+# python / build scratch
+__pycache__/
+*.pyc
+*.so
+*.o
+*.dylib
+build/
+
+# raw per-run scratch (per-island bootstrap dirs, spike artifacts, stdio)
+_control_runs/
+
+# raw logs / HPX parcel logs
+*.log
+hpx.parcel.*.log
+logs/
+
+# raw run index stays ignored
+control_index.jsonl
+
+# Aggregate-write policy (see safe_write_top_aggregate in run_exp60_control.py):
+#   TRACKABLE curated PASS aggregate (written only by a cluster pass):
+#     - hpx_same_node_control_aggregate.json
+#   IGNORED non-curated aggregates (skip/fail + redirected run-id siblings). The
+#   writer emits "<base>_skip.json", "<base>_fail.json", and
+#   "<base>_redirected_<stamp>_<pid>.json", so the tag follows "aggregate_"
+#   directly (no extra segment) -- these patterns must NOT use "aggregate_*_skip"
+#   etc., which would fail to match and let the sibling become trackable.
+hpx_same_node_control_aggregate_skip.json
+hpx_same_node_control_aggregate_fail.json
+hpx_same_node_control_aggregate_local_skip.json
+hpx_same_node_control_aggregate_redirected_*.json
