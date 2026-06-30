@@ -65,6 +65,42 @@ composition, an HPX-island lifecycle policy, and a two-node path characterizatio
 The full chronological **“what we learned”** index lives in
 [docs/evidence_index.md](docs/evidence_index.md); the headline summary is below.
 
+## Current best evidence: same-axis Python-boundary band (experiment 61)
+
+The current primary result is **exp61**, the first **fair same-axis** comparison of the QD1
+closed-`int64` micro-call path: both arms are measured at the **same Python caller boundary**
+(`perf_counter_ns` around the blocking call), in one **R=5 matched band** on the same node pair
+(medusa00 → medusa01, subnet `10.42.5.`, K=1000 / W=100). Earlier two-node numbers (exp58/exp59,
+below) sat on **different measurement planes** — HPX timed from C++, Ray from Python — so they were a
+plane-labeled juxtaposition, **not** a comparison; exp61 is what removed that mismatch.
+
+| arm (same Python caller boundary) | call primitive | p50 | p90 | p99 | mean |
+|---|---|---|---|---|---|
+| Ray actor path | `ray.get(actor.dist_probe.remote(x))` | ~518.3 µs | ~850.7 µs | ~1125.7 µs | ~584.7 µs |
+| experiment-only Python→HPX action path | `ext.dist_probe_remote(x)` | ~184.8 µs | ~257.5 µs | ~322.6 µs | ~188.7 µs |
+
+All Slice-4 gates passed (`same_axis_comparison=true`); the band reports the two arms **separately**
+with `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`. For this specific QD1
+micro-call, measured from Python, the experiment-only Python→HPX action path shows a **much lower RTT
+band** than the Ray actor path — but the arms are **never differenced, ratioed, or ranked**.
+
+**Scope / fences:** the HPX side is an **experiment-only** pybind binding, **not** shipped
+`rayx.runtime` API and **not** distributed RayX. This is **not** “RayX makes Ray faster”, **not** “HPX
+beats Ray” generally, **not** Ray Serve / inference performance, and **not** a production or
+fault-tolerance claim — it is one QD1 closed-`int64` micro-call on one node pair. Full provenance and
+the per-experiment arc:
+[docs/evidence_index.md](docs/evidence_index.md) ·
+[experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md).
+
+A companion **same-node placement control** (exp61 Slice 5, job 158734, single node medusa00, R=5,
+comparable per-locality resources) also **passed all gates** (`same_axis_comparison=true`, all
+no-ratio/no-difference fences hard-locked). It varies only physical co-location per arm — HPX runs two
+distinct localities over the loopback TCP parcelport, Ray a genuine actor on the driver node — and is a
+**control, not a ranking**; the arms are never differenced, ratioed, or ranked, and same-node is not
+compared to cross-node by ratio. Same-node per-arm bands (observation-only): Ray ~519 µs p50 / ~1029 µs
+p99; experiment-only Python→HPX ~93 µs p50 / ~113 µs p99. Slice 4 (cross-node, above) remains the
+headline same-axis evidence. Details: the exp61 write-up.
+
 ## Quickstart / smoke run
 
 All commands assume the repo root as the working directory. Each driver writes a
@@ -133,11 +169,13 @@ scaling, **not** “RayX makes Ray faster”, **not** “HPX beats Ray”, and *
 sizing/capacity guidance. Per-experiment detail and numbers:
 [docs/evidence_index.md](docs/evidence_index.md).
 
-### Two-node path characterization (experiments 58–60)
+### Earlier two-node precursors (experiments 58–60)
 
-A two-node Rostam (medusa00/medusa01, eno16, `10.42.5.`) characterization of the
-**QD1 closed-`int64` micro-call path**. The two sides are on **strictly different
-measurement planes** and are **not the same axis**:
+These are the **precursor** experiments that motivated exp61 (above), kept as historical context. A
+two-node Rostam (medusa00/medusa01, eno16, `10.42.5.`) characterization of the **QD1 closed-`int64`
+micro-call path**, but with the two sides on **strictly different measurement planes** — **not the
+same axis**, which is exactly the mismatch exp61 removed. They remain useful for the within-runtime
+decompositions below, not as the headline comparison:
 
 * **Ray plane** — Python/`ray.get`-observed actor RTT.
 * **HPX plane (exp58/exp60)** — caller-observed C++ `hpx::async(...).get()` RTT.
@@ -160,7 +198,8 @@ exp59 placement is proven by hard `NodeAffinity(soft=False)` + resolved Ray
 `node_id` + FQDN-normalized hostname; oracle correctness proves the intended actor
 executed and returned the expected closed-`int64`, **not** physical placement by
 itself. **No speedup, no ratio, no “HPX beats Ray”, and no same-axis Ray-vs-HPX
-comparison.** Detail and provenance: [docs/evidence_index.md](docs/evidence_index.md).
+comparison.** The fair same-axis result is **exp61** (see *Current best evidence*,
+above). Detail and provenance: [docs/evidence_index.md](docs/evidence_index.md).
 
 ## Documentation map
 
@@ -189,7 +228,7 @@ holds investigative write-ups / curated evidence packages.
 
 ### Evidence
 
-* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), and the two-node path characterization (58–60).
+* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node path characterization (58–60), and the same-axis Python-boundary band (61).
 * Source write-ups live beside the code under [benchmarks/](benchmarks/) and [experiments/](experiments/).
 
 ### Project rules

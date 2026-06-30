@@ -1,0 +1,276 @@
+{
+  "experiment_id": "exp61",
+  "phase": "band-aggregate",
+  "band_id": "band_158724",
+  "matched_run_ids": [
+    "band_158724_i1",
+    "band_158724_i2",
+    "band_158724_i3",
+    "band_158724_i4",
+    "band_158724_i5"
+  ],
+  "R": 5,
+  "min_r": 5,
+  "overall": "pass",
+  "same_axis_comparison": true,
+  "same_axis_claim_allowed": true,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "arms_differenced": false,
+  "comparison_kind": "r5_matched_same_axis_band_no_ratio",
+  "gates": {
+    "r_at_least_5": true,
+    "all_islands_present": true,
+    "all_manifests_pass": true,
+    "all_structure_validated": true,
+    "all_island_checks_true": true,
+    "all_arms_pass": true,
+    "all_arms_two_node": true,
+    "all_hpx_oracle_true": true,
+    "all_ray_oracle_true": true,
+    "cross_island_agreement": true,
+    "clock_overhead_captured": true
+  },
+  "per_island_gates": {
+    "band_158724_i1": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_two_node": true,
+      "ray_two_node": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true
+    },
+    "band_158724_i2": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_two_node": true,
+      "ray_two_node": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true
+    },
+    "band_158724_i3": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_two_node": true,
+      "ray_two_node": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true
+    },
+    "band_158724_i4": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_two_node": true,
+      "ray_two_node": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true
+    },
+    "band_158724_i5": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_two_node": true,
+      "ray_two_node": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true
+    }
+  },
+  "cross_island_disagreements": null,
+  "shared_invariants": {
+    "slurm_job_id": "158724",
+    "node_pair": [
+      "medusa00",
+      "medusa01"
+    ],
+    "selected_subnet": "10.42.5.",
+    "k": 1000,
+    "w": 100,
+    "prewarm": 1,
+    "clock": "perf_counter_ns",
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call"
+  },
+  "clock_overhead_perf_counter_ns": {
+    "clock": "perf_counter_ns",
+    "count": 4096,
+    "min_ns": 88,
+    "median_ns": 92.0,
+    "mean_ns": 94
+  },
+  "arms": {
+    "hpx": {
+      "arm": "hpx",
+      "per_island": [
+        {
+          "matched_run_id": "band_158724_i1",
+          "p50_ns": 192381,
+          "p90_ns": 259205,
+          "p99_ns": 324267,
+          "mean_ns": 195767
+        },
+        {
+          "matched_run_id": "band_158724_i2",
+          "p50_ns": 178118,
+          "p90_ns": 257488,
+          "p99_ns": 316835,
+          "mean_ns": 186625
+        },
+        {
+          "matched_run_id": "band_158724_i3",
+          "p50_ns": 186123,
+          "p90_ns": 247157,
+          "p99_ns": 298382,
+          "mean_ns": 187867
+        },
+        {
+          "matched_run_id": "band_158724_i4",
+          "p50_ns": 184778,
+          "p90_ns": 273908,
+          "p99_ns": 366303,
+          "mean_ns": 194620
+        },
+        {
+          "matched_run_id": "band_158724_i5",
+          "p50_ns": 183389,
+          "p90_ns": 257303,
+          "p99_ns": 322613,
+          "mean_ns": 188695
+        }
+      ],
+      "across_island": {
+        "p50_ns": {
+          "median": 184778,
+          "min": 178118,
+          "max": 192381,
+          "spread": 14263
+        },
+        "p90_ns": {
+          "median": 257488,
+          "min": 247157,
+          "max": 273908,
+          "spread": 26751
+        },
+        "p99_ns": {
+          "median": 322613,
+          "min": 298382,
+          "max": 366303,
+          "spread": 67921
+        },
+        "mean_ns": {
+          "median": 188695,
+          "min": 186625,
+          "max": 195767,
+          "spread": 9142
+        }
+      },
+      "differenced_with_other_arm": false
+    },
+    "ray": {
+      "arm": "ray",
+      "per_island": [
+        {
+          "matched_run_id": "band_158724_i1",
+          "p50_ns": 525043,
+          "p90_ns": 950397,
+          "p99_ns": 1152989,
+          "mean_ns": 608401
+        },
+        {
+          "matched_run_id": "band_158724_i2",
+          "p50_ns": 513624,
+          "p90_ns": 745021,
+          "p99_ns": 1095392,
+          "mean_ns": 567667
+        },
+        {
+          "matched_run_id": "band_158724_i3",
+          "p50_ns": 519151,
+          "p90_ns": 909380,
+          "p99_ns": 1125682,
+          "mean_ns": 595145
+        },
+        {
+          "matched_run_id": "band_158724_i4",
+          "p50_ns": 516952,
+          "p90_ns": 787702,
+          "p99_ns": 1105015,
+          "mean_ns": 577722
+        },
+        {
+          "matched_run_id": "band_158724_i5",
+          "p50_ns": 518334,
+          "p90_ns": 850651,
+          "p99_ns": 1145682,
+          "mean_ns": 584733
+        }
+      ],
+      "across_island": {
+        "p50_ns": {
+          "median": 518334,
+          "min": 513624,
+          "max": 525043,
+          "spread": 11419
+        },
+        "p90_ns": {
+          "median": 850651,
+          "min": 745021,
+          "max": 950397,
+          "spread": 205376
+        },
+        "p99_ns": {
+          "median": 1125682,
+          "min": 1095392,
+          "max": 1152989,
+          "spread": 57597
+        },
+        "mean_ns": {
+          "median": 584733,
+          "min": 567667,
+          "max": 608401,
+          "spread": 40734
+        }
+      },
+      "differenced_with_other_arm": false
+    }
+  },
+  "interpretation": "Slice 4 R>=5 matched same-axis band: every island ran both arms in one allocation / node pair / subnet / K-W-prewarm / Python boundary, each passing its own oracle. Per-arm p50/p90/p99 are summarized across islands SEPARATELY. The arms are never differenced or ratioed and no speedup is computed.",
+  "forbidden_claims": [
+    "same-axis Ray-vs-HPX comparison",
+    "speedup",
+    "ratio",
+    "HPX beats Ray",
+    "Ray is slower than HPX",
+    "RayX makes Ray faster",
+    "distributed rayx.runtime actions",
+    "arbitrary remote Python execution",
+    "production / fault-tolerance / fabric"
+  ],
+  "run_id": "20260629T201621_186070"
+}

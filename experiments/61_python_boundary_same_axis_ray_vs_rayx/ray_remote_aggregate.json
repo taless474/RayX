@@ -1,0 +1,106 @@
+{
+  "experiment_id": "exp61",
+  "phase": "ray-remote",
+  "overall": "pass",
+  "comparison_kind": "python_boundary_smoke_only_per_arm",
+  "same_axis_comparison": false,
+  "same_axis_claim_allowed": false,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "qd1_only": true,
+  "pipeline_excluded_from_comparison": true,
+  "clock": "perf_counter_ns",
+  "k": 50,
+  "w": 10,
+  "prewarm": 1,
+  "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call",
+  "shared_harness": {
+    "clock": "perf_counter_ns",
+    "k": 50,
+    "w": 10,
+    "prewarm": 1,
+    "qd1_only": true,
+    "blocking_call_only": true,
+    "pipeline_excluded": true,
+    "per_call_oracle_validation": true,
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call",
+    "timing_helper": "timed_qd1 (one function used by both hpx-smoke and ray-smoke)"
+  },
+  "forbidden_claims": [
+    "same-axis Ray-vs-HPX comparison",
+    "speedup",
+    "ratio",
+    "HPX beats Ray",
+    "Ray is slower than HPX",
+    "RayX makes Ray faster",
+    "distributed rayx.runtime actions",
+    "arbitrary remote Python execution",
+    "production / fault-tolerance / fabric"
+  ],
+  "not_hpx_calls_python_callback_experiment": true,
+  "not_distributed_rayx_runtime": true,
+  "run_id": "20260629T161817_2699561",
+  "x": 7,
+  "measurement_boundary_ray": "python_caller_perf_counter_ns_around_blocking_call",
+  "ray_side_measured": true,
+  "ray_call_primitive": "ray.get(actor.dist_probe.remote(x))",
+  "ray_placement_strategy": "NodeAffinitySchedulingStrategy(soft=False)",
+  "ray_actor_remote_only": true,
+  "two_node_capable_scaffold": true,
+  "two_node_exercised": true,
+  "ray_version": "2.55.1",
+  "ray_node_tag": 0,
+  "ray_node_ids": [
+    "ce8cb473c5a0ecdd11085c936a880f754d67e029747e03e1cc0f4131",
+    "64358d691dac2567668fd7bd0b25db0cb5da58c2ccba312fe3828b5f"
+  ],
+  "ray_hostnames": [
+    "medusa00.rostam.cct.lsu.edu",
+    "medusa01.rostam.cct.lsu.edu"
+  ],
+  "ray_ips": [
+    "10.42.5.30",
+    "10.42.5.31"
+  ],
+  "ray_driver_node_id": "ce8cb473c5a0ecdd11085c936a880f754d67e029747e03e1cc0f4131",
+  "ray_target_node_id": "64358d691dac2567668fd7bd0b25db0cb5da58c2ccba312fe3828b5f",
+  "ray_off_node_sample_count": 5,
+  "oracle_expected": 1380014431,
+  "ray_oracle_correct": true,
+  "ray_p50_ns": 948972,
+  "ray_p90_ns": 1225343,
+  "ray_p99_ns": 1430832,
+  "ray_mean_ns": 934593,
+  "slurm": {
+    "slurm_job_id": "158719",
+    "slurm_job_nodelist": "medusa[00-01]",
+    "slurm_num_nodes": 2,
+    "two_node": true
+  },
+  "boundary_call_ns_observation_only": {
+    "count": 50,
+    "min_ns": 663525,
+    "max_ns": 1430832,
+    "mean_ns": 934593,
+    "p50_ns": 948972,
+    "p90_ns": 1225343,
+    "p99_ns": 1430832
+  },
+  "timing_is_observation_only_not_a_claim": true,
+  "error": null,
+  "claim_fences": [
+    "Slice 2A: two-node-CAPABLE scaffolding. The actor is HARD-pinned off the driver node (NodeAffinitySchedulingStrategy soft=False) and verified off-node; no local actor is ever called 'remote'. Rostam two-node validation is Slice 2B.",
+    "NOT a same-axis comparison: separate artifact from the HPX arm; NEVER differenced or ratioed. No speedup, no ratio, no 'HPX beats Ray', no 'Ray is slower than HPX'.",
+    "exp59 numbers are NOT reused here; this phase only runs against a live >=2-node Ray cluster it connects to."
+  ],
+  "gates": {
+    "slurm_two_node": true,
+    "ray_cluster_two_node": true,
+    "actor_off_driver_node": true,
+    "prewarm_correct": true,
+    "every_call_oracle_correct": true,
+    "no_error": true
+  },
+  "overwrite_refused": false,
+  "top_level_aggregate_path": "ray_remote_aggregate.json"
+}

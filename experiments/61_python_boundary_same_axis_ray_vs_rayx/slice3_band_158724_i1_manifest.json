@@ -1,0 +1,115 @@
+{
+  "experiment_id": "exp61",
+  "phase": "pair-manifest",
+  "matched_run_id": "band_158724_i1",
+  "overall": "pass",
+  "matched_structure_validated": true,
+  "same_axis_comparison": false,
+  "same_axis_claim_allowed": false,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "comparison_kind": "matched_run_structure_proof_only",
+  "checks": {
+    "hpx_pass": true,
+    "ray_pass": true,
+    "hpx_two_node_exercised": true,
+    "ray_two_node_exercised": true,
+    "hpx_oracle_true": true,
+    "ray_oracle_true": true,
+    "same_matched_run_id": true,
+    "same_slurm_job_id": true,
+    "same_node_pair": true,
+    "same_selected_subnet": true,
+    "same_k": true,
+    "same_w": true,
+    "same_prewarm": true,
+    "same_clock": true,
+    "same_measurement_boundary": true
+  },
+  "shared_matched_invariants": {
+    "matched_run_id": "band_158724_i1",
+    "slurm_job_id": "158724",
+    "node_pair": [
+      "medusa00",
+      "medusa01"
+    ],
+    "selected_subnet": "10.42.5.",
+    "k": 1000,
+    "w": 100,
+    "prewarm": 1,
+    "clock": "perf_counter_ns",
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call"
+  },
+  "hpx_arm": {
+    "phase": "hpx-connected",
+    "overall": "pass",
+    "two_node_exercised": true,
+    "matched_run_id": "band_158724_i1",
+    "slurm_job_id": "158724",
+    "node_pair": [
+      "medusa00",
+      "medusa01"
+    ],
+    "selected_subnet": "10.42.5.",
+    "k": 1000,
+    "w": 100,
+    "prewarm": 1,
+    "clock": "perf_counter_ns",
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call",
+    "hpx_oracle_correct": true,
+    "ray_oracle_correct": null,
+    "boundary_call_ns_observation_only": {
+      "count": 1000,
+      "min_ns": 104349,
+      "max_ns": 1448380,
+      "mean_ns": 195767,
+      "p50_ns": 192381,
+      "p90_ns": 259205,
+      "p99_ns": 324267
+    }
+  },
+  "ray_arm": {
+    "phase": "ray-remote",
+    "overall": "pass",
+    "two_node_exercised": true,
+    "matched_run_id": "band_158724_i1",
+    "slurm_job_id": "158724",
+    "node_pair": [
+      "medusa00",
+      "medusa01"
+    ],
+    "selected_subnet": "10.42.5.",
+    "k": 1000,
+    "w": 100,
+    "prewarm": 1,
+    "clock": "perf_counter_ns",
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call",
+    "hpx_oracle_correct": null,
+    "ray_oracle_correct": true,
+    "boundary_call_ns_observation_only": {
+      "count": 1000,
+      "min_ns": 454070,
+      "max_ns": 1293892,
+      "mean_ns": 608401,
+      "p50_ns": 525043,
+      "p90_ns": 950397,
+      "p99_ns": 1152989
+    }
+  },
+  "hpx_arm_artifact": "slice3_band_158724_i1_hpx.json",
+  "ray_arm_artifact": "slice3_band_158724_i1_ray.json",
+  "interpretation": "Slice 3 matched-run STRUCTURE proof: both arms ran in the same allocation / node pair / selected subnet / K-W-prewarm / Python caller boundary, and each passed its OWN oracle. The per-arm boundary times are carried for provenance only and are NEVER differenced or ratioed. A same-axis band (R>=5) with explicit same-axis gates is a LATER step.",
+  "forbidden_claims": [
+    "same-axis Ray-vs-HPX comparison",
+    "speedup",
+    "ratio",
+    "HPX beats Ray",
+    "Ray is slower than HPX",
+    "RayX makes Ray faster",
+    "distributed rayx.runtime actions",
+    "arbitrary remote Python execution",
+    "production / fault-tolerance / fabric"
+  ],
+  "not_a_same_axis_comparison": true,
+  "run_id": "20260629T200455_180977"
+}

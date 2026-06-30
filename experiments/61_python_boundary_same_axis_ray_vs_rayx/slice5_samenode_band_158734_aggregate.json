@@ -1,0 +1,288 @@
+{
+  "experiment_id": "exp61",
+  "phase": "band-aggregate-samenode",
+  "placement_mode": "same_node",
+  "band_id": "band_158734",
+  "matched_run_ids": [
+    "sn_band2_158734_i1",
+    "sn_band2_158734_i2",
+    "sn_band2_158734_i3",
+    "sn_band2_158734_i4",
+    "sn_band2_158734_i5"
+  ],
+  "R": 5,
+  "min_r": 5,
+  "overall": "pass",
+  "same_axis_comparison": true,
+  "same_axis_claim_allowed": true,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "arms_differenced": false,
+  "placement_bands_differenced": false,
+  "comparison_kind": "r5_matched_same_node_band_no_ratio",
+  "gates": {
+    "r_at_least_5": true,
+    "all_islands_present": true,
+    "all_manifests_pass": true,
+    "all_structure_validated": true,
+    "all_island_checks_true": true,
+    "all_arms_pass": true,
+    "all_hpx_oracle_true": true,
+    "all_ray_oracle_true": true,
+    "cross_island_agreement": true,
+    "clock_overhead_captured": true,
+    "all_arms_same_node": true,
+    "all_hpx_nodelay_verified": true,
+    "all_hpx_disjoint_core_binding": true
+  },
+  "per_island_gates": {
+    "sn_band2_158734_i1": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true,
+      "hpx_same_node": true,
+      "ray_same_node": true,
+      "hpx_nodelay_verified": true,
+      "hpx_disjoint_core_binding": true
+    },
+    "sn_band2_158734_i2": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true,
+      "hpx_same_node": true,
+      "ray_same_node": true,
+      "hpx_nodelay_verified": true,
+      "hpx_disjoint_core_binding": true
+    },
+    "sn_band2_158734_i3": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true,
+      "hpx_same_node": true,
+      "ray_same_node": true,
+      "hpx_nodelay_verified": true,
+      "hpx_disjoint_core_binding": true
+    },
+    "sn_band2_158734_i4": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true,
+      "hpx_same_node": true,
+      "ray_same_node": true,
+      "hpx_nodelay_verified": true,
+      "hpx_disjoint_core_binding": true
+    },
+    "sn_band2_158734_i5": {
+      "manifest_present": true,
+      "hpx_present": true,
+      "ray_present": true,
+      "manifest_pass": true,
+      "structure_validated": true,
+      "checks_all_true": true,
+      "hpx_pass": true,
+      "ray_pass": true,
+      "hpx_oracle_true": true,
+      "ray_oracle_true": true,
+      "hpx_same_node": true,
+      "ray_same_node": true,
+      "hpx_nodelay_verified": true,
+      "hpx_disjoint_core_binding": true
+    }
+  },
+  "cross_island_disagreements": null,
+  "shared_invariants": {
+    "slurm_job_id": "158734",
+    "node_single": "medusa00",
+    "selected_subnet": "10.42.5.",
+    "k": 1000,
+    "w": 100,
+    "prewarm": 1,
+    "clock": "perf_counter_ns",
+    "measurement_boundary": "python_caller_perf_counter_ns_around_blocking_call",
+    "placement_mode": "same_node"
+  },
+  "clock_overhead_perf_counter_ns": {
+    "clock": "perf_counter_ns",
+    "count": 4096,
+    "min_ns": 68,
+    "median_ns": 83.0,
+    "mean_ns": 81
+  },
+  "arms": {
+    "hpx": {
+      "arm": "hpx",
+      "per_island": [
+        {
+          "matched_run_id": "sn_band2_158734_i1",
+          "p50_ns": 93850,
+          "p90_ns": 104080,
+          "p99_ns": 114285,
+          "mean_ns": 94243
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i2",
+          "p50_ns": 91845,
+          "p90_ns": 99563,
+          "p99_ns": 112857,
+          "mean_ns": 91785
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i3",
+          "p50_ns": 94137,
+          "p90_ns": 102377,
+          "p99_ns": 127181,
+          "mean_ns": 234780
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i4",
+          "p50_ns": 92971,
+          "p90_ns": 102287,
+          "p99_ns": 112052,
+          "mean_ns": 94148
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i5",
+          "p50_ns": 91600,
+          "p90_ns": 100345,
+          "p99_ns": 108315,
+          "mean_ns": 91788
+        }
+      ],
+      "across_island": {
+        "p50_ns": {
+          "median": 92971,
+          "min": 91600,
+          "max": 94137,
+          "spread": 2537
+        },
+        "p90_ns": {
+          "median": 102287,
+          "min": 99563,
+          "max": 104080,
+          "spread": 4517
+        },
+        "p99_ns": {
+          "median": 112857,
+          "min": 108315,
+          "max": 127181,
+          "spread": 18866
+        },
+        "mean_ns": {
+          "median": 94148,
+          "min": 91785,
+          "max": 234780,
+          "spread": 142995
+        }
+      },
+      "differenced_with_other_arm": false
+    },
+    "ray": {
+      "arm": "ray",
+      "per_island": [
+        {
+          "matched_run_id": "sn_band2_158734_i1",
+          "p50_ns": 567187,
+          "p90_ns": 698868,
+          "p99_ns": 1028572,
+          "mean_ns": 594707
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i2",
+          "p50_ns": 506867,
+          "p90_ns": 819137,
+          "p99_ns": 1007991,
+          "mean_ns": 558989
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i3",
+          "p50_ns": 519072,
+          "p90_ns": 595856,
+          "p99_ns": 661471,
+          "mean_ns": 526849
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i4",
+          "p50_ns": 483466,
+          "p90_ns": 790916,
+          "p99_ns": 1045079,
+          "mean_ns": 540149
+        },
+        {
+          "matched_run_id": "sn_band2_158734_i5",
+          "p50_ns": 533161,
+          "p90_ns": 838309,
+          "p99_ns": 1103450,
+          "mean_ns": 587521
+        }
+      ],
+      "across_island": {
+        "p50_ns": {
+          "median": 519072,
+          "min": 483466,
+          "max": 567187,
+          "spread": 83721
+        },
+        "p90_ns": {
+          "median": 790916,
+          "min": 595856,
+          "max": 838309,
+          "spread": 242453
+        },
+        "p99_ns": {
+          "median": 1028572,
+          "min": 661471,
+          "max": 1103450,
+          "spread": 441979
+        },
+        "mean_ns": {
+          "median": 558989,
+          "min": 526849,
+          "max": 594707,
+          "spread": 67858
+        }
+      },
+      "differenced_with_other_arm": false
+    }
+  },
+  "interpretation": "Slice 5 R>=5 matched SAME-NODE control band: every island ran both arms in one allocation on ONE node (node_single) / subnet / K-W-prewarm / Python boundary, each passing its own oracle, with the HPX arm over two DISTINCT localities on the TCP parcelport (loopback) and TCP_NODELAY + disjoint-core-binding witnessed. Per-arm p50/p90/p99 are summarized across islands SEPARATELY. Same-node vs cross-node is a WITHIN-ARM placement control only: the arms are never differenced or ratioed, and the same-node band is never differenced against the cross-node band.",
+  "forbidden_claims": [
+    "same-axis Ray-vs-HPX comparison",
+    "speedup",
+    "ratio",
+    "HPX beats Ray",
+    "Ray is slower than HPX",
+    "RayX makes Ray faster",
+    "distributed rayx.runtime actions",
+    "arbitrary remote Python execution",
+    "production / fault-tolerance / fabric"
+  ],
+  "run_id": "20260630T015757_2746929"
+}

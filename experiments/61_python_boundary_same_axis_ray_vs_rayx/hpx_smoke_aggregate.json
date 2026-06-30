@@ -1,0 +1,73 @@
+{
+  "experiment_id": "exp61",
+  "phase": "hpx-smoke",
+  "overall": "pass",
+  "comparison_kind": "hpx_python_boundary_smoke_only",
+  "same_axis_comparison": false,
+  "same_axis_claim_allowed": false,
+  "speedup_computed": false,
+  "ratio_reported": false,
+  "qd1_only": true,
+  "pipeline_excluded_from_comparison": true,
+  "hpx_extension_experiment_only": true,
+  "measurement_boundary_hpx": "python_caller_perf_counter_ns_around_blocking_call",
+  "clock": "perf_counter_ns",
+  "k": 200,
+  "w": 50,
+  "prewarm": 1,
+  "forbidden_claims": [
+    "same-axis Ray-vs-HPX comparison",
+    "speedup",
+    "ratio",
+    "HPX beats Ray",
+    "RayX makes Ray faster",
+    "distributed rayx.runtime actions",
+    "arbitrary remote Python execution",
+    "production / fault-tolerance / fabric"
+  ],
+  "not_hpx_calls_python_callback_experiment": true,
+  "not_distributed_rayx_runtime": true,
+  "run_id": "20260629T122741_59600",
+  "x": 7,
+  "node_tag_locality_id": 0,
+  "oracle_expected": 1380014431,
+  "hpx_oracle_correct": true,
+  "hpx_gil_released": true,
+  "hpx_threads": 4,
+  "ext_dir": "/Users/unick/Desktop/Repos/RayX/experiments/61_python_boundary_same_axis_ray_vs_rayx/build",
+  "ext_attrs": {
+    "experiment_only": true,
+    "dist_probe_xor": 1380014424
+  },
+  "single_locality_find_here": true,
+  "connector_used": false,
+  "ray_side_measured": false,
+  "gates": {
+    "ext_imported": true,
+    "hpx_started": true,
+    "locality_id_resolved": true,
+    "prewarm_correct": true,
+    "every_call_oracle_correct": true,
+    "hpx_gil_released": true,
+    "clean_shutdown": true,
+    "no_error": true
+  },
+  "error": null,
+  "boundary_call_ns_observation_only": {
+    "count": 200,
+    "min_ns": 8541,
+    "max_ns": 53417,
+    "mean_ns": 12848,
+    "p50_ns": 11833,
+    "p90_ns": 16500,
+    "p99_ns": 29208
+  },
+  "timing_is_observation_only_not_a_claim": true,
+  "claim_fences": [
+    "Slice 0 is an HPX-side embedding smoke ONLY: Python -> pybind/HPX -> fixed action -> result, single-locality (find_here). No Ray side, no two-node, no connector.",
+    "NO same-axis comparison, NO speedup, NO ratio, NO 'HPX beats Ray', NO 'RayX makes Ray faster'. Timing is observation-only and machine-specific.",
+    "experiment-only pybind/HPX extension; NOT rayx.runtime, NOT _rayx, NO Ray; does not add distributed actions to any shipped RayX API."
+  ],
+  "overwrite_refused": false,
+  "top_level_aggregate_path": "hpx_smoke_aggregate.json"
+}

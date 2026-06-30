@@ -1,0 +1,56 @@
+# exp61 artifact hygiene — keep curated source + the curated smoke aggregate trackable,
+# ignore build outputs and raw run artifacts. EXPERIMENT-ONLY; builds its own pybind module.
+
+# build / python scratch
+build/
+__pycache__/
+*.pyc
+*.so
+*.dylib
+*.o
+*.a
+
+# raw per-run scratch
+_exp61_runs/
+
+# raw logs
+*.log
+hpx.parcel.*.log
+logs/
+
+# Aggregate-write policy (see safe_write_top_aggregate / _finish_scaffold in run_exp61_same_axis.py):
+#   TRACKABLE curated PASS aggregates (one per arm):
+#     - hpx_smoke_aggregate.json
+#     - ray_smoke_aggregate.json
+#     - hpx_connected_aggregate.json   (Slice 2B: real two-node PASS only)
+#     - ray_remote_aggregate.json      (Slice 2B: real two-node PASS only)
+#   IGNORED non-curated siblings. The writer emits "<base>_skip.json", "<base>_fail.json", and
+#   "<base>_redirected_<stamp>_<pid>.json" (tag follows "aggregate_" directly), so the patterns
+#   must NOT use "aggregate_*_skip" etc. Slice-2A local runs ALWAYS skip, so they only ever produce
+#   the ignored "_skip" siblings -- the curated two-node names stay empty until Rostam Slice 2B.
+hpx_smoke_aggregate_skip.json
+hpx_smoke_aggregate_fail.json
+hpx_smoke_aggregate_redirected_*.json
+ray_smoke_aggregate_skip.json
+ray_smoke_aggregate_fail.json
+ray_smoke_aggregate_redirected_*.json
+hpx_connected_aggregate_skip.json
+hpx_connected_aggregate_fail.json
+hpx_connected_aggregate_redirected_*.json
+ray_remote_aggregate_skip.json
+ray_remote_aggregate_fail.json
+ray_remote_aggregate_redirected_*.json
+
+# Slice 3 matched-run artifacts (see _finish_matched / phase_pair_manifest):
+#   TRACKABLE: the curated correlation manifest slice3_<id>_manifest.json.
+#   IGNORED: the raw pair-scoped per-arm artifacts (reproducible from a matched run).
+slice3_*_hpx.json
+slice3_*_ray.json
+
+# Slice 5 same-node control artifacts (see _finish_samenode_arm / phase_pair_manifest_samenode /
+# phase_band_aggregate_samenode):
+#   TRACKABLE: the curated same-node manifest slice5_sn_<id>_manifest.json and the same-node band
+#     aggregate slice5_samenode_band_<job>_aggregate.json (NOT matched by the patterns below).
+#   IGNORED: the raw pair-scoped per-arm artifacts (reproducible from a matched same-node run).
+slice5_sn_*_hpx.json
+slice5_sn_*_ray.json

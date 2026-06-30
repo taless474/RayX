@@ -65,7 +65,7 @@ Keep benchmark claims tied to measured evidence. Separate measured facts from in
 
 Avoid unqualified “coordination ceiling” wording. When preserving old measurements, mark superseded interpretations clearly instead of deleting useful provenance.
 
-## Current evidence state, post-exp60
+## Current evidence state
 
 Use these as durable interpretation constraints unless new evidence changes them.
 
@@ -147,31 +147,34 @@ The later two-node arc extends this with hardware placement and performance char
 * exp59: Ray actor baseline through Slice 5, complete.
 * exp60: HPX same-node two-locality TCP control.
 
-### Current two-node evidence
+### Current same-axis and two-node evidence
 
 The post-exp52 distributed evidence arc has advanced beyond single-node mechanism probes:
 
 * exp57/58 established Ray/Slurm-supervised two-node HPX clean-path action experiments.
 * exp58 measured the HPX two-node action path as caller-observed C++ `hpx::async(...).get()` RTT, not pure network RTT and not a Python-facing measurement.
-* exp59 completed the Ray actor baseline through Slice 5. It provides a Ray Python/ray.get-observed actor path and a plane-labeled juxtaposition against exp58, but not a same-axis Ray-vs-HPX comparison.
-* exp60 is the HPX same-node two-locality TCP control. It decomposes HPX same-node vs cross-node cost inside HPX only. It replaces the older placeholder that exp60 would be whole-island failure/restart; failure/restart is now a later experiment.
+* exp59 completed the Ray actor baseline. It provides a Ray Python/ray.get-observed actor path and a plane-labeled juxtaposition against exp58, but not a same-axis Ray-vs-HPX comparison.
+* exp60 is the HPX same-node two-locality TCP control. It decomposes HPX same-node vs cross-node cost inside HPX only.
+* exp61 is the current same-axis Python-boundary comparison direction. Slice 4 completed the cross-node R=5 band on medusa00 -> medusa01. Slice 5 completed the same-node R=5 placement-control band on medusa00.
 
 Durable interpretation:
 
-* exp59 Slice 5 is comparison-gating, not a same-axis performance verdict.
-* Ray and HPX numbers from exp59/exp58 may be reported side by side only with measurement-plane labels.
+* exp61 Slice 4 is the current best cross-node same-axis evidence: Ray `ray.get(actor.dist_probe.remote(x))` and experiment-only `ext.dist_probe_remote(x)` are both measured from the same Python caller boundary using `perf_counter_ns`, with QD1 closed-int64 work, matched R=5 islands, and hard placement gates.
+* exp61 Slice 5 is a same-node placement control for exp61, not a performance win story. It passed same-node gates, including TCP_NODELAY attestation and enforced/disjoint affinity verification.
+* exp61 Slice 5 also showed that the HPX same-node loopback control can be high-magnitude/high-variance under the constrained affinity setup. Do not infer that same-node HPX should necessarily be faster than cross-node HPX.
+* exp58/59/60 remain useful precursor and within-runtime decomposition evidence, but they are no longer the headline Ray-vs-HPX measurement framing.
+* Ray and HPX numbers from exp58/59 may be reported side by side only with measurement-plane labels.
 * Within-runtime decompositions are allowed:
-
   * Ray same-host vs Ray cross-node.
   * HPX same-node TCP vs HPX cross-node TCP.
-* The safe shared reading is that, for these QD1 closed-int64 paths, most cost is local stack rather than the physical inter-node hop.
-* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60.
+  * exp61 same-node vs cross-node as placement controls within the same Python-boundary experiment, without ratios or speedups.
+* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60/61.
+* For exp61 specifically, respect the artifact fences: `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, and `placement_bands_differenced=false`.
 * Do not say “HPX beats Ray,” “Ray is slower than HPX,” or “RayX makes Ray faster.”
 * Do not use pipeline/QD8/QD32/QD128 rows for Ray-vs-HPX comparison.
-* Do not say the value oracle alone proves physical placement. Placement proof requires node ids, hostnames, and hard placement gates; the oracle proves intended closed-int64 execution.
+* Do not say the value oracle alone proves physical placement. Placement proof requires node ids, hostnames, locality ids where applicable, affinity/transport gates where applicable, and hard placement gates; the oracle proves intended closed-int64 execution.
 
-Detailed numbers, node ids, run ids, clocks, warmups, ports, hashes, and per-island bands belong in the experiment write-ups, curated aggregates, or handoff, not here.
-
+Detailed numbers, node ids, run ids, clocks, warmups, ports, hashes, and per-island bands belong in the experiment write-ups, curated aggregates, README evidence summary, or `docs/evidence_index.md`, not here.
 
 ## Rostam and Slurm workflow rules
 
@@ -210,7 +213,7 @@ Network facts:
 
 * `eno16` maps to `10.42.5.x`
 * `ibp94s0` maps to `10.42.6.x`
-* Use `--prefer-subnet 10.42.5.` for exp58/59/60 parity unless an experiment explicitly changes it.
+* Use `--prefer-subnet 10.42.5.` parity unless an experiment explicitly changes it.
 * medusa00 is `10.42.5.30`
 * medusa01 is `10.42.5.31`
 
@@ -323,7 +326,6 @@ For Ray-vs-HPX or Ray-vs-RayX timing:
 * Always label the measurement plane.
 * QD1 and pipeline/overlap regimes must be separated.
 * Do not compare pipeline/QD8/QD32/QD128 numbers across Ray and HPX unless a specific same-regime experiment is explicitly designed.
-* Do not compute speedups or ratios unless the experiment is explicitly same-axis and all same-axis gates pass.
 * Record clock, clock overhead, warmup, K/W/R, node pair, selected subnet, placement proof basis, transport, and band construction.
 * Use per-island primary percentiles plus across-island median/spread unless an experiment explicitly chooses another statistical construction.
 

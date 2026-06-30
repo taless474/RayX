@@ -3,8 +3,10 @@
 A chronological **“what we learned”** index for the RayX benchmark and experiment
 arc. Each entry is a short summary plus a link to the full write-up — this is an
 index, **not** a raw run log. Claim fences are preserved: nothing here is a
-speedup, a ratio, an “HPX beats Ray” / “RayX makes Ray faster” claim, or a
-same-axis Ray-vs-HPX comparison. Magnitudes are observation-only and
+speedup, a ratio, or an “HPX beats Ray” / “RayX makes Ray faster” claim. The one
+same-axis *measurement* (exp61, both arms timed at the same Python caller
+boundary) still reports the two arms as **separate per-arm bands** and never
+differences, ratios, or ranks them. Magnitudes are observation-only and
 machine-specific unless a write-up says otherwise.
 
 Top-level reading guides that complement this index:
@@ -198,3 +200,35 @@ distributed-fabric direction stays gated.
 
 **Shared interpretation:** in both runtimes the QD1 floor is dominated by **local
 stack, not the physical inter-node hop**.
+
+---
+
+## Same-axis Python-boundary comparison (experiment 61)
+
+The first experiment that moves **both** arms onto the **same measurement axis**.
+exp58 timed HPX from **C++** (`hpx::async(...).get()`) and exp59 timed Ray from
+**Python** (`ray.get(...)`) — different caller boundaries, hence a plane-labeled
+juxtaposition, not a same-axis number. exp61 closes that gap by timing both paths
+at the **same Python caller boundary** (`perf_counter_ns` around one blocking
+call), using a closed-`int64` QD1 micro-workload and the same oracle family as
+exp58. The HPX side is an **experiment-only** pybind binding (`ext.dist_probe_remote(x)`)
+under `experiments/`; it is **not** shipped `rayx.runtime` API and does not give the
+public RayX API distributed actions.
+
+**Claim fences:** the two arms are summarized **separately** and reported side by
+side — **no speedup, no ratio, no arm differencing, no “HPX beats Ray”, no “RayX
+makes Ray faster”**, no production / real-inference / Ray-Serve / object-store /
+task-semantics / fault-tolerance / scaling claim. Rostam-allocation-specific;
+HPX side is experiment-only and TCP-parcelport-specific.
+
+* [experiments/61_python_boundary_same_axis_ray_vs_rayx](../experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) — **exp61 Slice 4**: R=5 matched same-axis Python-boundary band, job `158724`, medusa00 → medusa01, subnet `10.42.5.`, K=1000 / W=100 / prewarm=1, `clock=perf_counter_ns`, boundary `python_caller_perf_counter_ns_around_blocking_call`. All Slice-4 gates passed (`overall=pass`, no failed gates): five matched islands, both arms `two_node_exercised` and oracle-correct, cross-island agreement on job / node pair / subnet / K / W / prewarm / clock / boundary, clock overhead captured (median 92 ns, count 4096). Resulting flags `same_axis_comparison=true`, `comparison_kind=r5_matched_same_axis_band_no_ratio`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`. Per-arm RTT bands (across-island median of per-island percentiles), reported separately: **Ray actor path** (`ray.get(actor.dist_probe.remote(x))`) p50 ~518.3 µs, p90 ~850.7 µs, p99 ~1125.7 µs, mean ~584.7 µs; **experiment-only Python→HPX action path** (`ext.dist_probe_remote(x)`) p50 ~184.8 µs, p90 ~257.5 µs, p99 ~322.6 µs, mean ~188.7 µs. Curated `slice4_band_158724_aggregate.json` + the five `slice3_band_158724_i{1..5}_manifest.json` are tracked; raw `slice3_band_158724_i{1..5}_{hpx,ray}.json` are gitignored but kept locally.
+
+**What this licenses:** *for this QD1 closed-`int64` micro-call on medusa00 →
+medusa01, measured at the same Python caller boundary in matched R=5 runs, the Ray
+actor path and the experiment-only Python→HPX action path produced the per-arm RTT
+bands above.* Nothing beyond that — the bands are not differenced, ratioed, or
+ranked.
+
+* [experiments/61_python_boundary_same_axis_ray_vs_rayx](../experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) — **exp61 Slice 5 (same-node placement control)**: R=5 matched **same-node** band, job `158734`, **single** node `medusa00`, subnet `10.42.5.`, K=1000 / W=100 / prewarm=1, same Python caller boundary. Holds each arm's mechanism constant and varies only co-location: the HPX arm runs **two distinct localities on one host over the loopback TCP parcelport** (`ext.dist_probe_remote(x)`, root locality 0 + connector locality 1, **not** `find_here`), the Ray arm a **genuine actor pinned to the driver's own node** (`NodeAffinity(soft=False)`). Per-locality resources are comparable to the cross-node band: root **4 threads** on cpuset `[0,1,2,3]`, connector **4 threads** on cpuset `[4,5,6,7]` (disjoint, enforced). All gates passed (`overall=pass`): `same_axis_comparison=true`, `comparison_kind=r5_matched_same_node_band_no_ratio`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`; per island `hpx_tcp_nodelay_verified` (getsockopt on 8 live peer sockets), `disjoint_core_binding_verified` (effective root `[0,1,2,3]` / connector `[4,5,6,7]`), `same_node_colocated`, and `ray_actor_on_driver_node` all true; clock overhead median 83 ns. Per-arm same-node RTT bands (across-island median, reported **separately**): **Ray** (`ray.get(actor.dist_probe.remote(x))`) p50 ~519.1 µs, p90 ~790.9 µs, p99 ~1028.6 µs, mean ~559.0 µs; **experiment-only Python→HPX** (`ext.dist_probe_remote(x)`) p50 ~93.0 µs, p90 ~102.3 µs, p99 ~112.9 µs, mean ~94.1 µs. Curated `slice5_samenode_band_158734_aggregate.json` + the five `slice5_sn_sn_band2_158734_i{1..5}_manifest.json` are tracked; raw `slice5_sn_sn_band2_158734_i{1..5}_{hpx,ray}.json` are gitignored. **Audit note:** a first same-node band (job 158732) reported a high quantized HPX tail (p99 ~6975 µs); a skeptical audit traced this to a **resource-shape confound** — the connector was bound with `srun --cpu-bind=map_cpu` (one core per task), so it ran a single worker thread and hit HPX idle-backoff at QD1. Corrected to `--cpu-bind=mask_cpu` + explicit `--hpx:threads` (probe job 158733 confirmed the tail collapsed); job 158734 is the canonical run. 158732 passed every structural gate (min latency ~90 µs), so it is a valid mechanism pass but its timing band is **not** used.
+
+**What Slice 5 controls / does not claim:** it **controls for physical co-location** within each arm and **passed its gates** as a same-node control with comparable per-locality resources. With that corrected shape the experiment-only HPX same-node arm is **tight and consistent** (per-island p99 ~108–127 µs); numbers are observation-only and machine-specific. It is **not** a win, **not** compared to the Ray arm or to the Slice-4 cross-node band by ratio/winner. **Slice 4 (cross-node) remains the current best cross-node same-axis evidence; Slice 5 is the same-node control.**
