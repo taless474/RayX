@@ -1,0 +1,301 @@
+{
+  "band_id": "mrband_158817",
+  "cross_island_agreement": {
+    "agree": true,
+    "disagreements": {},
+    "shared_invariants": {
+      "clock": "perf_counter_ns",
+      "fanout_placement": "all-remote",
+      "inner_fanout_n": 8,
+      "k": 1000,
+      "node_placement": "cross_node_multi_remote",
+      "node_set": [
+        "medusa00",
+        "medusa01",
+        "medusa02"
+      ],
+      "prewarm": 1,
+      "selected_subnet": "10.42.5.",
+      "w": 100
+    }
+  },
+  "experiment_id": "exp62",
+  "fences": {
+    "arms_differenced": false,
+    "placement_bands_differenced": false,
+    "ratio_reported": false,
+    "speedup_computed": false
+  },
+  "gates": {
+    "all_arms_pass": true,
+    "all_distribution_ok": true,
+    "all_hpx_connector_cpuset_not_collapsed": true,
+    "all_hpx_connector_lifecycle_ok": true,
+    "all_hpx_connector_nodelay_true": true,
+    "all_hpx_leaves_cover_all_remote_localities": true,
+    "all_hpx_no_dispatch_timeout": true,
+    "all_ray_coordinator_zero_leaves": true,
+    "all_ray_cover_all_remote_nodes": true,
+    "all_ray_hard_placement": true,
+    "all_witness_leaf_count_eq_n": true,
+    "cross_island_agreement": true,
+    "hpx_band_pass": true,
+    "node_placement_is_multi_remote": true,
+    "r_at_least_5": true,
+    "ray_band_pass": true
+  },
+  "hpx_band": {
+    "across_islands": {
+      "mean_ns": {
+        "median": 251475,
+        "spread": {
+          "max": 253287,
+          "min": 245147
+        }
+      },
+      "p50_ns": {
+        "median": 249525,
+        "spread": {
+          "max": 253272,
+          "min": 247853
+        }
+      },
+      "p90_ns": {
+        "median": 270715,
+        "spread": {
+          "max": 273411,
+          "min": 264309
+        }
+      },
+      "p99_ns": {
+        "median": 320177,
+        "spread": {
+          "max": 321904,
+          "min": 312419
+        }
+      }
+    },
+    "arm": "hpx",
+    "experiment_id": "exp62",
+    "fences": {
+      "arms_differenced": false,
+      "placement_bands_differenced": false,
+      "ratio_reported": false,
+      "speedup_computed": false
+    },
+    "gates": {
+      "all_arms_pass": true,
+      "all_distribution_ok": true,
+      "all_threads_cover_fanout": true,
+      "all_witness_leaf_count_eq_n": true,
+      "no_missing_island_stats": true,
+      "placement_is_distributed": true,
+      "r_at_least_5": true
+    },
+    "min_r": 5,
+    "note": "Per-arm band for ONE arm. p50/p90/p99/mean summarized across islands SEPARATELY. Arms are never differenced; placement bands are never differenced.",
+    "per_island": [
+      {
+        "island_id": "mrband_158817-i1-hpx",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 341507,
+          "mean_ns": 251475,
+          "min_ns": 184374,
+          "p50_ns": 248938,
+          "p90_ns": 270876,
+          "p99_ns": 312419
+        }
+      },
+      {
+        "island_id": "mrband_158817-i2-hpx",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 343742,
+          "mean_ns": 253287,
+          "min_ns": 185449,
+          "p50_ns": 251528,
+          "p90_ns": 270715,
+          "p99_ns": 321904
+        }
+      },
+      {
+        "island_id": "mrband_158817-i3-hpx",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 363376,
+          "mean_ns": 252934,
+          "min_ns": 180039,
+          "p50_ns": 253272,
+          "p90_ns": 273411,
+          "p99_ns": 320177
+        }
+      },
+      {
+        "island_id": "mrband_158817-i4-hpx",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 370903,
+          "mean_ns": 245147,
+          "min_ns": 177431,
+          "p50_ns": 247853,
+          "p90_ns": 264309,
+          "p99_ns": 316673
+        }
+      },
+      {
+        "island_id": "mrband_158817-i5-hpx",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 367730,
+          "mean_ns": 248927,
+          "min_ns": 183409,
+          "p50_ns": 249525,
+          "p90_ns": 268241,
+          "p99_ns": 321513
+        }
+      }
+    ],
+    "placement_mode": "all-remote",
+    "r": 5,
+    "same_axis_comparison": true
+  },
+  "job_id": "158817",
+  "metadata": {
+    "fanout_placement": "all-remote",
+    "hpx_composition": "root_flat_gather_poll (proven cross-node)",
+    "measurement_boundary": "python_caller_boundary",
+    "min_r": 5,
+    "note": "Combined multi-remote band. HPX (proven root_flat_gather_poll over >=2 remote localities) and Ray (coordinator + round-robin leaves across >=2 remote nodes) per-arm bands are kept SEPARATE; arms are never differenced and placement bands are never differenced. same_axis_comparison means structurally valid same-axis evidence, NOT a ratio/winner comparison.",
+    "r_hpx": 5,
+    "r_ray": 5
+  },
+  "node_placement": "cross_node_multi_remote",
+  "ray_band": {
+    "across_islands": {
+      "mean_ns": {
+        "median": 3805415,
+        "spread": {
+          "max": 3829789,
+          "min": 3791226
+        }
+      },
+      "p50_ns": {
+        "median": 3717446,
+        "spread": {
+          "max": 3722416,
+          "min": 3714886
+        }
+      },
+      "p90_ns": {
+        "median": 3874368,
+        "spread": {
+          "max": 3881641,
+          "min": 3848219
+        }
+      },
+      "p99_ns": {
+        "median": 7012476,
+        "spread": {
+          "max": 7090583,
+          "min": 6839959
+        }
+      }
+    },
+    "arm": "ray",
+    "experiment_id": "exp62",
+    "fences": {
+      "arms_differenced": false,
+      "placement_bands_differenced": false,
+      "ratio_reported": false,
+      "speedup_computed": false
+    },
+    "gates": {
+      "all_arms_pass": true,
+      "all_distribution_ok": true,
+      "all_threads_cover_fanout": true,
+      "all_witness_leaf_count_eq_n": true,
+      "no_missing_island_stats": true,
+      "placement_is_distributed": true,
+      "r_at_least_5": true
+    },
+    "min_r": 5,
+    "note": "Per-arm band for ONE arm. p50/p90/p99/mean summarized across islands SEPARATELY. Arms are never differenced; placement bands are never differenced.",
+    "per_island": [
+      {
+        "island_id": "mrband_158817-i1-ray",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 19053313,
+          "mean_ns": 3829789,
+          "min_ns": 3496979,
+          "p50_ns": 3722416,
+          "p90_ns": 3874368,
+          "p99_ns": 6961924
+        }
+      },
+      {
+        "island_id": "mrband_158817-i2-ray",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 8712117,
+          "mean_ns": 3805415,
+          "min_ns": 3533027,
+          "p50_ns": 3718624,
+          "p90_ns": 3878899,
+          "p99_ns": 7012476
+        }
+      },
+      {
+        "island_id": "mrband_158817-i3-ray",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 10227572,
+          "mean_ns": 3797463,
+          "min_ns": 3480912,
+          "p50_ns": 3715854,
+          "p90_ns": 3859559,
+          "p99_ns": 7090583
+        }
+      },
+      {
+        "island_id": "mrband_158817-i4-ray",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 9012757,
+          "mean_ns": 3823567,
+          "min_ns": 3496763,
+          "p50_ns": 3717446,
+          "p90_ns": 3881641,
+          "p99_ns": 7082365
+        }
+      },
+      {
+        "island_id": "mrband_158817-i5-ray",
+        "overall": "pass",
+        "stats": {
+          "count": 1000,
+          "max_ns": 9308088,
+          "mean_ns": 3791226,
+          "min_ns": 3519607,
+          "p50_ns": 3714886,
+          "p90_ns": 3848219,
+          "p99_ns": 6839959
+        }
+      }
+    ],
+    "placement_mode": "all-remote",
+    "r": 5,
+    "same_axis_comparison": true
+  },
+  "same_axis_comparison": true
+}

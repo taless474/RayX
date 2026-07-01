@@ -3,11 +3,11 @@
 A chronological **“what we learned”** index for the RayX benchmark and experiment
 arc. Each entry is a short summary plus a link to the full write-up — this is an
 index, **not** a raw run log. Claim fences are preserved: nothing here is a
-speedup, a ratio, or an “HPX beats Ray” / “RayX makes Ray faster” claim. The one
-same-axis *measurement* (exp61, both arms timed at the same Python caller
-boundary) still reports the two arms as **separate per-arm bands** and never
-differences, ratios, or ranks them. Magnitudes are observation-only and
-machine-specific unless a write-up says otherwise.
+speedup, a ratio, or an “HPX beats Ray” / “RayX makes Ray faster” claim. The
+same-axis *measurements* (exp61 scalar QD1; exp62 distributed fanout/fanin — both
+arms timed at the same Python caller boundary) still report the two arms as
+**separate per-arm bands** and never difference, ratio, or rank them. Magnitudes
+are observation-only and machine-specific unless a write-up says otherwise.
 
 Top-level reading guides that complement this index:
 
@@ -182,7 +182,9 @@ A two-node Rostam (medusa00/medusa01, eno16, `10.42.5.`) characterization of the
 **QD1 closed-`int64` micro-call path**, with **strictly different measurement
 planes** held apart: **Ray numbers are Python/`ray.get`-observed actor RTT**;
 **HPX numbers (exp58/exp60) are caller-observed C++ `hpx::async(...).get()` RTT**.
-These are **not the same measurement axis**.
+These are **not the same measurement axis**. They are **precursor / within-runtime
+decomposition** evidence for the same-axis bands (exp61 scalar QD1, exp62
+distributed fanout/fanin), **not** same-axis headline evidence.
 
 **Claim fences:** no speedup, no ratio, no “HPX beats Ray”, no “RayX makes Ray
 faster”, no same-axis Ray-vs-HPX comparison. Closed-`int64` QD1 micro-workload;
@@ -231,4 +233,50 @@ ranked.
 
 * [experiments/61_python_boundary_same_axis_ray_vs_rayx](../experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) — **exp61 Slice 5 (same-node placement control)**: R=5 matched **same-node** band, job `158734`, **single** node `medusa00`, subnet `10.42.5.`, K=1000 / W=100 / prewarm=1, same Python caller boundary. Holds each arm's mechanism constant and varies only co-location: the HPX arm runs **two distinct localities on one host over the loopback TCP parcelport** (`ext.dist_probe_remote(x)`, root locality 0 + connector locality 1, **not** `find_here`), the Ray arm a **genuine actor pinned to the driver's own node** (`NodeAffinity(soft=False)`). Per-locality resources are comparable to the cross-node band: root **4 threads** on cpuset `[0,1,2,3]`, connector **4 threads** on cpuset `[4,5,6,7]` (disjoint, enforced). All gates passed (`overall=pass`): `same_axis_comparison=true`, `comparison_kind=r5_matched_same_node_band_no_ratio`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`; per island `hpx_tcp_nodelay_verified` (getsockopt on 8 live peer sockets), `disjoint_core_binding_verified` (effective root `[0,1,2,3]` / connector `[4,5,6,7]`), `same_node_colocated`, and `ray_actor_on_driver_node` all true; clock overhead median 83 ns. Per-arm same-node RTT bands (across-island median, reported **separately**): **Ray** (`ray.get(actor.dist_probe.remote(x))`) p50 ~519.1 µs, p90 ~790.9 µs, p99 ~1028.6 µs, mean ~559.0 µs; **experiment-only Python→HPX** (`ext.dist_probe_remote(x)`) p50 ~93.0 µs, p90 ~102.3 µs, p99 ~112.9 µs, mean ~94.1 µs. Curated `slice5_samenode_band_158734_aggregate.json` + the five `slice5_sn_sn_band2_158734_i{1..5}_manifest.json` are tracked; raw `slice5_sn_sn_band2_158734_i{1..5}_{hpx,ray}.json` are gitignored. **Audit note:** a first same-node band (job 158732) reported a high quantized HPX tail (p99 ~6975 µs); a skeptical audit traced this to a **resource-shape confound** — the connector was bound with `srun --cpu-bind=map_cpu` (one core per task), so it ran a single worker thread and hit HPX idle-backoff at QD1. Corrected to `--cpu-bind=mask_cpu` + explicit `--hpx:threads` (probe job 158733 confirmed the tail collapsed); job 158734 is the canonical run. 158732 passed every structural gate (min latency ~90 µs), so it is a valid mechanism pass but its timing band is **not** used.
 
-**What Slice 5 controls / does not claim:** it **controls for physical co-location** within each arm and **passed its gates** as a same-node control with comparable per-locality resources. With that corrected shape the experiment-only HPX same-node arm is **tight and consistent** (per-island p99 ~108–127 µs); numbers are observation-only and machine-specific. It is **not** a win, **not** compared to the Ray arm or to the Slice-4 cross-node band by ratio/winner. **Slice 4 (cross-node) remains the current best cross-node same-axis evidence; Slice 5 is the same-node control.**
+**What Slice 5 controls / does not claim:** it **controls for physical co-location** within each arm and **passed its gates** as a same-node control with comparable per-locality resources. With that corrected shape the experiment-only HPX same-node arm is **tight and consistent** (per-island p99 ~108–127 µs); numbers are observation-only and machine-specific. It is **not** a win, **not** compared to the Ray arm or to the Slice-4 cross-node band by ratio/winner. **exp61 is the scalar QD1 same-axis evidence (Slice 4 cross-node band, Slice 5 same-node control); exp62 (below) extends the same-axis methodology to a distributed fanout/fanin workload and is the current strongest same-axis distributed evidence.**
+
+---
+
+## Same-axis distributed fanout/fanin (experiment 62)
+
+The **current strongest same-axis distributed evidence** is **Slice 4b** (matched
+R=5 band across **≥2 remote localities/nodes**), extending exp61 from a single scalar
+QD1 remote call to a **semantic distributed workload** measured at the same Python
+caller boundary: one outer blocking call `fanout_fanin(x, N) -> int64` that dispatches
+**N=8 leaf actions across ≥2 remote localities/nodes** (all-remote: the
+root/coordinator runs no leaves) and **reduces** them to one closed-`int64` value.
+QD1 at the outer boundary, but each call now does real distributed fanout and a
+fan-in reduction across multiple remotes, so no reading is attributable to a
+single-call or single-remote artifact. The placement-independent oracle
+`leaf(x,i) = (x ^ 0x52415958) + (i<<1)`, composite = int64 sum mod 2^64, proves
+intended execution only; distribution is proven **separately** by per-leaf locality
+witness, hard placement gates, attested transport, and node/locality ids. The HPX
+side is an **experiment-only** pybind binding (`ext.fanout_fanin_remote(x, N)`);
+it is **not** shipped `rayx.runtime` API and gives the public RayX API no
+distributed actions.
+
+**Claim fences:** the two arms are summarized **separately** and reported side by
+side — **no speedup, no ratio, no arm differencing, no placement-band differencing,
+no “HPX beats Ray”, no “RayX makes Ray faster”**, no production / real-inference /
+Ray-Serve / object-store / fault-tolerance / scaling claim. Slice 4b covers **≥2
+remote localities/nodes** (Slice 3 was one remote locality); the HPX arm uses the
+proven `root_flat_gather_poll` interim composition (not a final HPX-native collective).
+Rostam-allocation-specific; HPX side is experiment-only and TCP-parcelport-specific.
+
+* [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](../experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — **exp62 Slice 3** (one remote locality; **superseded by Slice 4b** below as the strongest exp62 same-axis evidence): R=5 matched cross-node distributed fanout/fanin band, job `158809`, medusa00 → medusa01, subnet `10.42.5.`, N=8, all-remote, **one remote locality**, K=1000 / W=100 / prewarm=1, `clock=perf_counter_ns`, boundary `python_caller_boundary`. Slice history: Slice 0 pure-Python scaffold, Slice 1 local HPX mechanism smoke, Slice 2 HPX-only one-remote dry-run, Slice 3 the matched band here. All five pair manifests passed (19 correlation gates each) and the combined band aggregate passed (13 gates): both arms oracle-correct (composite `11040115504`), both `leaves_local=0` / `leaves_remote=8` / `witness_leaf_count=8`; HPX per island `hpx_tcp_nodelay_verified` / `parcelport_transport=tcp` / connector cpuset `[0,2,4,6,8,10,12,14]` (8, not collapsed) / `threads_cover_fanout` / `no_dispatch_timeout` / `timed_out_leaf_count=0` (`composition_primitive=hpx::async+is_ready_poll`); Ray per island `hard_placement` / `soft=false` / `single_submission` / `coordinator_single_submission` / `leaves_on_target_node` / `coordinator_on_driver_node` / `ray_head_num_cpus=0` / `ray_coordinator_num_cpus=0` / `ray_no_dispatch_timeout`; `cross_island_agreement=true`; teardown `no_orphans=true`. Resulting flags `same_axis_comparison=true`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`. Per-arm RTT bands (across-island median of per-island percentiles, reported **separately**): **Ray actor/task path** (`ray.get(coordinator.remote(x, N))`) p50 ~3640.9 µs, p90 ~3895.6 µs, p99 ~6407.0 µs, mean ~3718.6 µs; **experiment-only Python→HPX action path** (`ext.fanout_fanin_remote(x, N)`) p50 ~345.4 µs, p90 ~401.7 µs, p99 ~466.2 µs, mean ~359.0 µs. Curated `exp62_fanout_band_158809_aggregate.json` + the five `exp62_fanout_band-158809_i{1..5}_manifest.json` are tracked; raw `exp62_fanout_band-158809_i{1..5}_{hpx,ray}.json` and the `_exp62_runs/` provenance (attest, bootdirs, ray logs, batch log) stay gitignored.
+
+**What this licenses:** *for this specific QD1 closed-`int64` distributed fanout/fanin
+microbenchmark, N=8, all-remote, one remote locality, cross-node medusa00→medusa01,
+measured at the same Python caller boundary, the experiment-only HPX action path shows
+a lower RTT band than the Ray actor/task path. This is a structurally valid same-axis
+juxtaposition, not a ratio, speedup, or winner claim, and not shipped `rayx.runtime`
+distributed API.* Nothing beyond that — the bands are not differenced, ratioed, or
+ranked. This does not motivate runtime/API work.
+
+* **exp62 Slice 4a — HPX-only ≥2-remote-locality fanout/fanin mechanism** (`hpx-multi-remote-smoke`, job `158813`): a **3-node** `--exclusive` allocation (medusa00 root; medusa01/`10.42.5.31`/locality 1 and medusa02/`10.42.5.32`/locality 2 connectors), subnet `10.42.5.`, N=8, all-remote round-robin, `node_placement=cross_node_multi_remote`, `composition_primitive=root_flat_gather_reduce`, watchdog `bounded_is_ready_poll_50us`. `overall=pass`, all 17 gates True: `n_remote_localities=2`, `remote_locality_ids=[1,2]`, `leaves_per_remote_locality={1:4, 2:4}`, `leaves_local=0`, `leaves_remote=8`, `witness_leaf_count=8`, root ran zero leaves, composite oracle correct (`11040115504`), `no_dispatch_timeout` / `timed_out_leaf_count=0`; both connectors `transport=tcp` / `tcp_nodelay_verified` / `joined` / `served` / `graceful_disconnect`, attested cpuset `[0,2,4,6,8,10,12,14]` (8, not collapsed). Raw run + per-connector lifecycle provenance (`connect.preprobe_ok` / `connect.joined1` / `served1.ok` / `attest_connect.json` / `connect.disconnected1`) stay gitignored under `_exp62_runs/slice4a_copyback/`; like the Slice 2 dry-run there is no separately-tracked curated artifact. **This validates the ≥2-remote-locality HPX fanout/fanin mechanism only. It is HPX-only and sets `same_axis_comparison=false`; it is not a Ray comparison.** Cleanup: allocation released cleanly and both connectors reported `graceful_disconnect=true`; orphan-freedom basis is the graceful-disconnect witnesses plus clean Slurm teardown (compute nodes are not SSH-reachable post-allocation for a `pgrep` scan). Slice 4b (below) completed the matched Ray band at this ≥2-locality shape.
+
+* **A pre-Slice-4b HPX-native composition spike was an informative negative** (job `158814`, `when_all_then_reduce`): mathematically correct but the composed future stalled to the dispatch timeout (~30 s) cross-node. The native continuation modes (`when_all_then_reduce` / `dataflow_reduce`) are kept in-tree but **gated off, flagged experimental / cross-node-unvalidated**, with a runtime guard; `root_flat_gather_poll` remains the **proven** cross-node composition. HPX collectives / tree reduction remain the target for a later HPX-native reduction spike.
+
+* [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](../experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — **exp62 Slice 4b — current strongest exp62 same-axis distributed evidence**: R=5 matched **multi-remote** distributed fanout/fanin band, job `158817`, **medusa00 → medusa01 + medusa02** (root/head/coordinator on medusa00), subnet `10.42.5.`, N=8, all-remote, **two remote localities/nodes** (4/4 split), K=1000 / W=100 / prewarm=1, `clock=perf_counter_ns`, boundary `python_caller_boundary`, `node_placement=cross_node_multi_remote`. HPX composition is the **proven `root_flat_gather_poll`** (`composition_primitive=root_flat_gather_reduce`, watchdog `bounded_is_ready_poll_50us`, `hpx_native_composition=false`); drivers launched on medusa00 via `srun --overlap`. All five HPX arms, all five Ray arms, and all five pair manifests passed; the combined aggregate passed (failed gates: none). Both arms oracle-correct (composite `11040115504`), both `leaves_local=0` / `leaves_remote=8` / `witness_leaf_count=8`, both cover **both** remotes, both `no_dispatch_timeout` / `timed_out_leaf_count=0`. HPX: all ten connectors (medusa01 + medusa02 × 5) `joined`/`served`/`graceful_disconnect`, `tcp_nodelay_verified`, cpuset `[0,2,4,6,8,10,12,14]` (8, not collapsed). Ray: head on medusa00 `num_cpus=0`; coordinator hard-pinned to medusa00 `num_cpus=0` running zero leaves; leaves hard-pinned (`soft=false`) round-robin across the two remote node ids; `no_orphans=true`. Flags `same_axis_comparison=true`, `cross_island_agreement=true`, `node_set=[medusa00, medusa01, medusa02]`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`. Per-arm RTT bands (across-island median of per-island percentiles, reported **separately**): **Ray coordinator/task path** (`ray.get(coordinator.remote(x, N))`) p50 ~3717.4 µs, p90 ~3874.4 µs, p99 ~7012.5 µs, mean ~3805.4 µs; **experiment-only Python→HPX action path** (`ext.fanout_fanin_remote(x, N)`, poll) p50 ~249.5 µs, p90 ~270.7 µs, p99 ~320.2 µs, mean ~251.5 µs. Curated `exp62_fanout_mrband_158817_aggregate.json` + the five `exp62_fanout_mrband_158817_i{1..5}_manifest.json` are tracked; raw `exp62_fanout_mrband_158817_i{1..5}_{hpx,ray}.json` and the `_exp62_runs/` provenance (connector bootdirs, ray logs) stay gitignored.
+
+**What this licenses:** *for this synthetic closed-`int64` N=8 fanout/fanin workload, measured at the same Python caller boundary with matched 3-node topology (medusa00 → medusa01/medusa02, all-remote, 4/4 split), the experiment-only Python→HPX path and the Ray coordinator path produced the separate per-arm RTT bands above.* Nothing beyond that — the bands are not differenced, ratioed, ranked, or called winner/loser; `root_flat_gather_poll` is a proven interim composition (not a final HPX-native collective); this is not shipped `rayx.runtime` distributed API and not a production/serving/inference claim.

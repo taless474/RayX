@@ -65,14 +65,38 @@ composition, an HPX-island lifecycle policy, and a two-node path characterizatio
 The full chronological **“what we learned”** index lives in
 [docs/evidence_index.md](docs/evidence_index.md); the headline summary is below.
 
-## Current best evidence: same-axis Python-boundary band (experiment 61)
+## Current best evidence: same-axis Python-boundary bands (experiments 61–62)
 
-The current primary result is **exp61**, the first **fair same-axis** comparison of the QD1
-closed-`int64` micro-call path: both arms are measured at the **same Python caller boundary**
-(`perf_counter_ns` around the blocking call), in one **R=5 matched band** on the same node pair
-(medusa00 → medusa01, subnet `10.42.5.`, K=1000 / W=100). Earlier two-node numbers (exp58/exp59,
-below) sat on **different measurement planes** — HPX timed from C++, Ray from Python — so they were a
-plane-labeled juxtaposition, **not** a comparison; exp61 is what removed that mismatch.
+The current strongest result is **exp62 Slice 4b**, the first matched **same-axis distributed
+fanout/fanin** band across **≥2 remote localities/nodes**: one outer blocking Python call
+`fanout_fanin(x, N) -> int64` dispatches **N=8** leaf actions **all-remote**, split **4/4** across
+**two** remotes, and reduces them — with both arms measured at the **same Python caller boundary** in
+an **R=5** matched band on **medusa00 → medusa01 + medusa02** (subnet `10.42.5.`, job `158817`). The
+HPX arm uses the proven `root_flat_gather_poll` composition; the Ray arm's coordinator (on medusa00,
+`num_cpus=0`) runs zero leaves and hard-pins leaves round-robin across the two remote nodes. It
+supersedes the one-remote-locality Slice 3 and extends **exp61** (the scalar QD1 predecessor, below).
+
+| arm (same Python caller boundary) | call primitive | p50 | p99 |
+|---|---|---|---|
+| Ray coordinator/task path | `ray.get(coordinator.remote(x, N))` | ~3717.4 µs | ~7012.5 µs |
+| experiment-only Python→HPX action path | `ext.fanout_fanin_remote(x, N)` | ~249.5 µs | ~320.2 µs |
+
+All gates passed (`same_axis_comparison=true`, `cross_island_agreement=true`); the band reports the
+two arms **separately** with `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`,
+`placement_bands_differenced=false`. For this synthetic closed-`int64` N=8 fanout/fanin workload,
+measured at the same Python caller boundary with matched 3-node topology (medusa00 → medusa01/medusa02,
+all-remote, 4/4 split), the experiment-only Python→HPX path and the Ray coordinator path produced the
+separate per-arm RTT bands above. This is a **structurally valid same-axis juxtaposition, not a ratio,
+speedup, or winner claim**; `root_flat_gather_poll` is a proven interim composition (not a final
+HPX-native collective), and this is **not** shipped `rayx.runtime` distributed API. Details:
+[experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md).
+
+**exp61 — the scalar QD1 same-axis predecessor** established the methodology: the first **fair
+same-axis** comparison of the QD1 closed-`int64` micro-call path, both arms measured at the **same
+Python caller boundary** (`perf_counter_ns` around the blocking call), in one **R=5 matched band** on
+the same node pair (medusa00 → medusa01, subnet `10.42.5.`, K=1000 / W=100). Earlier two-node numbers
+(exp58/exp59, below) sat on **different measurement planes** — HPX timed from C++, Ray from Python — so
+they were a plane-labeled juxtaposition, **not** a comparison; exp61 is what removed that mismatch.
 
 | arm (same Python caller boundary) | call primitive | p50 | p90 | p99 | mean |
 |---|---|---|---|---|---|
@@ -92,7 +116,7 @@ the per-experiment arc:
 [docs/evidence_index.md](docs/evidence_index.md) ·
 [experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md).
 
-A companion **same-node placement control** (exp61 Slice 5, job 158734, single node medusa00, R=5,
+A companion **same-node placement control** (exp61 Slice 5, single node medusa00, R=5,
 comparable per-locality resources) also **passed all gates** (`same_axis_comparison=true`, all
 no-ratio/no-difference fences hard-locked). It varies only physical co-location per arm — HPX runs two
 distinct localities over the loopback TCP parcelport, Ray a genuine actor on the driver node — and is a
@@ -228,7 +252,8 @@ holds investigative write-ups / curated evidence packages.
 
 ### Evidence
 
-* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node path characterization (58–60), and the same-axis Python-boundary band (61).
+* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node path characterization (58–60), and the same-axis Python-boundary bands (61 scalar, 62 distributed fanout/fanin).
+* [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — exp62: the same-axis Python-boundary **distributed fanout/fanin** write-up (experiment-only; not shipped `rayx.runtime` API).
 * Source write-ups live beside the code under [benchmarks/](benchmarks/) and [experiments/](experiments/).
 
 ### Project rules

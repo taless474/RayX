@@ -1,0 +1,108 @@
+{
+  "experiment_id": "exp62",
+  "fanout_placement": "all-remote",
+  "fences": {
+    "arms_differenced": false,
+    "placement_bands_differenced": false,
+    "ratio_reported": false,
+    "speedup_computed": false
+  },
+  "gates": {
+    "both_arms_pass": true,
+    "both_distribution_ok": true,
+    "both_leaves_local_zero": true,
+    "both_leaves_remote_eq_n": true,
+    "both_oracles_correct": true,
+    "hpx_connector_cpuset_not_collapsed": true,
+    "hpx_no_dispatch_timeout": true,
+    "hpx_nodelay_true": true,
+    "hpx_threads_cover_fanout": true,
+    "ray_coordinator_single_submission_true": true,
+    "ray_hard_placement_true": true,
+    "ray_leaves_on_target_node": true,
+    "same_fanout_placement": true,
+    "same_inner_fanout_n": true,
+    "same_k_w_prewarm_clock": true,
+    "same_measurement_boundary": true,
+    "same_node_pair": true,
+    "same_node_placement": true,
+    "same_selected_subnet": true
+  },
+  "hpx": {
+    "island_id": "band-158809-i2-hpx",
+    "overall": "pass",
+    "stats": {
+      "count": 1000,
+      "max_ns": 569324,
+      "mean_ns": 366296,
+      "min_ns": 261768,
+      "p50_ns": 370148,
+      "p90_ns": 395398,
+      "p99_ns": 474519
+    },
+    "witness": {
+      "leaves_local": 0,
+      "leaves_per_locality": {
+        "1": 8
+      },
+      "leaves_remote": 8,
+      "n_localities_covered": 1,
+      "witness_leaf_count": 8
+    }
+  },
+  "inner_fanout_n": 8,
+  "manifest_id": "band-158809-i2",
+  "node_pair": [
+    "medusa00",
+    "medusa01"
+  ],
+  "node_placement": "cross_node",
+  "note": "Pair manifest correlates one matched HPX + Ray island with measurement-plane labels. It NEVER differences or ratios the arms.",
+  "overall": "pass",
+  "ray": {
+    "island_id": "band-158809-i2-ray",
+    "overall": "pass",
+    "ray_placement": {
+      "coordinator_node_id": "ec7c7c00386f9cf2769198e647c0c69a61882a5943783c536fc38b42",
+      "coordinator_on_driver_node": true,
+      "coordinator_single_submission": true,
+      "driver_node_id": "ec7c7c00386f9cf2769198e647c0c69a61882a5943783c536fc38b42",
+      "hard_placement": true,
+      "ip_a": "10.42.5.30",
+      "ip_b": "10.42.5.31",
+      "leaves_on_target_node": true,
+      "leaves_per_node": {
+        "97ef038a7f8d844f646e078f9fb06a8a6c581f15dc3abcb2727cf971": 8
+      },
+      "ray_coordinator_num_cpus": 0,
+      "ray_dispatch_timeout_s": 30.0,
+      "ray_head_num_cpus": 0,
+      "ray_no_dispatch_timeout": true,
+      "ray_version": "2.55.1",
+      "single_submission": true,
+      "soft": false,
+      "target_node_id": "97ef038a7f8d844f646e078f9fb06a8a6c581f15dc3abcb2727cf971"
+    },
+    "stats": {
+      "count": 1000,
+      "max_ns": 7488367,
+      "mean_ns": 3800791,
+      "min_ns": 3350635,
+      "p50_ns": 3736727,
+      "p90_ns": 3948652,
+      "p99_ns": 6521309
+    },
+    "witness": {
+      "leaves_local": 0,
+      "leaves_per_locality": {
+        "97ef038a7f8d844f646e078f9fb06a8a6c581f15dc3abcb2727cf971": 8
+      },
+      "leaves_remote": 8,
+      "n_localities_covered": 1,
+      "witness_leaf_count": 8
+    }
+  },
+  "same_axis_comparison": false,
+  "selected_subnet": "10.42.5.",
+  "x": 7
+}

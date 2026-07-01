@@ -1,0 +1,31 @@
+# exp62 artifact hygiene -- EXPERIMENT-ONLY; builds its own pybind module. Keep curated source and
+# (later, from Slice 3+) the curated band aggregate / pair manifest trackable; ignore build outputs
+# and raw per-run smoke artifacts.
+
+# build / python scratch
+build/
+__pycache__/
+*.pyc
+*.so
+*.dylib
+*.o
+*.a
+
+# raw per-run scratch
+_exp62_runs/
+
+# raw logs
+*.log
+hpx.parcel.*.log
+logs/
+
+# Raw per-run smoke / dry-run / band-island artifacts (Slice 1 local smokes, Slice 2 one-remote
+# dry-run, Slice 3 raw band islands exp62_fanout_<bandid>_i<k>_{hpx,ray}.json). Reproducible scratch;
+# stay ignored. The TRACKABLE Slice 3 curated artifacts DO NOT match these patterns and remain
+# trackable:
+#   - exp62_fanout_<bandid>_i<k>_manifest.json   (per matched island)
+#   - exp62_fanout_band_<job>_aggregate.json     (one combined aggregate)
+exp62_fanout_*_hpx.json
+exp62_fanout_*_ray.json
+exp62_fanout_*_witness.json
+exp62_fanout_*_attest.json
