@@ -1,0 +1,30 @@
+# exp63 artifact hygiene -- EXPERIMENT-ONLY. Slice 0 is pure Python; later slices build their own
+# pybind ext and produce raw per-run smoke / dry-run / band artifacts. Ignore build outputs and raw
+# run artifacts; curated aggregates (added only once evidence exists) will NOT match these patterns.
+
+# build / python scratch
+build/
+build-local/
+__pycache__/
+*.pyc
+*.so
+*.dylib
+*.o
+*.a
+
+# raw per-run scratch
+_exp63_runs/
+
+# raw logs
+*.log
+hpx.parcel.*.log
+logs/
+
+# Raw per-run smoke / dry-run / band-island artifacts (Slice 1 progress-diagnosis + local collective
+# smoke, Slice 2 cross-locality dry-runs, Slice 3+ raw band islands). Reproducible scratch; stay
+# ignored. Curated trackable artifacts (added later) will use *_manifest.json / *_aggregate.json.
+exp63_*_hpx.json
+exp63_*_ray.json
+exp63_*_witness.json
+exp63_*_attest.json
+exp63_*_progress.json

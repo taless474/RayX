@@ -147,7 +147,7 @@ The later two-node arc extends this with hardware placement and performance char
 * exp59: Ray actor baseline through Slice 5, complete.
 * exp60: HPX same-node two-locality TCP control.
 
-### Current same-axis and two-node evidence
+### Current same-axis and distributed evidence
 
 The post-exp52 distributed evidence arc has advanced beyond single-node mechanism probes:
 
@@ -155,24 +155,32 @@ The post-exp52 distributed evidence arc has advanced beyond single-node mechanis
 * exp58 measured the HPX two-node action path as caller-observed C++ `hpx::async(...).get()` RTT, not pure network RTT and not a Python-facing measurement.
 * exp59 completed the Ray actor baseline. It provides a Ray Python/ray.get-observed actor path and a plane-labeled juxtaposition against exp58, but not a same-axis Ray-vs-HPX comparison.
 * exp60 is the HPX same-node two-locality TCP control. It decomposes HPX same-node vs cross-node cost inside HPX only.
-* exp61 is the current same-axis Python-boundary comparison direction. Slice 4 completed the cross-node R=5 band on medusa00 -> medusa01. Slice 5 completed the same-node R=5 placement-control band on medusa00.
+* exp61 established the first same-axis Python-boundary QD1 scalar remote-call comparison. Slice 4 is the cross-node band; Slice 5 is the corrected same-node placement control.
+* exp62 extends the same-axis direction from one scalar remote call to distributed fanout/fanin. Slice 4b is the strongest same-axis distributed closed-int64 fanout/fanin evidence: matched R=5, N=8, all-remote, three-node fanout/fanin with Ray and experiment-only Python→HPX measured at the same Python caller boundary.
+* exp63 resolved the HPX native-composition/progress concern raised after exp62. The earlier native-composition failure was traced to connector lifetime, not intrinsic HPX native progress failure. Hardened root-completion/heartbeat lifetime validated cross-node `when_all_then_reduce`, `dataflow_reduce`, and a depth-2 root-of-partials topology. exp63 is HPX mechanism evidence, not a Ray comparison and not HPX collectives evidence.
+* exp64 adds the payload-size fanin axis. It has HPX and Ray payload smoke arms, a structural R=1 matched ladder manifest, and an R=5 matched payload ladder band. exp64 reports within-arm p50/p90 payload-size distributions and structural same-axis correlation, but computes no cross-arm timing arithmetic, ratios, speedups, or winner. The HPX payload arm remains `root_flat_gather_poll`, a poll-gather payload baseline, not the exp63 native-composition path.
 
 Durable interpretation:
 
-* exp61 Slice 4 is the current best cross-node same-axis evidence: Ray `ray.get(actor.dist_probe.remote(x))` and experiment-only `ext.dist_probe_remote(x)` are both measured from the same Python caller boundary using `perf_counter_ns`, with QD1 closed-int64 work, matched R=5 islands, and hard placement gates.
-* exp61 Slice 5 is a same-node placement control for exp61, not a performance win story. It passed same-node gates, including TCP_NODELAY attestation and enforced/disjoint affinity verification.
-* exp61 Slice 5 also showed that the HPX same-node loopback control can be high-magnitude/high-variance under the constrained affinity setup. Do not infer that same-node HPX should necessarily be faster than cross-node HPX.
+* exp62 Slice 4b remains the headline same-axis distributed closed-int64 fanout/fanin evidence.
+* exp64 is the headline payload-size evidence. Its `matched_band_r5` result supports within-arm payload-size distributions and structural correlation only. It does not claim an HPX-vs-Ray performance winner.
+* exp61 remains the scalar QD1 predecessor. It is useful for explaining why same-axis Python-boundary measurement matters.
+* exp63 is mechanism/progress evidence for HPX-native composition after connector-lifetime hardening. It does not claim Ray performance, HPX collectives, payload-size behavior, or production API behavior.
 * exp58/59/60 remain useful precursor and within-runtime decomposition evidence, but they are no longer the headline Ray-vs-HPX measurement framing.
-* Ray and HPX numbers from exp58/59 may be reported side by side only with measurement-plane labels.
+* exp62 Slice 4a is HPX-only mechanism evidence for ≥2 remote HPX localities. It is not a Ray comparison and does not supersede Slice 4b.
+* The proven exp62 cross-node HPX path is `root_flat_gather_poll`, an interim/polled composition. exp63 separately validated native HPX composition variants after connector-lifetime hardening.
+* exp64’s stronger `distributional_payload_ladder` grade remains blocked until the HPX serialization runtime path is observed and/or the HPX payload arm moves beyond the poll-gather baseline.
 * Within-runtime decompositions are allowed:
   * Ray same-host vs Ray cross-node.
   * HPX same-node TCP vs HPX cross-node TCP.
-  * exp61 same-node vs cross-node as placement controls within the same Python-boundary experiment, without ratios or speedups.
-* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60/61.
-* For exp61 specifically, respect the artifact fences: `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, and `placement_bands_differenced=false`.
+  * exp61 same-node vs cross-node as placement controls within the same Python-boundary experiment.
+  * exp62/63 HPX composition variants as within-HPX mechanism diagnostics.
+  * exp64 within-arm payload-size distributions for HPX and Ray separately.
+* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60/61/62/63/64 unless a future experiment explicitly permits them.
+* Respect artifact fences: `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, and `placement_bands_differenced=false`.
 * Do not say “HPX beats Ray,” “Ray is slower than HPX,” or “RayX makes Ray faster.”
-* Do not use pipeline/QD8/QD32/QD128 rows for Ray-vs-HPX comparison.
-* Do not say the value oracle alone proves physical placement. Placement proof requires node ids, hostnames, locality ids where applicable, affinity/transport gates where applicable, and hard placement gates; the oracle proves intended closed-int64 execution.
+* Do not use pipeline/QD8/QD32/QD128 rows for Ray-vs-HPX comparison unless a specific same-regime experiment is designed and gated.
+* Do not say the value oracle alone proves physical placement. Placement proof requires node ids, hostnames, locality ids where applicable, affinity/transport gates where applicable, lifecycle evidence where applicable, and hard placement gates; the oracle proves intended closed-value execution.
 
 Detailed numbers, node ids, run ids, clocks, warmups, ports, hashes, and per-island bands belong in the experiment write-ups, curated aggregates, README evidence summary, or `docs/evidence_index.md`, not here.
 
@@ -216,6 +224,7 @@ Network facts:
 * Use `--prefer-subnet 10.42.5.` parity unless an experiment explicitly changes it.
 * medusa00 is `10.42.5.30`
 * medusa01 is `10.42.5.31`
+* medusa02 is `10.42.5.32`
 
 For Ray-on-Slurm experiments:
 
@@ -232,7 +241,7 @@ For copy-back from Rostam:
 
 * Copy artifacts back to the Mac before asking for analysis.
 * Prefer artifact-only pulls that do not clobber local source.
-* Pull `_ray_runs/`, `_control_runs/`, and curated `*aggregate*.json` files as needed.
+* Pull `_ray_runs/`, `_control_runs/`, experiment-local `_exp*_runs/` artifact subsets, and curated `*aggregate*.json` files as needed.
 * Quote remote globs in zsh, for example:
 
 ```bash
@@ -399,7 +408,7 @@ For the runtime test split:
 * runtime integration tests include native runtime and local actor contract coverage.
 * do not run runtime integration tests or runtime smokes in repo-sanity.
 * Ray-hosting and Ray-orchestrated HPX-island smoke checks may live only in a native/Ray/HPX-capable smoke tier and must skip cleanly when Ray, the built `_rayx` extension, or the required standalone HPX experiment binary is unavailable.
-* Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38 and exp57–61 hardware runners, in normal CI.
+* Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38 and exp57–64 hardware runners, in normal CI.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 
@@ -427,7 +436,7 @@ For every completed benchmark, diagnostic, or experiment report, include a short
 
   * In-process HPX-inside-Ray-actors direction: local scheduling, nonblocking lanes, native continuation/composition, Python-boundary characterization, serving-shaped synthetic workloads, and concurrency/overlap.
   * Future distributed-fabric direction: Ray as placement/bootstrap/lifecycle supervision, HPX locality-to-locality action/data-plane probes, whole-island restart policy, Ray-orchestrated HPX bootstrap, and eventual multi-node comparison only when justified.
-  * Same-axis Python-boundary comparison direction: Python-observed Ray actor path vs Python-observed experiment-only HPX/RayX action path. This begins with exp61 and must not mutate shipped `rayx.runtime`.
+  * Same-axis Python-boundary comparison direction: Python-observed Ray actor path vs Python-observed experiment-only HPX/RayX action path. This begins with exp61, extends through exp62, adds HPX-native composition diagnostics in exp63, and adds payload-size fanin evidence in exp64. It must not mutate shipped `rayx.runtime`.
 
 * Next recommended step: end with one concrete technical next step, not a vague list.
 

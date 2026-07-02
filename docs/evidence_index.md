@@ -9,6 +9,13 @@ arms timed at the same Python caller boundary) still report the two arms as
 **separate per-arm bands** and never difference, ratio, or rank them. Magnitudes
 are observation-only and machine-specific unless a write-up says otherwise.
 
+**Current headlines (experiments 61–64):** **exp62 Slice 4b** is the headline
+same-axis distributed closed-`int64` fanout/fanin evidence; **exp64 Slice 4** is the
+headline payload-size evidence (**within-arm only**, `matched_band_r5`); **exp63** is
+HPX-native composition/progress **mechanism** evidence (no Ray comparison); **exp61**
+is the scalar predecessor that established the same Python-boundary measurement plane.
+No ratios, speedups, differences, or winners anywhere.
+
 Top-level reading guides that complement this index:
 
 * [docs/reference/hpxlane_backend_arc.md](reference/hpxlane_backend_arc.md) — `HpxLane` backend arc (exp16 → 20 → 21 → 22 → 23).
@@ -280,3 +287,84 @@ ranked. This does not motivate runtime/API work.
 * [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](../experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — **exp62 Slice 4b — current strongest exp62 same-axis distributed evidence**: R=5 matched **multi-remote** distributed fanout/fanin band, job `158817`, **medusa00 → medusa01 + medusa02** (root/head/coordinator on medusa00), subnet `10.42.5.`, N=8, all-remote, **two remote localities/nodes** (4/4 split), K=1000 / W=100 / prewarm=1, `clock=perf_counter_ns`, boundary `python_caller_boundary`, `node_placement=cross_node_multi_remote`. HPX composition is the **proven `root_flat_gather_poll`** (`composition_primitive=root_flat_gather_reduce`, watchdog `bounded_is_ready_poll_50us`, `hpx_native_composition=false`); drivers launched on medusa00 via `srun --overlap`. All five HPX arms, all five Ray arms, and all five pair manifests passed; the combined aggregate passed (failed gates: none). Both arms oracle-correct (composite `11040115504`), both `leaves_local=0` / `leaves_remote=8` / `witness_leaf_count=8`, both cover **both** remotes, both `no_dispatch_timeout` / `timed_out_leaf_count=0`. HPX: all ten connectors (medusa01 + medusa02 × 5) `joined`/`served`/`graceful_disconnect`, `tcp_nodelay_verified`, cpuset `[0,2,4,6,8,10,12,14]` (8, not collapsed). Ray: head on medusa00 `num_cpus=0`; coordinator hard-pinned to medusa00 `num_cpus=0` running zero leaves; leaves hard-pinned (`soft=false`) round-robin across the two remote node ids; `no_orphans=true`. Flags `same_axis_comparison=true`, `cross_island_agreement=true`, `node_set=[medusa00, medusa01, medusa02]`, `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`. Per-arm RTT bands (across-island median of per-island percentiles, reported **separately**): **Ray coordinator/task path** (`ray.get(coordinator.remote(x, N))`) p50 ~3717.4 µs, p90 ~3874.4 µs, p99 ~7012.5 µs, mean ~3805.4 µs; **experiment-only Python→HPX action path** (`ext.fanout_fanin_remote(x, N)`, poll) p50 ~249.5 µs, p90 ~270.7 µs, p99 ~320.2 µs, mean ~251.5 µs. Curated `exp62_fanout_mrband_158817_aggregate.json` + the five `exp62_fanout_mrband_158817_i{1..5}_manifest.json` are tracked; raw `exp62_fanout_mrband_158817_i{1..5}_{hpx,ray}.json` and the `_exp62_runs/` provenance (connector bootdirs, ray logs) stay gitignored.
 
 **What this licenses:** *for this synthetic closed-`int64` N=8 fanout/fanin workload, measured at the same Python caller boundary with matched 3-node topology (medusa00 → medusa01/medusa02, all-remote, 4/4 split), the experiment-only Python→HPX path and the Ray coordinator path produced the separate per-arm RTT bands above.* Nothing beyond that — the bands are not differenced, ratioed, ranked, or called winner/loser; `root_flat_gather_poll` is a proven interim composition (not a final HPX-native collective); this is not shipped `rayx.runtime` distributed API and not a production/serving/inference claim.
+
+---
+
+## HPX-native composition / progress diagnosis (experiment 63)
+
+exp63 resolved the native-composition/progress concern raised by the exp62 Slice-4b
+spike (the `when_all_then_reduce` cross-node stall). The earlier failure was traced to
+**connector lifetime**, not an intrinsic HPX native-progress failure. **This is
+mechanism evidence only:** no Ray comparison, no performance numbers, no HPX
+`collectives` claim, and no payload claim.
+
+**Claim fences:** cross-node mechanism/topology validation only; no Ray-vs-HPX timing,
+no speedup/ratio/winner, no `hpx::collectives` claim (deferred pending
+membership/generation/timeout/poison design), no payload claim.
+
+* **Root cause + connector-lifetime hardening** (job `159061`): the connector-side
+  fault was `HPX(invalid_status): thread pool is not running` during parcel scheduling
+  (`parcel::load_schedule`) — not a kernel EPERM (strace showed zero EPERM syscalls).
+  Serve-timeout sweep: **90 s → fault at call 7**, **150 s → fault at call 14**,
+  **300 s → pass**, **600 s → pass**. A hardened **heartbeat / root-completion
+  lifetime** fixed it: at serve-timeout=90 the hardened run passed **20/20** with
+  shutdown reason `root_completion_signal`, while a no-completion control reproduced the
+  call-7 fault with `serve_timeout_expired`.
+* [experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md](../experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md) — **exp63 Slice 2a** (job `159167`, root medusa06, connectors medusa07/medusa08, N=8, prewarm=5, K=20, serve-timeout=90 with the hardened lifetime): native cross-node composition validated — `when_all_then_reduce` **pass, 20/20** and `dataflow_reduce` **pass, 20/20** (both `cross_node_composition_validated=true`, `root_completion_signal ×2`, no late parcel); `root_flat_gather_poll` mechanics pass but is a **polled control**, **not** native-validated (`polled_in_success_path=true`).
+* **exp63 Slice 2b** (job `159200`, root medusa11, connectors medusa12/medusa13): depth-2 star / root-of-partials fan-in, honest topology `depth2_star_of_partials_contiguous_blocks` — one partial action per remote locality, partials `[4, 4]` across the two remotes, root composes 2 partial futures instead of 8 leaf futures. `dataflow_reduce` **pass, 20/20** and `when_all_then_reduce` **pass, 20/20** (topology valid, local partial oracles correct, validated true); flat controls validate; flat `root_flat_gather_poll` mechanics pass but is not native-validated. It uses hand-rolled action futures, **deliberately not** `hpx::collectives::reduce`.
+
+**What this licenses:** the HPX-native cross-node composition path is **viable once
+connector lifetime is correct**, and root-of-partials composition works cross-node.
+It claims **no** Ray performance, **no** HPX `collectives`, and **no** payload
+behavior; `root_flat_gather_poll` remains a mechanics control, not a native-validated
+composition.
+
+---
+
+## Payload fanin size sweep (experiment 64)
+
+exp64 extends the same-axis distributed direction from scalars to a **payload-size**
+axis, measured at the same Python caller boundary. Each remote leaf returns `S` opaque
+payload bytes (plus its closed scalar); Python folds and checks the payload **digest**
+after timing, outside the RTT window, identically for both arms. The payload-size axis
+now has HPX smoke (Slice 1), Ray matched smoke (Slice 2), a **structural R=1** matched
+ladder (Slice 3), and an **R=5** matched band (Slice 4).
+
+**Claim fences:** the payload distributions are **within-arm only** — **no ratios, no
+speedups, no cross-arm differences, no winner**. HPX remains `root_flat_gather_poll`, a
+poll-gather payload **baseline** (**not** the exp63 native-composition payload path);
+the HPX serialization **runtime** (zero-copy) path is **not observed** (config-level
+flags are; the per-call path taken is not); the Ray object/plasma return path is **not
+observed**; the closed digest/oracle is the only cross-arm anchor; no real
+inference/model payload.
+
+* **exp64 Slice 3 — structural R=1 matched ladder** (job `159384`, medusa[11-13], ladder `[0,64,1024,16384,262144]`, N=8, prewarm=3, measured=5): both arms ran the full ladder in one allocation (HPX phase then Ray phase, Ray driver step `--cpu-bind=none`) and were paired by a pure manifest. `overall_manifest_pass=true`, `same_axis_comparison=true` (**structural-correlation flag only**), `evidence_grade=structural_r1`, all 27 correlation gates passed, all fences False, `no_cross_arm_timing_computed=true`. Machinery validation, **not** distributional evidence.
+* [experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](../experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md) — **exp64 Slice 4 — headline payload-size band** (band `band20260702_174335`; jobs `159385` / `159386` / `159388` / `159389` / `159390`; R=5 **fresh exclusive** allocations — the scheduler reused medusa11/12/13 for all islands, so this shows repeatability under **low placement diversity**, not broad cluster-wide variance): full ladder `[0,64,1024,16384,262144]`, N=8, prewarm=5, measured=30, HPX phase then Ray phase per island. All 5 per-island manifests passed (27 gates each) and the band aggregate passed: `overall_band_pass=true`, `evidence_grade=matched_band_r5`, `same_axis_comparison=true` (**structural flag only**), `distributional_evidence=true` (**within-arm only**), `percentiles_evidence_ready=true` (**p50/p90 only**), `p99_evidence_ready=false`, `distributional_payload_ladder_ready=false` (blocked by `hpx_serialization_runtime_path_not_observed` and `hpx_poll_gather_baseline`), `no_cross_arm_timing_computed=true`; 12/12 band gates, 5/5 fences False, 5/5 islands `clean`. Connector anomaly witness held clean across all islands (`connector_shutdown_reason=served_signal`, `serve_timeout_expired_any=false`) — the longer measured=30 window did not recur the exp63 fault class; NUMA/NIC provenance captured (eno16, NIC NUMA node 0, root cores on node 0, colocated). The two per-arm tables below are **within-arm observations only** (across-island median of the per-island p50/p90); **do not compare them, do not compute ratios, do not read a winner** — the arms take intentionally different runtime paths and the only cross-arm anchor is the closed digest.
+
+Within-arm p50/p90 (across-island median of per-island percentiles), reported in
+**separate** per-arm tables — **do not compare across the two tables**:
+
+HPX (`root_flat_gather_poll` poll-gather baseline):
+
+| S (bytes) | p50 (ms) | p90 (ms) |
+|---|---|---|
+| 0 | 0.299 | 0.335 |
+| 64 | 0.290 | 0.317 |
+| 1024 | 0.326 | 0.388 |
+| 16384 | 1.453 | 1.516 |
+| 262144 | 19.518 | 20.552 |
+
+Ray (coordinator + Ray object transport):
+
+| S (bytes) | p50 (ms) | p90 (ms) |
+|---|---|---|
+| 0 | 4.225 | 4.821 |
+| 64 | 4.191 | 4.580 |
+| 1024 | 4.392 | 4.667 |
+| 16384 | 6.850 | 7.153 |
+| 262144 | 55.378 | 57.370 |
+
+**What this licenses:** each runtime's **own** within-arm p50/p90 payload-size curve and
+the structural repeatability of the matched ladder across R=5 islands. Nothing beyond
+that — no cross-arm comparison, no ratio/speedup/winner, no p99 evidence, no full
+`distributional_payload_ladder`, and no HPX native-composition payload path.
