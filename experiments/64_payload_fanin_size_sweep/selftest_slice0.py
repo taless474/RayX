@@ -242,8 +242,9 @@ def _check_ray_payload_gates_pure(c):
 
 
 def _check_offcluster_phases_skip(c):
-    for name in ("hpx-payload-remote-smoke", "ray-payload-remote-smoke", "payload-ladder-manifest",
-                 "payload-band-aggregate", "smoke", "remote-smoke", "size-sweep"):
+    for name in ("hpx-payload-remote-smoke", "hpx-payload-native-smoke", "ray-payload-remote-smoke",
+                 "payload-ladder-manifest", "payload-band-aggregate", "smoke", "remote-smoke",
+                 "size-sweep"):
         rc = R.main(["--phase", name])
         c.ok(rc == 0, f"phase {name} skips cleanly off-cluster (rc={rc})")
     # manifest phase with a job that has no artifacts on disk also skips cleanly (rc=0)
@@ -252,6 +253,568 @@ def _check_offcluster_phases_skip(c):
     # band aggregate with a band-id that has no island manifests also skips cleanly (rc=0)
     rc = R.main(["--phase", "payload-band-aggregate", "--band-id", "nonexistent_band_zzz"])
     c.ok(rc == 0, f"payload-band-aggregate --band-id <absent> skips cleanly (rc={rc})")
+    # A3: idle-backoff-off (--native-idle-backoff-ms 0) + the sequential_leaf_wait positive control
+    # still skips cleanly off-cluster -- the new lever/mode must not crash the pre-cluster path
+    rc = R.main(["--phase", "hpx-payload-native-smoke", "--native-idle-backoff-ms", "0",
+                 "--native-modes", "sequential_leaf_wait", "--smoke-sizes", "0"])
+    c.ok(rc == 0,
+         f"native-smoke --native-idle-backoff-ms 0 + sequential_leaf_wait skips cleanly (rc={rc})")
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 Phase A native-readiness checks (pure; synthetic ext results). Native modes must not poll on
+# the success path and must reach wait_for_status=ready; the flat gather is ALWAYS retained; every
+# corruption fails the readiness gate closed. HPX-only; no Ray, no cross-arm anything.
+# ---------------------------------------------------------------------------
+
+def _synthetic_native_result(x, n, s, remote_locs, mode):
+    """Shape what payload_ext.fanout_fanin_payload_remote returns in Slice 5 Phase A (poll or native):
+    the Slice-1 payload result PLUS the readiness/topology fields the ext now emits."""
+    is_native = mode in R.NATIVE_READINESS_MODES
+    base = _synthetic_payload_result(x, n, s, remote_locs)
+    base.update({
+        "readiness_composition": mode,
+        "success_path_polling_used": (not is_native),
+        "wait_for_status": "ready",
+        "root_flat_gather_retained": True,
+        "payload_data_movement_topology": "root_flat_gather",
+        "payload_bytes_cross_python_boundary": True,
+        "python_bytes_direct_copy": True,
+    })
+    return base
+
+
+def _check_native_readiness_gates_pure(c):
+    x, n, remote = 7, 8, [1, 2]
+    # poll control: success-path poll USED; all readiness gates pass
+    res = _synthetic_native_result(x, n, 64, remote, "root_flat_gather_poll")
+    g = R.compute_native_readiness_gates(mode="root_flat_gather_poll", result=res)
+    c.ok(all(g.values()), f"poll control readiness-gates pass ({g})")
+    c.ok(res["success_path_polling_used"] is True, "poll control: success_path_polling_used True")
+    # native modes: success-path poll NOT used; all readiness gates pass
+    for mode in ("when_all_then_reduce", "dataflow_reduce"):
+        res = _synthetic_native_result(x, n, 262144, remote, mode)
+        g = R.compute_native_readiness_gates(mode=mode, result=res)
+        c.ok(all(g.values()), f"{mode} readiness-gates pass ({g})")
+        c.ok(res["success_path_polling_used"] is False,
+             f"{mode}: success_path_polling_used False")
+    # a native mode that still polled on the success path fails the match gate CLOSED
+    res = _synthetic_native_result(x, n, 0, remote, "when_all_then_reduce")
+    res["success_path_polling_used"] = True  # tamper: native claims it polled
+    g = R.compute_native_readiness_gates(mode="when_all_then_reduce", result=res)
+    c.ok(not g["success_path_polling_used_matches_mode"], "native+polling fails match gate closed")
+    # wait_for_status != ready fails the readiness gate CLOSED
+    res = _synthetic_native_result(x, n, 0, remote, "dataflow_reduce")
+    res["wait_for_status"] = "timeout"
+    g = R.compute_native_readiness_gates(mode="dataflow_reduce", result=res)
+    c.ok(not g["wait_for_status_ready"], "wait_for_status timeout fails readiness gate closed")
+    # flat gather must be RETAINED; a False trips the invariant gate CLOSED
+    res = _synthetic_native_result(x, n, 0, remote, "when_all_then_reduce")
+    res["root_flat_gather_retained"] = False  # tamper
+    g = R.compute_native_readiness_gates(mode="when_all_then_reduce", result=res)
+    c.ok(not g["root_flat_gather_retained"], "flat-gather-not-retained fails closed")
+    # a wrong topology label also fails closed
+    res = _synthetic_native_result(x, n, 0, remote, "dataflow_reduce")
+    res["payload_data_movement_topology"] = "tree_of_partials"  # tamper
+    g = R.compute_native_readiness_gates(mode="dataflow_reduce", result=res)
+    c.ok(not g["payload_topology_root_flat_gather"], "non-root-flat topology fails closed")
+    # yield DIAGNOSTIC: it POLLS the composed future, so success_path_polling_used=True is EXPECTED and
+    # the readiness gates still pass (diagnostic is not a native CLAIM mode)
+    resd = _synthetic_native_result(x, n, 0, remote, "when_all_then_reduce_yield")
+    c.ok(resd["success_path_polling_used"] is True, "yield diagnostic result reports polling used")
+    gd = R.compute_native_readiness_gates(mode="when_all_then_reduce_yield", result=resd)
+    c.ok(all(gd.values()), f"yield diagnostic readiness-gates pass ({gd})")
+
+
+def _synth_calls_rtt(rtt_ns_list):
+    """Synthetic per-call records carrying only the rtt fields the deadline-margin gate reads."""
+    return [{"call_index": i, "rtt_ns": int(r), "rtt_ms": int(r) / 1e6}
+            for i, r in enumerate(rtt_ns_list)]
+
+
+def _check_native_deadline_margin_gate(c):
+    dt = 8.0
+    # job-159418 shape: native mode, every RTT pinned near the 8 s dispatch timeout -> gate FAILS CLOSED
+    stalled = _synth_calls_rtt([8_000_600_000] * 5)  # ~8.0006 s each
+    g = R.compute_native_deadline_margin_gate(mode="when_all_then_reduce", calls=stalled,
+                                              dispatch_timeout_s=dt)
+    c.ok(g["native_wait_deadline_margin_gate"] is False
+         and g["native_wait_completed_before_timeout_deadline"] is False,
+         "native mode pinned at dispatch_timeout fails the deadline-margin gate (job-159418 shape)")
+    c.ok(abs(g["native_wait_deadline_margin_threshold_s"] - 4.0) < 1e-9,
+         "deadline-margin threshold is 0.5 * dispatch_timeout_s")
+    c.ok(g["native_wait_observed_max_rtt_s"] > 4.0, "observed max RTT recorded above the threshold")
+    # a PROMPT native mode (sub-ms) passes the margin gate
+    prompt = _synth_calls_rtt([300_000, 350_000, 320_000])  # ~0.3 ms
+    g2 = R.compute_native_deadline_margin_gate(mode="dataflow_reduce", calls=prompt,
+                                               dispatch_timeout_s=dt)
+    c.ok(g2["native_wait_deadline_margin_gate"] is True,
+         "prompt native mode passes the deadline-margin gate")
+    # the poll CONTROL is EXEMPT: even a large RTT does not trip the native margin gate
+    g3 = R.compute_native_deadline_margin_gate(mode="root_flat_gather_poll", calls=stalled,
+                                               dispatch_timeout_s=dt)
+    c.ok(g3["native_wait_deadline_margin_applicable"] is False
+         and g3["native_wait_deadline_margin_gate"] is True,
+         "poll control is exempt from the native deadline-margin gate")
+    # the yield DIAGNOSTIC is subject to the gate (its whole point is prompt completion)
+    g4 = R.compute_native_deadline_margin_gate(mode="when_all_then_reduce_yield", calls=stalled,
+                                               dispatch_timeout_s=dt)
+    c.ok(g4["native_wait_deadline_margin_applicable"] is True
+         and g4["native_wait_deadline_margin_gate"] is False,
+         "yield diagnostic stalled to the deadline fails the margin gate")
+
+
+def _check_job159418_false_positive_now_fails(c):
+    x, n, remote = 7, 8, [1, 2]
+    # per-call readiness gates PASS for a native ready result (wait_for_status=ready, correct labels)
+    res = _synthetic_native_result(x, n, 0, remote, "when_all_then_reduce")
+    rg = R.compute_native_readiness_gates(mode="when_all_then_reduce", result=res)
+    # ...but the measured calls were pinned at the dispatch timeout -> deadline-margin gate FAILS
+    stalled = _synth_calls_rtt([8_000_600_000] * 5)
+    mg = R.compute_native_deadline_margin_gate(mode="when_all_then_reduce", calls=stalled,
+                                               dispatch_timeout_s=8.0)
+    would_pass = all(rg.values()) and mg["native_wait_deadline_margin_gate"]
+    c.ok(all(rg.values()) and not mg["native_wait_deadline_margin_gate"] and not would_pass,
+         "job-159418 shape: readiness gates pass but the deadline-margin gate fails -> NOT a pass")
+
+
+def _check_phase_a_labels(c):
+    # mode taxonomy: poll is the control (not native); the two native modes are the candidates
+    c.ok("root_flat_gather_poll" not in R.NATIVE_READINESS_MODES,
+         "root_flat_gather_poll is the control, NOT a native mode")
+    for m in R.NATIVE_READINESS_MODES:
+        c.ok(m in R.DEFAULT_NATIVE_PHASE_MODES, f"native mode {m} is in the default Phase A modes")
+    c.ok(R.DEFAULT_NATIVE_PHASE_MODES[0] == "root_flat_gather_poll",
+         "poll control runs first in the Phase A mode list")
+    # native provenance addresses the POLL half only; gather half stays retained
+    pn = R._readiness_provenance("when_all_then_reduce")
+    c.ok(pn["poll_half_addressed"] is True and pn["gather_half_addressed"] is False,
+         "native readiness provenance: poll half addressed, gather half NOT")
+    c.ok(pn["root_flat_gather_retained"] is True
+         and pn["payload_data_movement_topology"] == "root_flat_gather"
+         and pn["hpx_native_readiness_composition"] is True,
+         "native readiness provenance retains the root-flat gather topology")
+    pp = R._readiness_provenance("root_flat_gather_poll")
+    c.ok(pp["poll_half_addressed"] is False and pp["success_path_polling_used"] is True
+         and pp["hpx_native_readiness_composition"] is False,
+         "poll control provenance: poll used, poll half NOT addressed")
+    # blocker/claim-scope labels are honest until Phase C exists
+    c.ok(R.NATIVE_CLAIM_SCOPE_PHASE_A == "multithread_unchecked",
+         "native_claim_scope stays multithread_unchecked until Phase C (threads=1) runs")
+    c.ok(R.CONNECTOR_LIFETIME_MODE == "root_completion_or_heartbeat_deadman",
+         "Phase A uses the hardened connector lifetime mode")
+    # diagnostic taxonomy: the yield variant is diagnostic-only, never a native claim mode
+    c.ok("when_all_then_reduce_yield" in R.DIAGNOSTIC_READINESS_MODES
+         and "when_all_then_reduce_yield" not in R.NATIVE_READINESS_MODES,
+         "yield variant is diagnostic-only, not a native claim mode")
+    pd = R._readiness_provenance("when_all_then_reduce_yield")
+    c.ok(pd["diagnostic_only"] is True and pd["poll_half_addressed"] is False
+         and pd["success_path_polling_used"] is True and pd["native_wait_variant"] == "yield_poll",
+         "yield diagnostic provenance: diagnostic-only, polls, never retires the poll half")
+    c.ok(R._native_wait_variant("when_all_then_reduce") == "wait_for"
+         and R._native_wait_variant("root_flat_gather_poll") == "n/a"
+         and R._native_wait_variant("when_all_then_reduce_yield") == "yield_poll",
+         "native_wait_variant labels correct per mode")
+    # the readiness provenance carries no forbidden claim keys
+    c.ok(not R._scan_forbidden_keys(pn, []) and not R._scan_forbidden_keys(pp, [])
+         and not R._scan_forbidden_keys(pd, []),
+         "readiness provenance carries no forbidden claim keys")
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 Phase A3: scheduler idle-backoff disclosure, the tight promptness sanity gate, and the pure
+# poll-half retirement invariant. idle-backoff-off is a CPU-for-latency runtime-spin workaround on the
+# TCP parcelport, NOT an event-driven wakeup; these checks keep that honest and keep the poll half from
+# being retired by a stall, a slow-but-not-timeout wake, an undisclosed driver, or a non-claim mode.
+# ---------------------------------------------------------------------------
+
+def _check_idle_backoff_disclosure(c):
+    # observed "0" -> disabled: runtime spins, progress driver recorded, QD1 not affected, confound cleared
+    d0 = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "0",
+                                            "hpx.max_idle_loop_count": "1000"})
+    c.ok(d0["idle_backoff_mode"] == "disabled", "idle-backoff observed 0 -> disabled")
+    c.ok(d0["runtime_spins_when_idle"] is True
+         and d0["runtime_progress_driver"] == "idle_backoff_disabled"
+         and d0["scheduler_idle_backoff_may_affect_qd1"] is False
+         and d0["bg_thread_result_confounded_by_idle_backoff"] is False,
+         "disabled: spins, progress driver recorded, QD1 unaffected, bg-thread confound cleared")
+    # nonzero recorded value (exp58-style) -> recorded_only, NOT disabled
+    d50 = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "50"})
+    c.ok(d50["idle_backoff_mode"] == "recorded_only", "idle-backoff observed 50 -> recorded_only")
+    c.ok(d50["runtime_spins_when_idle"] is False
+         and d50["runtime_progress_driver"] == "none"
+         and d50["scheduler_idle_backoff_may_affect_qd1"] is True
+         and d50["bg_thread_result_confounded_by_idle_backoff"] is True,
+         "recorded_only: no spin, no progress driver, may affect QD1, confound present")
+    # absent key -> unknown; None cfg -> unknown (defensive)
+    du = R.compute_idle_backoff_disclosure({})
+    dn = R.compute_idle_backoff_disclosure(None)
+    c.ok(du["idle_backoff_mode"] == "unknown" and dn["idle_backoff_mode"] == "unknown",
+         "absent key / None cfg -> unknown")
+    c.ok(du["runtime_progress_driver"] == "none"
+         and du["bg_thread_result_confounded_by_idle_backoff"] is True,
+         "unknown: no progress driver recorded, confound not cleared")
+    # the confound note discloses the runtime-spin honestly (not event-driven) vs confounded attribution
+    c.ok("not event-driven" in d0["idle_backoff_confound_note"]
+         and "confounded" in d50["idle_backoff_confound_note"],
+         "confound note discloses runtime-spin honestly, not as an event-driven wakeup")
+
+
+def _check_native_promptness_gate(c):
+    thr = R.NATIVE_PROMPTNESS_THRESHOLD_S
+    c.ok(abs(thr - 0.01) < 1e-12, "promptness threshold is 0.01 s")
+    # a native mode stalled near the 8 s deadline: max RTT >> threshold -> promptness FAILS closed
+    stalled = _synth_calls_rtt([8_000_600_000] * 5)
+    g = R.compute_native_promptness_gate(mode="when_all_then_reduce", calls=stalled)
+    c.ok(g["native_wait_promptness_applicable"] is True
+         and g["native_wait_promptness_sanity_gate"] is False,
+         "native mode stalled to the deadline fails the promptness gate")
+    # ~0.5 ms wake (A2 yield/poll floor) passes -- well under 0.01 s
+    prompt = _synth_calls_rtt([400_000, 520_000, 480_000])
+    g2 = R.compute_native_promptness_gate(mode="dataflow_reduce", calls=prompt)
+    c.ok(g2["native_wait_promptness_sanity_gate"] is True
+         and g2["native_wait_promptness_observed_max_rtt_s"] < thr,
+         "prompt native mode (~0.5 ms) passes the promptness gate")
+    # the exact A3 gap: a 100 ms wake PASSES the coarse deadline-margin gate but FAILS the tight promptness
+    slow = _synth_calls_rtt([100_000_000] * 3)
+    gm = R.compute_native_deadline_margin_gate(mode="when_all_then_reduce", calls=slow,
+                                               dispatch_timeout_s=8.0)
+    gp = R.compute_native_promptness_gate(mode="when_all_then_reduce", calls=slow)
+    c.ok(gm["native_wait_deadline_margin_gate"] is True
+         and gp["native_wait_promptness_sanity_gate"] is False,
+         "100 ms wake passes the coarse margin gate but fails the tight promptness gate")
+    # poll control is EXEMPT even for a stalled RTT
+    gpoll = R.compute_native_promptness_gate(mode="root_flat_gather_poll", calls=stalled)
+    c.ok(gpoll["native_wait_promptness_applicable"] is False
+         and gpoll["native_wait_promptness_sanity_gate"] is True,
+         "poll control is exempt from the promptness gate")
+    # an applicable native mode with zero observed calls fails closed
+    ge = R.compute_native_promptness_gate(mode="dataflow_reduce", calls=[])
+    c.ok(ge["native_wait_promptness_sanity_gate"] is False,
+         "native mode with zero calls fails the promptness gate closed")
+
+
+def _check_poll_half_retirement_invariant(c):
+    prompt = _synth_calls_rtt([400_000, 520_000])
+    disabled = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "0"})
+    recorded = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "50"})
+    unknown = R.compute_idle_backoff_disclosure({})
+    gp = R.compute_native_promptness_gate(mode="when_all_then_reduce", calls=prompt)
+
+    def _retire(mode, *, overall_pass, polled, promptness, disclosure):
+        return R.compute_poll_half_retirement(
+            mode=mode, overall_pass=overall_pass, success_path_polling_used=polled,
+            promptness_gate=promptness, disclosure=disclosure)
+
+    # HAPPY PATH: claim + pass + no user-poll + prompt + disclosed(disabled) -> RETIRED via idle_backoff
+    r = _retire("when_all_then_reduce", overall_pass=True, polled=False, promptness=gp,
+                disclosure=disabled)
+    c.ok(r["poll_half_blocker_retired"] is True
+         and r["poll_retired_via"] == "runtime_idle_backoff_disabled"
+         and r["poll_retired_via"] == R.POLL_RETIRED_VIA_IDLE_BACKOFF,
+         "claim + pass + prompt + disclosed(disabled) + no-user-poll -> RETIRED via runtime_idle_backoff_disabled")
+
+    # TAMPER: success_path_polling_used=True -> NOT retired
+    rt = _retire("when_all_then_reduce", overall_pass=True, polled=True, promptness=gp,
+                 disclosure=disabled)
+    c.ok(rt["poll_half_blocker_retired"] is False and rt["poll_retired_via"] == "none",
+         "tamper success_path_polling_used=True -> NOT retired")
+
+    # overall_pass False -> NOT retired
+    rf = _retire("dataflow_reduce", overall_pass=False, polled=False, promptness=gp,
+                 disclosure=disabled)
+    c.ok(rf["poll_half_blocker_retired"] is False, "overall_pass False -> NOT retired")
+
+    # slow-but-not-timeout wake (promptness gate False) -> NOT retired even when disabled + pass
+    gslow = R.compute_native_promptness_gate(mode="when_all_then_reduce",
+                                             calls=_synth_calls_rtt([100_000_000] * 3))
+    rs = _retire("when_all_then_reduce", overall_pass=True, polled=False, promptness=gslow,
+                 disclosure=disabled)
+    c.ok(rs["poll_half_blocker_retired"] is False, "slow-but-not-timeout wake -> NOT retired")
+
+    # recorded_only / unknown idle-backoff: no runtime progress driver disclosed -> NOT retired
+    rr = _retire("when_all_then_reduce", overall_pass=True, polled=False, promptness=gp,
+                 disclosure=recorded)
+    ru = _retire("when_all_then_reduce", overall_pass=True, polled=False, promptness=gp,
+                 disclosure=unknown)
+    c.ok(rr["poll_half_blocker_retired"] is False and ru["poll_half_blocker_retired"] is False,
+         "recorded_only / unknown idle-backoff (no disclosed driver) -> NOT retired")
+
+    # YIELD DIAGNOSTIC can NEVER retire (not a claim mode), even if we wrongly claim it did not poll
+    gpy = R.compute_native_promptness_gate(mode="when_all_then_reduce_yield", calls=prompt)
+    ry = _retire("when_all_then_reduce_yield", overall_pass=True, polled=True, promptness=gpy,
+                 disclosure=disabled)
+    ry2 = _retire("when_all_then_reduce_yield", overall_pass=True, polled=False, promptness=gpy,
+                  disclosure=disabled)
+    c.ok(ry["poll_half_blocker_retired"] is False and ry2["poll_half_blocker_retired"] is False,
+         "yield diagnostic can NEVER retire the poll half (not a claim mode)")
+
+    # SEQUENTIAL_LEAF_WAIT positive control can NEVER retire (not a claim mode)
+    gps = R.compute_native_promptness_gate(mode="sequential_leaf_wait", calls=prompt)
+    rseq = _retire("sequential_leaf_wait", overall_pass=True, polled=False, promptness=gps,
+                   disclosure=disabled)
+    c.ok(rseq["poll_half_blocker_retired"] is False,
+         "sequential_leaf_wait positive control can NEVER retire the poll half")
+
+    # POLL CONTROL can NEVER retire (not a claim mode)
+    gpc = R.compute_native_promptness_gate(mode="root_flat_gather_poll", calls=prompt)
+    rpc = _retire("root_flat_gather_poll", overall_pass=True, polled=True, promptness=gpc,
+                  disclosure=disabled)
+    c.ok(rpc["poll_half_blocker_retired"] is False, "poll control can NEVER retire the poll half")
+
+
+# ---------------------------------------------------------------------------
+# A4-progress-probe: pure continuation-vs-waiter discriminator over synthetic ROOT-clock timestamps. No
+# HPX/cluster: the C++ timestamp capture is exercised only on Rostam; here we verify the classifier, the
+# derived deltas, sentinel/monotonicity fail-closed behavior, threshold reuse, and the fences (the probe
+# never creates poll retirement; the yield mode stays diagnostic/reference).
+# ---------------------------------------------------------------------------
+
+_T0 = 1_000_000_000_000  # arbitrary steady_clock base (ns)
+
+
+def _disc(mode, *, ds, ce, cc, wr, rtt_ns, timeout=8.0):
+    return R.compute_progress_discriminator(
+        mode=mode, t_dispatch_start_ns=ds, t_continuation_entered_ns=ce,
+        t_continuation_completed_ns=cc, t_wait_returned_ns=wr, rtt_ns=rtt_ns,
+        dispatch_timeout_s=timeout)
+
+
+def _check_a4_progress_discriminator(c):
+    T = _T0
+    NATIVE = "when_all_then_reduce"
+
+    # (1) classifier covers all five required signatures ---------------------------------------------
+    # none: prompt outer RTT (< 0.01s) and prompt continuation
+    g = _disc(NATIVE, ds=T, ce=T + 300_000, cc=T + 350_000, wr=T + 400_000, rtt_ns=400_000)
+    c.ok(g["progress_deferred_to_timeout_signature"] == "none", "signature none (prompt)")
+    # continuation_at_timeout: the reduce itself only entered near the deadline
+    g = _disc(NATIVE, ds=T, ce=T + 8_000_000_000, cc=T + 8_000_100_000, wr=T + 8_000_200_000,
+              rtt_ns=8_000_400_000)
+    c.ok(g["progress_deferred_to_timeout_signature"] == "continuation_at_timeout",
+         "signature continuation_at_timeout (reduce ran at ~timeout)")
+    # waiter_resume_at_timeout: reduce ran early, caller resumed at timeout
+    g = _disc(NATIVE, ds=T, ce=T + 300_000, cc=T + 400_000, wr=T + 8_000_000_000,
+              rtt_ns=8_000_400_000)
+    c.ok(g["progress_deferred_to_timeout_signature"] == "waiter_resume_at_timeout",
+         "signature waiter_resume_at_timeout (continuation early, waiter late)")
+    # ambiguous: moderate continuation delay, no clean timeout signature
+    g = _disc(NATIVE, ds=T, ce=T + 500_000_000, cc=T + 500_100_000, wr=T + 500_200_000,
+              rtt_ns=500_300_000)
+    c.ok(g["progress_deferred_to_timeout_signature"] == "ambiguous",
+         "signature ambiguous (fallback)")
+    # continuation_uncaptured: continuation never ran (sentinel 0) though body timestamps present
+    g = _disc(NATIVE, ds=T, ce=0, cc=0, wr=T + 8_000_000_000, rtt_ns=8_000_000_000)
+    c.ok(g["progress_deferred_to_timeout_signature"] == "continuation_uncaptured",
+         "signature continuation_uncaptured (continuation sentinel)")
+
+    # (2) derived deltas correct and sentinel-safe ---------------------------------------------------
+    g = _disc(NATIVE, ds=T, ce=T + 1_000_000_000, cc=T + 1_500_000_000, wr=T + 2_000_000_000,
+              rtt_ns=2_000_000_000)
+    c.ok(abs(g["continuation_delay_s"] - 1.0) < 1e-9, "continuation_delay_s = entered - dispatch")
+    c.ok(abs(g["continuation_duration_s"] - 0.5) < 1e-9, "continuation_duration_s = completed - entered")
+    c.ok(abs(g["wait_return_delay_after_continuation_s"] - 0.5) < 1e-9,
+         "wait_return_delay_after_continuation_s = wait_returned - completed")
+    gs = _disc(NATIVE, ds=T, ce=0, cc=0, wr=T + 1_000_000_000, rtt_ns=1_000_000_000)
+    c.ok(gs["continuation_delay_s"] is None and gs["continuation_duration_s"] is None
+         and gs["wait_return_delay_after_continuation_s"] is None,
+         "sentinel continuation timestamps -> None deltas (no crash)")
+
+    # (3) monotonicity gate fails on scrambled timestamps --------------------------------------------
+    scrambled = _disc(NATIVE, ds=T + 5_000_000_000, ce=T + 1_000_000_000, cc=T + 2_000_000_000,
+                      wr=T + 3_000_000_000, rtt_ns=3_000_000_000)
+    c.ok(scrambled["progress_instrumentation_ok"] is False
+         and scrambled["progress_deferred_to_timeout_signature"] == "instrumentation_invalid",
+         "scrambled (out-of-order) timestamps fail the monotonicity gate closed")
+    ordered = _disc(NATIVE, ds=T, ce=T + 1, cc=T + 2, wr=T + 3, rtt_ns=3)
+    c.ok(ordered["progress_instrumentation_ok"] is True, "ordered timestamps pass the monotonicity gate")
+
+    # (4) continuation_fired_before_wait_return behavior ---------------------------------------------
+    c.ok(ordered["continuation_fired_before_wait_return"] is True,
+         "continuation_fired_before_wait_return True when 0 < completed <= wait_returned")
+    c.ok(gs["continuation_fired_before_wait_return"] is False,
+         "continuation_fired_before_wait_return False when completed is sentinel")
+
+    # non-applicable modes (poll control / positive control) -> n/a, not applicable -----------------
+    for m in ("root_flat_gather_poll", "sequential_leaf_wait"):
+        gna = _disc(m, ds=T, ce=0, cc=0, wr=T + 400_000, rtt_ns=400_000)
+        c.ok(gna["progress_discriminator_applicable"] is False
+             and gna["progress_deferred_to_timeout_signature"] == "n/a",
+             f"{m}: discriminator not applicable (n/a)")
+
+    # (5) probe fields never create poll retirement --------------------------------------------------
+    disabled = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "0"})
+    prompt_calls = [{"call_index": 0, "rtt_ns": 400_000}]
+    gp = R.compute_native_promptness_gate(mode="when_all_then_reduce_yield", calls=prompt_calls)
+    # a yield mode with a prompt 'none' progress signature STILL cannot retire (not a claim mode)
+    ry = R.compute_poll_half_retirement(
+        mode="when_all_then_reduce_yield", overall_pass=True, success_path_polling_used=True,
+        promptness_gate=gp, disclosure=disabled)
+    c.ok(ry["poll_half_blocker_retired"] is False,
+         "A4 progress signal does not let the yield diagnostic retire the poll half")
+    agg_keys = set(R.aggregate_progress_probe(
+        [{"progress": ordered}], mode=NATIVE).keys())
+    c.ok("poll_half_blocker_retired" not in agg_keys and "poll_retired_via" not in agg_keys,
+         "progress-probe aggregate carries NO poll-retirement keys")
+
+    # (6) yield mode remains diagnostic/reference ----------------------------------------------------
+    c.ok("when_all_then_reduce_yield" in R.NATIVE_COMPOSITION_MODES
+         and "when_all_then_reduce_yield" in R.DIAGNOSTIC_READINESS_MODES
+         and "when_all_then_reduce_yield" not in R.NATIVE_READINESS_MODES,
+         "yield mode: discriminator applies but it stays diagnostic-only, never a claim mode")
+
+    # (7) threshold reuse ----------------------------------------------------------------------------
+    gthr = _disc(NATIVE, ds=T, ce=T + 300_000, cc=T + 350_000, wr=T + 400_000, rtt_ns=400_000,
+                 timeout=8.0)
+    c.ok(abs(gthr["progress_prompt_floor_s"] - R.NATIVE_PROMPTNESS_THRESHOLD_S) < 1e-12,
+         "prompt floor reuses NATIVE_PROMPTNESS_THRESHOLD_S")
+    c.ok(abs(gthr["progress_deferred_floor_s"] - R.NATIVE_DEADLINE_MARGIN_FRACTION * 8.0) < 1e-9,
+         "deferred floor = NATIVE_DEADLINE_MARGIN_FRACTION * dispatch_timeout_s")
+
+    # aggregate: agreeing calls collapse; disagreeing -> 'mixed'; empty -> 'n/a' ---------------------
+    p_at = _disc(NATIVE, ds=T, ce=T + 8_000_000_000, cc=T + 8_000_100_000, wr=T + 8_000_200_000,
+                 rtt_ns=8_000_400_000)
+    agg_same = R.aggregate_progress_probe([{"progress": p_at}, {"progress": p_at}], mode=NATIVE)
+    c.ok(agg_same["progress_deferred_to_timeout_signature"] == "continuation_at_timeout"
+         and agg_same["all_progress_instrumentation_ok"] is True,
+         "aggregate collapses agreeing per-call signatures")
+    p_none = _disc(NATIVE, ds=T, ce=T + 300_000, cc=T + 350_000, wr=T + 400_000, rtt_ns=400_000)
+    agg_mixed = R.aggregate_progress_probe([{"progress": p_at}, {"progress": p_none}], mode=NATIVE)
+    c.ok(agg_mixed["progress_deferred_to_timeout_signature"] == "mixed",
+         "aggregate reports 'mixed' when per-call signatures disagree")
+    agg_empty = R.aggregate_progress_probe([], mode=NATIVE)
+    c.ok(agg_empty["progress_deferred_to_timeout_signature"] == "n/a",
+         "aggregate over zero calls is 'n/a'")
+
+
+# ---------------------------------------------------------------------------
+# Run 1 blocked-waiter probe: LOCAL no-parcelport control mode, the waiter-suspended fast-path guard, the
+# leaves_all_local scoring, and the pure interpreter helpers. All pure/off-cluster.
+# ---------------------------------------------------------------------------
+
+_LOCAL = "local_when_all_then_reduce_wait_for"
+
+
+def _synth_local_result(x, n, root_loc, s=0):
+    res = _synthetic_payload_result(x, n, s, [root_loc])  # all leaves on the root locality
+    res["local_control"] = True
+    res["placement_class"] = "local_control"
+    res["local_leaf_delay_ms"] = 2
+    return res
+
+
+def _check_run1_blocked_waiter(c):
+    T = 1_000_000_000_000
+
+    # (a) taxonomy: local control has a continuation (discriminator applies) but is NEVER a claim mode
+    c.ok(_LOCAL in R.LOCAL_CONTROL_MODES and _LOCAL in R.NATIVE_COMPOSITION_MODES,
+         "local control is a composition mode (discriminator applies)")
+    c.ok(_LOCAL not in R.NATIVE_READINESS_MODES and _LOCAL not in R.DIAGNOSTIC_READINESS_MODES
+         and _LOCAL not in R.POSITIVE_CONTROL_MODES and _LOCAL not in R.POLLING_MODES,
+         "local control is neither a claim, diagnostic, positive-control, nor polling mode")
+    c.ok(R._native_wait_variant(_LOCAL) == "local_wait_for", "local control wait variant = local_wait_for")
+    pv = R._readiness_provenance(_LOCAL)
+    c.ok(pv["hpx_native_readiness_composition"] is False and pv["diagnostic_only"] is False
+         and pv["poll_half_addressed"] is False and pv["success_path_polling_used"] is False,
+         "local control provenance: not a claim, blocks, never addresses the poll half")
+
+    # (b) local control can NEVER retire the poll half (not a claim mode)
+    disabled = R.compute_idle_backoff_disclosure({"hpx.max_idle_backoff_time": "0"})
+    gp = R.compute_native_promptness_gate(mode=_LOCAL, calls=[{"call_index": 0, "rtt_ns": 400_000}])
+    rr = R.compute_poll_half_retirement(mode=_LOCAL, overall_pass=True, success_path_polling_used=False,
+                                        promptness_gate=gp, disclosure=disabled)
+    c.ok(rr["poll_half_blocker_retired"] is False, "local control can NEVER retire the poll half")
+
+    # (c) waiter_suspended_before_ready fast-path guard
+    g_susp = R.compute_progress_discriminator(
+        mode=_LOCAL, t_dispatch_start_ns=T, t_continuation_entered_ns=T + 100,
+        t_continuation_completed_ns=T + 200, t_wait_returned_ns=T + 300,
+        t_waiter_entered_ns=T + 150, rtt_ns=300, dispatch_timeout_s=8.0)
+    c.ok(g_susp["waiter_suspended_before_ready"] is True,
+         "waiter_suspended_before_ready True when t_waiter_entered < t_continuation_completed")
+    g_fast = R.compute_progress_discriminator(
+        mode=_LOCAL, t_dispatch_start_ns=T, t_continuation_entered_ns=T + 100,
+        t_continuation_completed_ns=T + 200, t_wait_returned_ns=T + 300,
+        t_waiter_entered_ns=T + 250, rtt_ns=300, dispatch_timeout_s=8.0)
+    c.ok(g_fast["waiter_suspended_before_ready"] is False,
+         "waiter_suspended_before_ready False (fast-path artifact) when waiter entered after readiness")
+    g_unk = R.compute_progress_discriminator(
+        mode=_LOCAL, t_dispatch_start_ns=T, t_continuation_entered_ns=T + 100,
+        t_continuation_completed_ns=T + 200, t_wait_returned_ns=T + 300,
+        t_waiter_entered_ns=0, rtt_ns=300, dispatch_timeout_s=8.0)
+    c.ok(g_unk["waiter_suspended_before_ready"] is None,
+         "waiter_suspended_before_ready None when t_waiter_entered not captured")
+
+    # aggregate surfaces all_waiter_suspended_before_ready as a fail-closed AND over known calls
+    agg = R.aggregate_progress_probe([{"progress": g_susp}, {"progress": g_fast}], mode=_LOCAL)
+    c.ok(agg["all_waiter_suspended_before_ready"] is False,
+         "aggregate all_waiter_suspended_before_ready False if any call was a fast-path artifact")
+    agg2 = R.aggregate_progress_probe([{"progress": g_susp}, {"progress": g_susp}], mode=_LOCAL)
+    c.ok(agg2["all_waiter_suspended_before_ready"] is True,
+         "aggregate all_waiter_suspended_before_ready True when every call genuinely suspended")
+
+    # (d) leaves_all_local scoring: local result passes on leaves_all_local, no all-remote keys
+    lr = _synth_local_result(7, 8, 0)
+    gl = R.compute_payload_gates(x=7, n=8, payload_bytes=0, root_loc=0, remote_locs=[1, 2],
+                                 result=lr, folded_digest=R.fold_payload_digest(lr["leaves"]))
+    c.ok(gl.get("leaves_all_local") is True and "leaves_remote_all" not in gl
+         and "leaves_local_zero" not in gl and all(gl.values()),
+         "local control scored by leaves_all_local, not the all-remote/balanced gates")
+    rr2 = _synthetic_payload_result(7, 8, 0, [1, 2])
+    gr = R.compute_payload_gates(x=7, n=8, payload_bytes=0, root_loc=0, remote_locs=[1, 2],
+                                 result=rr2, folded_digest=R.fold_payload_digest(rr2["leaves"]))
+    c.ok(gr.get("leaves_remote_all") is True and "leaves_all_local" not in gr,
+         "remote result keeps the all-remote gates (local branch does not leak)")
+
+    # (e) interpret_local_vs_remote_resume
+    c.ok(R.interpret_local_vs_remote_resume("waiter_resume_at_timeout", "waiter_resume_at_timeout")
+         == "pure_hpx_scheduler_resume", "local+remote both stall -> pure HPX scheduler resume")
+    c.ok(R.interpret_local_vs_remote_resume("none", "waiter_resume_at_timeout")
+         == "remote_parcel_or_crosspool_resume", "local prompt, remote stall -> parcel/cross-pool resume")
+    c.ok(R.interpret_local_vs_remote_resume("none", "none") == "no_resume_defect_observed",
+         "both prompt -> no resume defect observed")
+    c.ok(R.interpret_local_vs_remote_resume("ambiguous", "none") == "ambiguous",
+         "otherwise ambiguous")
+
+    # (f) interpret_threadcount_resume
+    c.ok(R.interpret_threadcount_resume({1: "none", 2: "waiter_resume_at_timeout",
+                                         4: "waiter_resume_at_timeout"}) == "wake_sleeping_worker",
+         "threads=1 prompt, >1 stall -> wake-a-sleeping-worker")
+    c.ok(R.interpret_threadcount_resume({1: "waiter_resume_at_timeout", 2: "waiter_resume_at_timeout",
+                                         4: "waiter_resume_at_timeout"}) == "resume_broken_all_threadcounts",
+         "all thread counts stall -> resume broken regardless of worker count")
+    c.ok(R.interpret_threadcount_resume({1: "none", 2: "none", 4: "none"})
+         == "no_resume_defect_observed", "all thread counts prompt -> no defect")
+    c.ok(R.interpret_threadcount_resume({}) == "ambiguous", "empty thread map -> ambiguous")
+
+    # (g) classify_untimed_wait (pure; C++ untimed mode DEFERRED)
+    c.ok(R.classify_untimed_wait(resumed=False, hung=True, delay_s=None)
+         == "untimed_hung_ready_resume_lost", "untimed hung -> ready-resume lost")
+    c.ok(R.classify_untimed_wait(resumed=True, hung=False, delay_s=0.0004)
+         == "untimed_resumed_prompt", "untimed resumed promptly -> timer was interfering")
+    c.ok(R.classify_untimed_wait(resumed=True, hung=False, delay_s=2.0)
+         == "untimed_resumed_slow", "untimed resumed slowly -> slow, not lost")
+    c.ok(R.classify_untimed_wait(resumed=False, hung=False, delay_s=None) == "ambiguous",
+         "untimed neither hung nor resumed -> ambiguous")
+
+
+def _check_native_heartbeat_completion(c):
+    import os
+    import tempfile
+    bd = tempfile.mkdtemp(prefix="exp64_selftest_hb_")
+    try:
+        # heartbeat writes root.alive; completion writes root.done + legacy served1.ok
+        R._touch_heartbeat([bd])
+        c.ok(os.path.isfile(os.path.join(bd, "root.alive")), "heartbeat writes root.alive")
+        c.ok(not os.path.isfile(os.path.join(bd, "root.done")),
+             "heartbeat alone does NOT write the completion sentinel")
+        R._write_completion([bd])
+        c.ok(os.path.isfile(os.path.join(bd, "root.done"))
+             and os.path.isfile(os.path.join(bd, "served1.ok")),
+             "completion writes root.done + legacy served1.ok")
+    finally:
+        import shutil
+        shutil.rmtree(bd, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -674,6 +1237,16 @@ def run_all_selftests():
     _check_fences_and_forbidden_keys(c)
     _check_payload_gates_pure(c)
     _check_ray_payload_gates_pure(c)
+    _check_native_readiness_gates_pure(c)
+    _check_native_deadline_margin_gate(c)
+    _check_job159418_false_positive_now_fails(c)
+    _check_phase_a_labels(c)
+    _check_idle_backoff_disclosure(c)
+    _check_native_promptness_gate(c)
+    _check_poll_half_retirement_invariant(c)
+    _check_a4_progress_discriminator(c)
+    _check_run1_blocked_waiter(c)
+    _check_native_heartbeat_completion(c)
     _check_manifest_clean(c)
     _check_manifest_fail_closed(c)
     _check_manifest_validator_bites(c)

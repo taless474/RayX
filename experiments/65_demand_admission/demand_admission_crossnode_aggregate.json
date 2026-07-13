@@ -1,0 +1,1191 @@
+{
+  "experiment": "65_demand_admission",
+  "kind": "demand_triggered_connect_admission_mechanism_crossnode",
+  "phase": "rostam-cross-node",
+  "ray_free": true,
+  "single_node": false,
+  "cross_node": true,
+  "transport": "tcp_cross_node",
+  "controller": "plain_python_orchestrator_under_slurm",
+  "structural_flags": {
+    "static_locality_count_used": false,
+    "expected_connector_count_used": false,
+    "admission_intent_flag_required": true
+  },
+  "claim_fences": {
+    "no_ray_or_ray_actors": true,
+    "no_hpx_inside_ray_worker_result": true,
+    "no_ray_autoscaling_result": true,
+    "no_elasticity_under_load_result": true,
+    "no_concurrent_membership_churn": true,
+    "no_failure_recovery_result": true,
+    "no_lazy_tcp_socket_establishment_result": true,
+    "no_performance_comparison": true,
+    "cross_node_two_node_scope_only": true,
+    "no_general_hpx_claim": true,
+    "durations_observational_only": true
+  },
+  "reps_per_arm": 3,
+  "dwell_s": 3.0,
+  "binary": "demand_admission_spike",
+  "preflight": {
+    "slurm_job_id": "170014",
+    "slurm_nodelist_raw": "medusa[00-01]",
+    "controller_host": "medusa00",
+    "root_node": "medusa00",
+    "connector_node": "medusa01",
+    "subnet_prefix": "10.42.5.",
+    "allocation_hostnames": [
+      "medusa00",
+      "medusa01"
+    ],
+    "root_subnet_ip": "10.42.5.30",
+    "connector_subnet_ip": "10.42.5.31",
+    "clock_skew_observational": {
+      "remote_minus_local_ms_midpoint_estimate": -1311,
+      "bracket_ms": 164,
+      "note": "observational only; srun launch latency dominates the bracket"
+    }
+  },
+  "nodes": {
+    "root": "medusa00",
+    "connector": "medusa01",
+    "root_subnet_ip": "10.42.5.30",
+    "connector_subnet_ip": "10.42.5.31",
+    "subnet_prefix": "10.42.5."
+  },
+  "slurm": {
+    "job_id": "170014",
+    "nodelist_raw": "medusa[00-01]",
+    "allocation_hostnames": [
+      "medusa00",
+      "medusa01"
+    ]
+  },
+  "clock_skew_observational": {
+    "remote_minus_local_ms_midpoint_estimate": -1311,
+    "bracket_ms": 164,
+    "note": "observational only; srun launch latency dominates the bracket"
+  },
+  "demand_arm": {
+    "all_pass": true,
+    "reps": [
+      {
+        "rep": 1,
+        "arm": "demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/demand_r1",
+        "ports": {
+          "root": 7841,
+          "connector": 7842
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true,
+          "root_on_root_node": true,
+          "connector_on_connector_node": true,
+          "cross_node_placement": true,
+          "subnet_pinned_both_endpoints": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false,
+          "connector_spawn_wall_ms_remote_clock": 1783969215420
+        },
+        "durations_observational_ms": {
+          "demand_to_srun_popen_ms": 0,
+          "demand_to_admission_ms": 804,
+          "admission_to_served_ms": 101,
+          "spawn_wall_ms_cross_clock_note": "connector-node clock; not compared against root-node clocks in any gate"
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969213581,
+            "steady_ms": 219,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969213582,
+            "steady_ms": 220,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969217395,
+            "steady_ms": 4034,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 20,
+            "first_liveness_wall_ms": 1783969213582,
+            "last_liveness_wall_ms": 1783969217395
+          },
+          "served": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969217496,
+            "steady_ms": 4135,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969247412,
+            "steady_ms": 34051,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969247413,
+            "steady_ms": 34052,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345393,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969247414,
+            "steady_ms": 34052,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r1",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7841",
+              "--hpx:hpx=10.42.5.30:7841",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 20,
+            "heartbeat_count": 20,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783969216591,
+            "monotonic_s": 6312901.704189669
+          },
+          "controller_popen_wall_ms": 1783969216591,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 1269244,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969215420,
+            "steady_ms": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r1",
+              "--serve-timeout",
+              "150",
+              "--hpx:agas=10.42.5.30:7841",
+              "--hpx:hpx=10.42.5.31:7842",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 1269244,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969215898,
+            "steady_ms": 477,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 1269244,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969245934,
+            "steady_ms": 30514,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      },
+      {
+        "rep": 2,
+        "arm": "demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/demand_r2",
+        "ports": {
+          "root": 7845,
+          "connector": 7846
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true,
+          "root_on_root_node": true,
+          "connector_on_connector_node": true,
+          "cross_node_placement": true,
+          "subnet_pinned_both_endpoints": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false,
+          "connector_spawn_wall_ms_remote_clock": 1783969249503
+        },
+        "durations_observational_ms": {
+          "demand_to_srun_popen_ms": 1,
+          "demand_to_admission_ms": 197,
+          "admission_to_served_ms": 208,
+          "spawn_wall_ms_cross_clock_note": "connector-node clock; not compared against root-node clocks in any gate"
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969247681,
+            "steady_ms": 8,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969247682,
+            "steady_ms": 9,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969250901,
+            "steady_ms": 3228,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 17,
+            "first_liveness_wall_ms": 1783969247682,
+            "last_liveness_wall_ms": 1783969250901
+          },
+          "served": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969251109,
+            "steady_ms": 3436,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969281126,
+            "steady_ms": 33453,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969281127,
+            "steady_ms": 33454,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345452,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969281127,
+            "steady_ms": 33454,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r2",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7845",
+              "--hpx:hpx=10.42.5.30:7845",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783969250704,
+            "monotonic_s": 6312935.817422528
+          },
+          "controller_popen_wall_ms": 1783969250705,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 1269458,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969249503,
+            "steady_ms": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r2",
+              "--serve-timeout",
+              "150",
+              "--hpx:agas=10.42.5.30:7845",
+              "--hpx:hpx=10.42.5.31:7846",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 1269458,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969249626,
+            "steady_ms": 122,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 1269458,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969279661,
+            "steady_ms": 30158,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      },
+      {
+        "rep": 3,
+        "arm": "demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/demand_r3",
+        "ports": {
+          "root": 7849,
+          "connector": 7850
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true,
+          "root_on_root_node": true,
+          "connector_on_connector_node": true,
+          "cross_node_placement": true,
+          "subnet_pinned_both_endpoints": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false,
+          "connector_spawn_wall_ms_remote_clock": 1783969283301
+        },
+        "durations_observational_ms": {
+          "demand_to_srun_popen_ms": 1,
+          "demand_to_admission_ms": 396,
+          "admission_to_served_ms": 101,
+          "spawn_wall_ms_cross_clock_note": "connector-node clock; not compared against root-node clocks in any gate"
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969281497,
+            "steady_ms": 114,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969281497,
+            "steady_ms": 115,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969284909,
+            "steady_ms": 3527,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 18,
+            "first_liveness_wall_ms": 1783969281498,
+            "last_liveness_wall_ms": 1783969284909
+          },
+          "served": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969285010,
+            "steady_ms": 3628,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969314927,
+            "steady_ms": 33545,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969314928,
+            "steady_ms": 33546,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345500,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969314929,
+            "steady_ms": 33547,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r3",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7849",
+              "--hpx:hpx=10.42.5.30:7849",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 18,
+            "heartbeat_count": 18,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783969284513,
+            "monotonic_s": 6312969.62668118
+          },
+          "controller_popen_wall_ms": 1783969284514,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 1269664,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969283301,
+            "steady_ms": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/demand_r3",
+              "--serve-timeout",
+              "150",
+              "--hpx:agas=10.42.5.30:7849",
+              "--hpx:hpx=10.42.5.31:7850",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 1269664,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969283428,
+            "steady_ms": 127,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 1269664,
+            "host": "medusa01.rostam.cct.lsu.edu",
+            "wall_ms": 1783969313464,
+            "steady_ms": 30163,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      }
+    ]
+  },
+  "no_demand_arm": {
+    "all_pass": true,
+    "reps": [
+      {
+        "rep": 1,
+        "arm": "no_demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/nodemand_r1",
+        "ports": {
+          "root": 7941
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "root_on_root_node": true,
+          "subnet_pinned_root_endpoint": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345552,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969315205,
+            "steady_ms": 8,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345552,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969315205,
+            "steady_ms": 9,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 2345552,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969318418,
+            "steady_ms": 3221,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345552,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969318418,
+            "steady_ms": 3222,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/nodemand_r1",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7941",
+              "--hpx:hpx=10.42.5.30:7941",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      },
+      {
+        "rep": 2,
+        "arm": "no_demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/nodemand_r2",
+        "ports": {
+          "root": 7945
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "root_on_root_node": true,
+          "subnet_pinned_root_endpoint": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345573,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969318646,
+            "steady_ms": 8,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345573,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969318647,
+            "steady_ms": 8,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 2345573,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969321860,
+            "steady_ms": 3221,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345573,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969321878,
+            "steady_ms": 3239,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/nodemand_r2",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7945",
+              "--hpx:hpx=10.42.5.30:7945",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      },
+      {
+        "rep": 3,
+        "arm": "no_demand",
+        "bootdir_rel": "_exp65_runs/crossnode_170014/nodemand_r3",
+        "ports": {
+          "root": 7949
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "root_on_root_node": true,
+          "subnet_pinned_root_endpoint": true,
+          "slurm_allocation_recorded": true,
+          "remote_orphan_check_ran": true,
+          "evidence_fields_complete": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 2345590,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969322146,
+            "steady_ms": 7,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 2345590,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969322147,
+            "steady_ms": 8,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 2345590,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969325174,
+            "steady_ms": 3035,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 2345590,
+            "host": "medusa00.rostam.cct.lsu.edu",
+            "wall_ms": 1783969325174,
+            "steady_ms": 3035,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/work/bitayekrang/RayX/experiments/65_demand_admission/_exp65_runs/crossnode_170014/nodemand_r3",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "120",
+              "--finish-timeout",
+              "28",
+              "--leave-timeout",
+              "90",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=10.42.5.30:7949",
+              "--hpx:hpx=10.42.5.30:7949",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 16,
+            "heartbeat_count": 16,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "endpoints_in_argv_ok": true,
+          "orphans": [],
+          "remote_orphan_check_ran": true
+        }
+      }
+    ]
+  },
+  "overall": "pass"
+}

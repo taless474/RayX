@@ -379,11 +379,9 @@ def compute_payload_gates(*, x, n, payload_bytes, root_loc, remote_locs, result,
     leaves_local = sum(1 for l in localities if l == root_loc)
     leaves_remote = sum(1 for l in localities if l != root_loc)
     covered = set(localities)
-    return {
+    # Correctness gates (identical for every mode): value oracle, payload length/digest, no timeout.
+    common = {
         "n_leaves_dispatched": len(leaves) == n,
-        "leaves_local_zero": leaves_local == 0,
-        "leaves_remote_all": leaves_remote == n,
-        "every_remote_locality_covered": bool(remote_locs) and all(rl in covered for rl in remote_locs),
         "witness_leaf_count_n": len(leaves) == n,
         "scalar_oracle_correct": int(result.get("composite")) == composite_oracle(x, n),
         "payload_byte_length_correct": all(int(lf["payload_len"]) == payload_bytes for lf in leaves)
@@ -391,6 +389,15 @@ def compute_payload_gates(*, x, n, payload_bytes, root_loc, remote_locs, result,
         "payload_digest_correct": folded_digest == payload_digest(x, n, payload_bytes),
         "no_dispatch_timeout": int(result.get("timed_out_leaf_count", 1)) == 0,
     }
+    # Run1 LOCAL control: leaves run IN-PROCESS on the root, so it is scored by leaves_all_local, NOT the
+    # all-remote/balanced placement gates (which it intentionally does not satisfy).
+    if result.get("local_control") is True:
+        common["leaves_all_local"] = bool(leaves) and (leaves_local == n)
+        return common
+    common["leaves_local_zero"] = leaves_local == 0
+    common["leaves_remote_all"] = leaves_remote == n
+    common["every_remote_locality_covered"] = bool(remote_locs) and all(rl in covered for rl in remote_locs)
+    return common
 
 
 # ---------------------------------------------------------------------------
@@ -541,28 +548,52 @@ def _numa_nic_provenance(prefer_subnet, root_cpuset):
     return prov
 
 
-def build_root_hpx_args(*, root_ip, root_port):
+def build_root_hpx_args(*, root_ip, root_port, bg_threads=None, idle_backoff_ms=None,
+                        parcel_pool_size=None):
     """Embedded-root HPX args: bind the root parcelport/AGAS to the selected-subnet IP:port and expect
-    connecting localities. Mirrors the proven exp63 root join flags (balanced bind)."""
-    return ["--hpx:ignore-batch-env",
+    connecting localities. Mirrors the proven exp63 root join flags (balanced bind). bg_threads, when
+    set, pins hpx.max_background_threads via --hpx:ini (a Phase A2 progress-diagnosis lever; None keeps
+    the HPX default and leaves the Slice 1-4 poll driver behavior unchanged). idle_backoff_ms, when set,
+    pins hpx.max_idle_backoff_time via --hpx:ini (the Phase A3 lever; 0 disables scheduler idle backoff so
+    the idle loop spins -- a CPU-for-latency runtime-spin workaround on the TCP parcelport, NOT an
+    event-driven wakeup; None keeps the HPX default). parcel_pool_size, when set, pins the CONFIRMED key
+    hpx.parcel.tcp.parcel_pool_size via --hpx:ini (A4 progress lever; None keeps the HPX default of 2 as
+    observed on this build)."""
+    args = ["--hpx:ignore-batch-env",
             f"--hpx:hpx={root_ip}:{root_port}",
             f"--hpx:agas={root_ip}:{root_port}",
             "--hpx:expect-connecting-localities",
             "--hpx:bind=balanced"]
+    if bg_threads is not None:
+        args.append(f"--hpx:ini=hpx.max_background_threads={int(bg_threads)}")
+    if idle_backoff_ms is not None:
+        args.append(f"--hpx:ini=hpx.max_idle_backoff_time={int(idle_backoff_ms)}")
+    if parcel_pool_size is not None:
+        args.append(f"--hpx:ini=hpx.parcel.tcp.parcel_pool_size={int(parcel_pool_size)}")
+    return args
 
 
 def build_connector_srun_cmd(rhost, bootstrap_dir, *, connector_bin, connector_threads, serve_timeout,
-                             prefer_subnet, root_ip, root_port):
+                             prefer_subnet, root_ip, root_port, idle_backoff_ms=None,
+                             parcel_pool_size=None):
     """The srun command that launches one payload_connector on its own node. --overlap + --cpu-bind=none
     so the connector step binds cleanly WITHIN its node allocation regardless of the root step's
-    --cpus-per-task (the proven exp63 connector-launch shape)."""
-    return ["srun", "--overlap", "--cpu-bind=none", "--nodes=1", "--ntasks=1",
-            f"--nodelist={rhost}", f"--cpus-per-task={connector_threads}",
-            connector_bin, "--role=connect", f"--bootstrap={bootstrap_dir}",
-            f"--serve-timeout={serve_timeout}", f"--prefer-subnet={prefer_subnet}",
-            f"--agas-preprobe-host={root_ip}", f"--agas-preprobe-port={root_port}",
-            f"--hpx:threads={connector_threads}", "--hpx:bind=none",
-            "--hpx:ignore-batch-env", f"--hpx:agas={root_ip}:{root_port}"]
+    --cpus-per-task (the proven exp63 connector-launch shape). idle_backoff_ms / parcel_pool_size, when
+    set, thread the Phase A3 idle-backoff lever (--hpx:ini=hpx.max_idle_backoff_time=<ms>) and the A4
+    confirmed parcel-pool lever (--hpx:ini=hpx.parcel.tcp.parcel_pool_size=<N>) onto the connector so the
+    scope is ISLAND-WIDE (root + every connector); None keeps the HPX default."""
+    cmd = ["srun", "--overlap", "--cpu-bind=none", "--nodes=1", "--ntasks=1",
+           f"--nodelist={rhost}", f"--cpus-per-task={connector_threads}",
+           connector_bin, "--role=connect", f"--bootstrap={bootstrap_dir}",
+           f"--serve-timeout={serve_timeout}", f"--prefer-subnet={prefer_subnet}",
+           f"--agas-preprobe-host={root_ip}", f"--agas-preprobe-port={root_port}",
+           f"--hpx:threads={connector_threads}", "--hpx:bind=none",
+           "--hpx:ignore-batch-env", f"--hpx:agas={root_ip}:{root_port}"]
+    if idle_backoff_ms is not None:
+        cmd.append(f"--hpx:ini=hpx.max_idle_backoff_time={int(idle_backoff_ms)}")
+    if parcel_pool_size is not None:
+        cmd.append(f"--hpx:ini=hpx.parcel.tcp.parcel_pool_size={int(parcel_pool_size)}")
+    return cmd
 
 
 def _default_payload_import():
@@ -940,6 +971,920 @@ def run_payload_remote_smoke(*, x=7, n=8, sizes=(0, 262144), env=None, import_fn
             rc = 1
     if failed_before is not None:
         print(f"exp64 payload-smoke: S={failed_before} did NOT pass; larger sizes not dispatched.")
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Slice 5 Phase A: HPX-only NATIVE READINESS-composition payload probe.
+#
+# Retires the SUCCESS-PATH POLL for the HPX payload arm (when_all_then_reduce / dataflow_reduce over
+# shared leaf futures + one bounded wait_for, mirroring exp63), while EXPLICITLY RETAINING the root-flat
+# gather -- raw per-leaf bytes must cross the Python boundary, so the root still gathers O(N*S). Phase A
+# therefore addresses ONLY the "poll" half of the hpx_poll_gather_baseline blocker; the "gather" half
+# remains. HPX-only, no Ray, no ratios/speedups/winner; same_axis_comparison stays False. Requires the
+# exp63 hardened connector lifetime (root heartbeat + completion sentinel; serve-timeout as deadman) so
+# native readiness does not re-hit the old serve-window race. native_claim_scope stays
+# "multithread_unchecked" until Phase C (threads=1 control) exists.
+# ---------------------------------------------------------------------------
+
+CONNECTOR_LIFETIME_MODE = "root_completion_or_heartbeat_deadman"
+NATIVE_READINESS_MODES = ("when_all_then_reduce", "dataflow_reduce")
+DEFAULT_NATIVE_PHASE_MODES = ("root_flat_gather_poll", "when_all_then_reduce", "dataflow_reduce")
+NATIVE_CLAIM_SCOPE_PHASE_A = "multithread_unchecked"  # Phase C (threads=1) has not run yet
+
+# Diagnostic-only readiness modes for a FUTURE Phase A2 progress diagnosis. NEVER a poll-retired claim
+# path: the yield variant polls the COMPOSED future to test whether yielding the scheduler drives the
+# passive native composition promptly (job 159418 showed wait_for slept to the deadline).
+DIAGNOSTIC_READINESS_MODES = ("when_all_then_reduce_yield",)
+
+# Native readiness modes (and the yield diagnostic) must complete MATERIALLY before the dispatch-timeout
+# deadline. Job 159418: every native RTT was pinned at ~dispatch_timeout with wait_for_status=ready --
+# a passive wait that only woke at the deadline. Without this margin gate that masquerades as a pass.
+NATIVE_DEADLINE_MARGIN_FRACTION = 0.5  # native max RTT must be < this * dispatch_timeout_s
+
+# A3 positive-control mode: single-leaf bounded blocking wait_for (exp58-analog). NOT a native-composition
+# claim; it isolates whether an idle-backoff-off runtime wakes a BARE blocking wait vs the composed future.
+POSITIVE_CONTROL_MODES = ("sequential_leaf_wait",)
+
+# Run 1 blocked-waiter LOCAL control: same when_all().then(reduce) + direct wait_for, but LOCAL hpx::async
+# leaves (no remote action, no parcelport, no connector). It isolates whether the timed-suspension resume
+# stalls even with NO networking. Diagnostic/local-control ONLY: never a claim, never retires the poll,
+# and scored by leaves_all_local instead of the all-remote/balanced placement gates.
+LOCAL_CONTROL_MODES = ("local_when_all_then_reduce_wait_for",)
+
+# Modes that POLL on the success path (poll control + the yield diagnostic). Native claim modes and the
+# sequential_leaf_wait positive control BLOCK instead of polling (success_path_polling_used=False).
+POLLING_MODES = ("root_flat_gather_poll",) + DIAGNOSTIC_READINESS_MODES
+
+# A3 promptness sanity: a retirement claim needs a MUCH tighter bound than the deadline-margin stall
+# catcher. Observed S=0 prompt floor (A2 poll control / yield diagnostic): ~0.4-0.5 ms; stalled passive
+# modes ~8 s. 0.01 s is ~20x the observed floor (jitter/warmup headroom) and ~800x below the stall; it
+# separates driven from stalled without any ratio computation.
+NATIVE_PROMPTNESS_THRESHOLD_S = 0.01
+
+# A3 poll-half retirement label: retirement is attributable to the runtime idle loop spinning with
+# idle-backoff disabled (a CPU-for-latency runtime-spin workaround on the TCP parcelport), NOT to an
+# event-driven wakeup. Distinct from runtime_progress_driver's "idle_backoff_disabled" value.
+POLL_RETIRED_VIA_IDLE_BACKOFF = "runtime_idle_backoff_disabled"
+
+
+def _mode_subject_to_deadline_margin(mode):
+    """Native claim modes, the yield diagnostic, the positive control, and the Run1 local control must all
+    complete before the dispatch-timeout deadline (so a stall is visible). The poll baseline is exempt."""
+    return (mode in NATIVE_READINESS_MODES or mode in DIAGNOSTIC_READINESS_MODES
+            or mode in POSITIVE_CONTROL_MODES or mode in LOCAL_CONTROL_MODES)
+
+
+def _mode_subject_to_promptness(mode):
+    """Same set as the deadline-margin gate: everything that should wake promptly is promptness-checked;
+    the poll baseline is exempt."""
+    return _mode_subject_to_deadline_margin(mode)
+
+
+def compute_idle_backoff_disclosure(cfg):
+    """PURE: derive the A3 scheduler idle-backoff disclosure from OBSERVED HPX config entries (exp58
+    convention). `disabled` iff hpx.max_idle_backoff_time == "0"; `unknown` when the key is absent; else
+    `recorded_only` (a nonzero recorded value). Discloses the CPU-for-latency runtime-spin honestly --
+    idle-backoff-off is NOT an event-driven wakeup."""
+    cfg = cfg or {}
+    ibt = cfg.get("hpx.max_idle_backoff_time", "unknown")
+    ilc = cfg.get("hpx.max_idle_loop_count", "unknown")
+    if str(ibt) == "0":
+        mode = "disabled"
+    elif ibt in (None, "", "unknown"):
+        mode = "unknown"
+    else:
+        mode = "recorded_only"
+    return {
+        "hpx_max_idle_backoff_time": ibt,
+        "hpx_max_idle_loop_count": ilc,
+        "idle_backoff_mode": mode,
+        "scheduler_idle_backoff_may_affect_qd1": (mode != "disabled"),
+        "runtime_progress_driver": "idle_backoff_disabled" if mode == "disabled" else "none",
+        "runtime_spins_when_idle": (mode == "disabled"),
+        # A3 confound disclosure. When idle-backoff is NOT disabled a prompt native `wait_for` result
+        # cannot be cleanly attributed to idle-loop spinning: background threads or a late scheduler
+        # wakeup may be doing the work instead. Disabling idle-backoff (spin) removes that idle-side
+        # ambiguity -- a CPU-for-latency runtime-spin workaround on the TCP parcelport, NOT an
+        # event-driven wakeup. Boolean is True exactly when idle-backoff is not disabled.
+        "bg_thread_result_confounded_by_idle_backoff": (mode != "disabled"),
+        "idle_backoff_confound_note": (
+            "idle-backoff disabled: runtime idle-loop spins and drives the passive wait_for; prompt "
+            "result is attributable to runtime-spin (CPU-for-latency workaround on TCP, not event-driven)"
+            if mode == "disabled" else
+            "idle-backoff not disabled: a prompt result may be driven by background threads or a late "
+            "scheduler wakeup rather than idle-loop spinning; attribution is confounded"),
+    }
+
+
+def compute_poll_half_retirement(*, mode, overall_pass, success_path_polling_used,
+                                 promptness_gate, disclosure):
+    """PURE A3 gate for retiring the POLL half of the payload readiness path. The poll half can be retired
+    ONLY when a NATIVE claim mode PASSED promptly under a DISCLOSED runtime progress driver -- i.e. the
+    passive `wait_for` woke without any user-level polling because HPX idle-backoff was disabled
+    (runtime-spin, a CPU-for-latency workaround on the TCP parcelport, NOT an event-driven wakeup).
+
+    Retirement requires ALL of:
+      * a native claim mode (root_flat_gather_poll / when_all_then_reduce_yield / sequential_leaf_wait are
+        NOT claim modes and can therefore NEVER retire the poll);
+      * overall_pass True (this already carries the deadline-margin gate that closes the job-159418 stall);
+      * success_path_polling_used False (no user-level poll drove the success path);
+      * the promptness sanity gate True (max RTT well under the deadline, not merely under 0.5*timeout);
+      * the idle-backoff progress driver DISCLOSED (config key observed, idle_backoff_mode != "unknown");
+      * a runtime progress driver RECORDED (runtime_progress_driver != "none", i.e. idle-backoff disabled).
+
+    When retired, poll_retired_via is the descriptive label POLL_RETIRED_VIA_IDLE_BACKOFF
+    ("runtime_idle_backoff_disabled"): the poll half was retired because the runtime idle loop spins with
+    idle-backoff disabled, NOT because of an event-driven wakeup. Otherwise poll_retired_via is "none".
+    """
+    is_native_claim = mode in NATIVE_READINESS_MODES
+    idle_mode = disclosure.get("idle_backoff_mode", "unknown")
+    driver = disclosure.get("runtime_progress_driver", "none")
+    retired = bool(
+        is_native_claim
+        and overall_pass is True
+        and success_path_polling_used is False
+        and promptness_gate.get("native_wait_promptness_sanity_gate") is True
+        and idle_mode != "unknown"          # progress driver DISCLOSED (config observed)
+        and driver != "none"                # a runtime progress driver is RECORDED / active
+    )
+    return {
+        "poll_half_blocker_retired": retired,
+        "poll_retired_via": POLL_RETIRED_VIA_IDLE_BACKOFF if retired else "none",
+    }
+
+
+def compute_native_promptness_gate(*, mode, calls, threshold_s=NATIVE_PROMPTNESS_THRESHOLD_S):
+    """PURE artifact-level gate: a retirement claim needs the observed max RTT WELL under the deadline,
+    not merely under 0.5*timeout. Tight fixed threshold (no ratios). Poll baseline is exempt."""
+    applicable = _mode_subject_to_promptness(mode)
+    max_rtt_s = max((c.get("rtt_ns", 0) / 1e9 for c in calls), default=0.0)
+    ok = True if not applicable else (bool(calls) and max_rtt_s < threshold_s)
+    return {
+        "native_wait_promptness_applicable": applicable,
+        "native_wait_promptness_observed_max_rtt_s": max_rtt_s,
+        "native_wait_promptness_threshold_s": threshold_s,
+        "native_wait_promptness_sanity_gate": ok,
+    }
+
+
+# A4-progress-probe: modes that build a when_all/dataflow continuation on the root (so the C++ probe emits
+# continuation-entered/completed). The poll control and the sequential_leaf_wait positive control have NO
+# continuation. The yield diagnostic DOES compose via when_all, so the discriminator is informative for it
+# too -- but it stays reference-only (never a claim, never retires the poll).
+NATIVE_COMPOSITION_MODES = NATIVE_READINESS_MODES + DIAGNOSTIC_READINESS_MODES + LOCAL_CONTROL_MODES
+
+
+def compute_progress_discriminator(*, mode, t_dispatch_start_ns, t_continuation_entered_ns,
+                                   t_continuation_completed_ns, t_wait_returned_ns, rtt_ns,
+                                   dispatch_timeout_s, t_waiter_entered_ns=0,
+                                   prompt_floor_s=NATIVE_PROMPTNESS_THRESHOLD_S,
+                                   margin_fraction=NATIVE_DEADLINE_MARGIN_FRACTION):
+    """PURE A4 discriminator (design point 4/5). For a native-composition mode, decide -- from ROOT-clock
+    timestamps only -- whether a stall is `continuation_at_timeout` (the reduce itself only ran near the
+    deadline: inbound parcelport/background progress not pumping completions) or `waiter_resume_at_timeout`
+    (the reduce ran early but the caller was not resumed until the timeout: waiter notification/resume).
+
+    Thresholds reuse the existing gates: prompt floor = NATIVE_PROMPTNESS_THRESHOLD_S (0.01s); deferred
+    floor = NATIVE_DEADLINE_MARGIN_FRACTION * dispatch_timeout_s (~4s at an 8s timeout). Fails CLOSED on a
+    non-composition mode ("n/a"), missing body timestamps or out-of-order capture ("instrumentation_invalid"),
+    or an uncaptured/partial continuation ("continuation_uncaptured"). Never blocks; never a claim; never
+    sets poll retirement. `ambiguous` is the fallback.
+    """
+    applicable = mode in NATIVE_COMPOSITION_MODES
+    ds = int(t_dispatch_start_ns or 0)
+    ce = int(t_continuation_entered_ns or 0)
+    cc = int(t_continuation_completed_ns or 0)
+    wr = int(t_wait_returned_ns or 0)
+    we = int(t_waiter_entered_ns or 0)
+    deferred_floor_s = margin_fraction * float(dispatch_timeout_s)
+    rtt_s = (int(rtt_ns or 0)) / 1e9
+
+    # Monotonicity over the PRESENT (nonzero) timestamps in capture order; body ts (ds, wr) required.
+    seq = [t for t in (ds, ce, cc, wr) if t > 0]
+    monotonic = seq == sorted(seq)
+    instrumentation_ok = bool(applicable and ds > 0 and wr > 0 and ds <= wr and monotonic)
+
+    continuation_delay_s = (ce - ds) / 1e9 if (ce > 0 and ds > 0) else None
+    continuation_duration_s = (cc - ce) / 1e9 if (ce > 0 and cc > 0) else None
+    wait_return_delay_after_continuation_s = (wr - cc) / 1e9 if (cc > 0 and wr > 0) else None
+    continuation_fired_before_wait_return = bool(cc > 0 and wr > 0 and cc <= wr)
+    # Run1 fast-path guard: the waiter must have SUSPENDED before the continuation completed, else a prompt
+    # result is an is_ready fast-path artifact -- NOT evidence about the resume path. None if not measured.
+    waiter_suspended_before_ready = (bool(we > 0 and cc > 0 and we < cc)
+                                     if (we > 0 and cc > 0) else None)
+
+    if not applicable:
+        signature = "n/a"
+    elif not instrumentation_ok:
+        signature = "instrumentation_invalid"
+    elif ce == 0 or cc == 0:
+        # continuation never ran (timeout) or ran but never completed: cannot classify -> fail closed.
+        signature = "continuation_uncaptured"
+    elif rtt_s < prompt_floor_s:
+        signature = "none"
+    elif continuation_delay_s is not None and continuation_delay_s >= deferred_floor_s:
+        signature = "continuation_at_timeout"
+    elif (continuation_delay_s is not None and continuation_delay_s < prompt_floor_s
+          and wait_return_delay_after_continuation_s is not None
+          and wait_return_delay_after_continuation_s >= deferred_floor_s):
+        signature = "waiter_resume_at_timeout"
+    else:
+        signature = "ambiguous"
+
+    return {
+        "progress_discriminator_applicable": applicable,
+        "progress_instrumentation_ok": instrumentation_ok,
+        "continuation_delay_s": continuation_delay_s,
+        "continuation_duration_s": continuation_duration_s,
+        "wait_return_delay_after_continuation_s": wait_return_delay_after_continuation_s,
+        "continuation_fired_before_wait_return": continuation_fired_before_wait_return,
+        "waiter_suspended_before_ready": waiter_suspended_before_ready,
+        "progress_deferred_to_timeout_signature": signature,
+        "progress_deferred_floor_s": deferred_floor_s,
+        "progress_prompt_floor_s": prompt_floor_s,
+    }
+
+
+def aggregate_progress_probe(calls, *, mode):
+    """PURE: collapse the per-call A4 discriminator over the measured calls. `signature` is the shared
+    per-call signature when the measured calls agree, else "mixed"; `all_instrumentation_ok` is a
+    fail-closed AND. Diagnostic/provenance only -- never feeds overall_pass or poll retirement."""
+    applicable = mode in NATIVE_COMPOSITION_MODES
+    probes = [c.get("progress", {}) for c in calls]
+    sigs = sorted({p.get("progress_deferred_to_timeout_signature", "n/a") for p in probes})
+    if not probes:
+        signature = "n/a"
+    elif len(sigs) == 1:
+        signature = sigs[0]
+    else:
+        signature = "mixed"
+    delays = [p.get("continuation_delay_s") for p in probes
+              if p.get("continuation_delay_s") is not None]
+    wrds = [p.get("wait_return_delay_after_continuation_s") for p in probes
+            if p.get("wait_return_delay_after_continuation_s") is not None]
+    susp = [p.get("waiter_suspended_before_ready") for p in probes]
+    susp_known = [s for s in susp if s is not None]
+    return {
+        "progress_discriminator_applicable": applicable,
+        "progress_deferred_to_timeout_signature": signature,
+        "progress_signatures_observed": sigs,
+        "all_progress_instrumentation_ok": bool(probes) and all(
+            p.get("progress_instrumentation_ok") for p in probes),
+        "max_continuation_delay_s": max(delays) if delays else None,
+        "min_continuation_delay_s": min(delays) if delays else None,
+        "max_wait_return_delay_after_continuation_s": max(wrds) if wrds else None,
+        # True only if EVERY measured call proved the waiter suspended before readiness (fast-path guard):
+        # a prompt local result is only a resume result when this holds.
+        "all_waiter_suspended_before_ready": bool(susp_known) and all(susp_known),
+        "waiter_suspended_before_ready_known_all_calls": len(susp_known) == len(probes) and bool(probes),
+    }
+
+
+def interpret_local_vs_remote_resume(local_signature, remote_signature):
+    """PURE Run1 interpreter: given the LOCAL-control and REMOTE direct-wait signatures, name the layer.
+    Local no-parcelport isolates whether the timed-suspension resume stalls with NO networking."""
+    stall = "waiter_resume_at_timeout"
+    prompt = "none"
+    if local_signature == stall and remote_signature == stall:
+        return "pure_hpx_scheduler_resume"          # stalls even locally -> not networking
+    if local_signature == prompt and remote_signature == stall:
+        return "remote_parcel_or_crosspool_resume"  # local prompt, remote stalls -> parcel/cross-pool
+    if local_signature == prompt and remote_signature == prompt:
+        return "no_resume_defect_observed"
+    return "ambiguous"
+
+
+def interpret_threadcount_resume(signature_by_threadcount):
+    """PURE Run1 interpreter: map {threads: signature} to a wake-a-sleeping-worker verdict. Prompt at
+    threads=1 but stalling at >1 implicates waking a parked/other worker; stalling at every thread count
+    implicates a resume/notification defect independent of worker count."""
+    stall = "waiter_resume_at_timeout"
+    prompt = "none"
+    m = {int(k): v for k, v in signature_by_threadcount.items()}
+    if not m:
+        return "ambiguous"
+    one = m.get(1)
+    multi = [v for k, v in m.items() if k > 1]
+    if one == prompt and multi and all(v == stall for v in multi):
+        return "wake_sleeping_worker"
+    if all(v == stall for v in m.values()):
+        return "resume_broken_all_threadcounts"
+    if all(v == prompt for v in m.values()):
+        return "no_resume_defect_observed"
+    return "ambiguous"
+
+
+def classify_untimed_wait(*, resumed, hung, delay_s, prompt_floor_s=NATIVE_PROMPTNESS_THRESHOLD_S):
+    """PURE helper (tested now; the C++ untimed mode is DEFERRED to a later run). Classifies an untimed
+    wait()/get() outcome: prompt resume -> the timer was interfering; hung -> the ready-resume is lost."""
+    if hung:
+        return "untimed_hung_ready_resume_lost"
+    if resumed and delay_s is not None and delay_s < prompt_floor_s:
+        return "untimed_resumed_prompt"
+    if resumed:
+        return "untimed_resumed_slow"
+    return "ambiguous"
+
+
+def _touch_heartbeat(bootdirs):
+    """Bump each connector's root.alive heartbeat mtime so the hardened connector resets its serve-timeout
+    DEADMAN. Called before every dispatch (prewarm + timed) so a low serve-timeout survives a long run as
+    long as the root keeps dispatching. Best-effort; never raises into the timed path."""
+    now = time.time()
+    for bd in bootdirs:
+        try:
+            p = os.path.join(bd, "root.alive")
+            with open(p, "w") as fh:
+                fh.write("alive\n")
+            os.utime(p, (now, now))
+        except OSError:
+            pass
+
+
+def _write_completion(bootdirs):
+    """Write the root COMPLETION sentinels (root.done + legacy served1.ok) so connectors leave via a
+    root-completion signal, NOT the deadman. Called ONLY after all calls are done and artifacts captured
+    (no further remote dispatch will occur). root.done carries a unix stamp for provenance."""
+    stamp = repr(time.time())
+    for bd in bootdirs:
+        for name, content in (("root.done", stamp + "\n"), ("served1.ok", "served\n")):
+            try:
+                with open(os.path.join(bd, name), "w") as fh:
+                    fh.write(content)
+            except OSError:
+                pass
+
+
+def compute_native_readiness_gates(*, mode, result):
+    """PURE per-call readiness-composition gates for one native/poll/diagnostic payload call. mode is the
+    requested readiness_composition; result is the ext dict. Native CLAIM modes must NOT poll on the
+    success path; the poll control and the yield DIAGNOSTIC do poll. All reach wait_for_status='ready'.
+    Every gate True to pass. Topology gates assert the flat gather is RETAINED (Phase A retires poll,
+    not gather). NOTE: this does NOT include the deadline-margin gate -- see
+    compute_native_deadline_margin_gate (artifact-level, across calls)."""
+    # Expected success-path polling: only the POLLING_MODES poll (poll CONTROL + yield DIAGNOSTIC). The
+    # native CLAIM modes and the sequential_leaf_wait positive control BLOCK (no poll).
+    expected_polled = mode in POLLING_MODES
+    return {
+        "readiness_composition_matches_mode": result.get("readiness_composition") == mode,
+        "success_path_polling_used_matches_mode":
+            bool(result.get("success_path_polling_used")) is expected_polled,
+        "wait_for_status_ready": result.get("wait_for_status") == "ready",
+        "root_flat_gather_retained": result.get("root_flat_gather_retained") is True,
+        "payload_topology_root_flat_gather":
+            result.get("payload_data_movement_topology") == "root_flat_gather",
+        "payload_bytes_cross_python_boundary":
+            result.get("payload_bytes_cross_python_boundary") is True,
+        "python_bytes_direct_copy": result.get("python_bytes_direct_copy") is True,
+    }
+
+
+def compute_native_deadline_margin_gate(*, mode, calls, dispatch_timeout_s):
+    """PURE artifact-level gate: native readiness modes (and the yield diagnostic) must complete
+    MATERIALLY before the dispatch-timeout deadline. Job 159418: every native RTT was pinned at
+    ~dispatch_timeout with wait_for_status=ready (a passive wait woken only by the timeout timer) yet the
+    coarse gates passed. This gate FAILS CLOSED when the observed max RTT is not comfortably under the
+    deadline. The poll CONTROL is EXEMPT (it is not subject to the native deadline-margin claim)."""
+    applicable = _mode_subject_to_deadline_margin(mode)
+    max_rtt_s = max((c.get("rtt_ns", 0) / 1e9 for c in calls), default=0.0)
+    threshold_s = NATIVE_DEADLINE_MARGIN_FRACTION * float(dispatch_timeout_s)
+    completed = True if not applicable else (bool(calls) and max_rtt_s < threshold_s)
+    return {
+        "native_wait_deadline_margin_applicable": applicable,
+        "native_wait_observed_max_rtt_s": max_rtt_s,
+        "native_wait_deadline_margin_threshold_s": threshold_s,
+        "native_wait_completed_before_timeout_deadline": completed,
+        "native_wait_deadline_margin_gate": completed,
+    }
+
+
+def _native_wait_variant(mode):
+    """Which wait the ext used: yield_poll (diagnostic) | sequential_leaf_wait_for (positive control) |
+    wait_for (native claim) | n/a (poll control)."""
+    if mode in DIAGNOSTIC_READINESS_MODES:
+        return "yield_poll"
+    if mode in POSITIVE_CONTROL_MODES:
+        return "sequential_leaf_wait_for"
+    if mode in LOCAL_CONTROL_MODES:
+        return "local_wait_for"
+    if mode in NATIVE_READINESS_MODES:
+        return "wait_for"
+    return "n/a"
+
+
+def _readiness_provenance(mode):
+    """Per-mode readiness/topology provenance block (recorded, not tuned). Phase A retires the poll for
+    the native CLAIM modes but never the flat gather. The yield DIAGNOSTIC is progress-diagnosis only and
+    NEVER retires the poll (poll_half_addressed stays False)."""
+    is_native_claim = mode in NATIVE_READINESS_MODES
+    is_diagnostic = mode in DIAGNOSTIC_READINESS_MODES
+    is_positive_control = mode in POSITIVE_CONTROL_MODES
+    is_local_control = mode in LOCAL_CONTROL_MODES
+    if is_diagnostic:
+        context = "diagnostic_yield_poll_on_composed_future"
+        pattern = "diagnostic yield-poll on the composed future (progress diagnosis, not a claim path)"
+    elif is_positive_control:
+        context = "positive_control_sequential_blocking_wait"
+        pattern = ("exp58-analog positive control: N shared leaf futures, bounded sequential blocking "
+                   "wait_for (one shared deadline); NOT native composition, not a claim path")
+    elif is_local_control:
+        context = "local_no_parcelport_when_all_then_reduce_wait_for"
+        pattern = ("Run1 local control: LOCAL hpx::async leaves (no action/parcelport/connector) -> "
+                   "when_all().then(reduce) -> one direct wait_for; isolates timed-suspension resume "
+                   "with NO networking; NOT native composition claim, not a claim path")
+    elif is_native_claim:
+        context = "exp63_native_readiness_shared_future_when_all_or_dataflow"
+        pattern = ("exp63 ext_fanout_fanin_remote_diag: shared futures -> when_all/dataflow -> one "
+                   "wait_for; native scalar reduce")
+    else:
+        context = "poll_gather_payload_baseline"
+        pattern = "n/a (poll control)"
+    return {
+        "readiness_composition": mode,
+        "success_path_polling_used": (mode in POLLING_MODES),  # only poll control + yield diagnostic poll
+        "hpx_native_readiness_composition": is_native_claim,
+        "diagnostic_only": is_diagnostic,
+        "positive_control_only": is_positive_control,
+        "native_wait_variant": _native_wait_variant(mode),
+        "composition_context": context,
+        "root_flat_gather_retained": True,          # payload gathered O(N*S) at the root
+        "payload_data_movement_topology": "root_flat_gather",
+        "poll_half_addressed": is_native_claim,     # only native CLAIM modes can retire the success-path poll
+        "gather_half_addressed": False,             # raw-bytes-to-Python forces the flat gather
+        "python_bytes_direct_copy": True,           # py::bytes from data()/size(), not std::string
+        "native_pattern_source": pattern,
+    }
+
+
+def _hardened_connectors(bootdirs, remote_hosts):
+    """Read per-connector provenance including the exp63 hardened-lifetime fields. Returns (connectors,
+    lifecycle_ok, cpuset_not_collapsed, nodelay_verified, anomaly_witness)."""
+    connectors = []
+    for idx, bd in enumerate(bootdirs):
+        att = _read_json(os.path.join(bd, "attest_connect.json"))
+        disc = _read_json(os.path.join(bd, "connect.disconnected1"))
+        cpuset = att.get("connector_cpuset_effective")
+        connectors.append({
+            "bootstrap_dir": os.path.basename(bd),
+            "hostname": _short_host(att.get("hostname")
+                                    or (remote_hosts[idx] if idx < len(remote_hosts) else None)),
+            "locality_id": att.get("locality_id"),
+            "connector_cpuset_effective": cpuset,
+            "cpuset_not_collapsed": bool(cpuset) and len(cpuset) > 1,
+            "tcp_nodelay_verified": bool(att.get("tcp_nodelay_attested") and att.get("tcp_nodelay")),
+            "joined": os.path.isfile(os.path.join(bd, "connect.joined1")),
+            "served": bool(disc.get("served")),
+            "graceful_disconnect": os.path.isfile(os.path.join(bd, "connect.disconnected1"))
+            and bool(disc.get("clean")) and bool(disc.get("served")),
+            # exp63 hardened-lifetime fields (present now that the exp64 connector was hardened)
+            "connector_lifetime_mode": disc.get("connector_lifetime_mode"),
+            "connector_shutdown_reason": disc.get("connector_shutdown_reason"),
+            "root_completion_signaled": bool(disc.get("root_completion_signaled", False)),
+            "serve_timeout_expired": bool(disc.get("serve_timeout_expired", False)),
+            "connector_stayed_alive_until_root_done":
+                bool(disc.get("connector_stayed_alive_until_root_done", False)),
+        })
+    lifecycle_ok = bool(connectors) and all(
+        c["joined"] and c["served"] and c["graceful_disconnect"] for c in connectors)
+    cpuset_not_collapsed = bool(connectors) and all(c["cpuset_not_collapsed"] for c in connectors)
+    nodelay_verified = bool(connectors) and all(c["tcp_nodelay_verified"] for c in connectors)
+    reasons = [c["connector_shutdown_reason"] for c in connectors]
+    all_root_completion = bool(connectors) and all(r == "root_completion_signal" for r in reasons)
+    anomaly_witness = {
+        "connector_lifetime_mode": CONNECTOR_LIFETIME_MODE,
+        "connector_lifecycle_ok": lifecycle_ok,
+        "connector_shutdown_reasons": reasons,
+        "all_connectors_root_completion_signal": all_root_completion,
+        "serve_timeout_expired_any": bool(connectors) and any(
+            c["serve_timeout_expired"] for c in connectors),
+        "connectors_stayed_alive_until_root_done": bool(connectors) and all(
+            c["connector_stayed_alive_until_root_done"] for c in connectors),
+        "late_parcel_after_shutdown_detected": "not_observed",  # no before_dispatch fault surfaced here
+    }
+    return connectors, lifecycle_ok, cpuset_not_collapsed, nodelay_verified, anomaly_witness
+
+
+def _size_calls_native(ext, *, x, n, payload_bytes, dispatch_timeout_s, mode, root_loc, remote_locs,
+                       prewarm, measured, bootdirs):
+    """Run prewarm + `measured` TIMED payload gathers for ONE (mode, size) against an ALREADY-STARTED
+    root with connectors joined. Heartbeats the connectors before EVERY dispatch (hardened lifetime),
+    times each call, folds+checks the digest AFTER timing. Adds native-readiness gates per call."""
+    for _ in range(prewarm):
+        _touch_heartbeat(bootdirs)
+        ext.fanout_fanin_payload_remote(x, n, payload_bytes, dispatch_timeout_s, mode)
+    calls = []
+    for c in range(measured):
+        _touch_heartbeat(bootdirs)
+        t0 = time.monotonic_ns()
+        result = dict(ext.fanout_fanin_payload_remote(x, n, payload_bytes, dispatch_timeout_s, mode))
+        t1 = time.monotonic_ns()  # RTT boundary ends here: payload bytes are back in Python
+        d0 = time.monotonic_ns()
+        folded = fold_payload_digest(result["leaves"])
+        d1 = time.monotonic_ns()
+        gates = compute_payload_gates(x=x, n=n, payload_bytes=payload_bytes, root_loc=root_loc,
+                                      remote_locs=remote_locs, result=result, folded_digest=folded)
+        native_gates = compute_native_readiness_gates(mode=mode, result=result)
+        # A4-progress-probe: carry the ROOT-clock timestamps (ns; comparable only among themselves) and
+        # derive the continuation-vs-waiter discriminator for this call. Provenance/diagnostic only.
+        ts_dispatch = int(result.get("t_dispatch_start_ns", 0) or 0)
+        ts_first_leaf = int(result.get("t_first_leaf_observed_ns", 0) or 0)
+        ts_cont_entered = int(result.get("t_continuation_entered_ns", 0) or 0)
+        ts_cont_completed = int(result.get("t_continuation_completed_ns", 0) or 0)
+        ts_waiter_entered = int(result.get("t_waiter_entered_ns", 0) or 0)
+        ts_wait_returned = int(result.get("t_wait_returned_ns", 0) or 0)
+        ts_assembly = int(result.get("t_artifact_assembly_ns", 0) or 0)
+        progress = compute_progress_discriminator(
+            mode=mode, t_dispatch_start_ns=ts_dispatch,
+            t_continuation_entered_ns=ts_cont_entered,
+            t_continuation_completed_ns=ts_cont_completed,
+            t_wait_returned_ns=ts_wait_returned, t_waiter_entered_ns=ts_waiter_entered,
+            rtt_ns=(t1 - t0), dispatch_timeout_s=dispatch_timeout_s)
+        calls.append({
+            "call_index": c,
+            "rtt_ns": t1 - t0, "rtt_ms": (t1 - t0) / 1e6,
+            "digest_check_ns": d1 - d0, "digest_check_ms": (d1 - d0) / 1e6,
+            "folded_digest": folded, "expected_digest": payload_digest(x, n, payload_bytes),
+            "composite": int(result["composite"]),
+            "timed_out_leaf_count": int(result.get("timed_out_leaf_count", 0)),
+            "n_localities": int(result.get("n_localities", 0)),
+            "leaf_localities": [int(lf["locality"]) for lf in result.get("leaves", [])],
+            "readiness_composition": result.get("readiness_composition"),
+            "success_path_polling_used": bool(result.get("success_path_polling_used")),
+            "wait_for_status": result.get("wait_for_status"),
+            # A4 root-clock timestamps + derived discriminator
+            "progress_clock": result.get("progress_clock", "unknown"),
+            "t_dispatch_start_ns": ts_dispatch,
+            "t_first_leaf_observed_ns": ts_first_leaf,
+            "t_continuation_entered_ns": ts_cont_entered,
+            "t_continuation_completed_ns": ts_cont_completed,
+            "t_waiter_entered_ns": ts_waiter_entered,
+            "t_wait_returned_ns": ts_wait_returned,
+            "t_artifact_assembly_ns": ts_assembly,
+            # Run1 blocked-waiter placement provenance
+            "placement_class": result.get("placement_class", "remote_all"),
+            "local_control": bool(result.get("local_control")),
+            "local_leaf_delay_ms": int(result.get("local_leaf_delay_ms", 0) or 0),
+            "progress": progress,
+            "gates": gates, "native_gates": native_gates,
+            "gates_pass": all(gates.values()) and all(native_gates.values()),
+        })
+    return calls
+
+
+def _drive_payload_native_smoke(ext, slurm, connector_bin, *, x, n, sizes, modes, dispatch_timeout_s,
+                                prefer_subnet, root_port, await_timeout, serve_timeout, n_remote,
+                                prewarm, measured, root_threads=4, bg_threads=None, idle_backoff_ms=None,
+                                parcel_pool_size=None, env=None):
+    """Bring up the embedded HPX root + 2 connectors ONCE under the HARDENED lifetime, then run each
+    (mode, size) in that single connector window (per mode: S=0 first, stop before a larger S if an
+    earlier one fails), heartbeating throughout and writing the completion sentinel only at the end.
+    root_threads / bg_threads are Phase A2 progress-diagnosis levers (root worker count and
+    hpx.max_background_threads). Returns a LIST of per-(mode,size) artifacts. Rostam-only."""
+    import subprocess
+    import tempfile
+
+    env = os.environ if env is None else env
+    connector_threads = 8
+    root_hpx_threads = int(root_threads)
+    hostnames = slurm["hostnames"]
+    root_host = hostnames[0]
+    remote_hosts = [h for h in hostnames if h != root_host][:n_remote]
+    root_ip = _first_ip_for_subnet(prefer_subnet)
+    os.makedirs(EXP64_RUNS, exist_ok=True)
+
+    procs, bootdirs = [], []
+    started = False
+    error = None
+    root_loc = None
+    root_cpuset = None
+    hpx_config = None
+    remote_locs = []
+    per_cell = []          # list of (mode, S, calls) in run order
+    failed_cells = {}      # mode -> first size whose gates failed (stop larger sizes for that mode)
+    try:
+        if len(remote_hosts) < 2:
+            raise RuntimeError(f"need >=2 remote hosts distinct from root; got {remote_hosts}")
+        if not root_ip:
+            raise RuntimeError(f"no root IP for --prefer-subnet {prefer_subnet}")
+        ext.start(root_hpx_threads,
+                  build_root_hpx_args(root_ip=root_ip, root_port=root_port, bg_threads=bg_threads,
+                                      idle_backoff_ms=idle_backoff_ms, parcel_pool_size=parcel_pool_size))
+        started = True
+        root_loc = int(ext.local_locality_id())
+        root_cpuset = _effective_cpuset()
+        try:
+            hpx_config = dict(ext.hpx_config_provenance())
+        except Exception:  # noqa: BLE001
+            hpx_config = None
+        for idx, rhost in enumerate(remote_hosts):
+            bd = tempfile.mkdtemp(
+                prefix=f"native_{slurm['slurm_job_id']}_c{idx + 1}_", dir=EXP64_RUNS)
+            bootdirs.append(bd)
+            cmd = build_connector_srun_cmd(
+                rhost, bd, connector_bin=connector_bin, connector_threads=connector_threads,
+                serve_timeout=serve_timeout, prefer_subnet=prefer_subnet, root_ip=root_ip,
+                root_port=root_port, idle_backoff_ms=idle_backoff_ms, parcel_pool_size=parcel_pool_size)
+            procs.append(subprocess.Popen(cmd))
+        joined = int(ext.await_remotes(len(remote_hosts), await_timeout))
+        if joined < len(remote_hosts):
+            raise RuntimeError(f"only {joined} of {len(remote_hosts)} remote localities joined")
+        remote_locs = [int(v) for v in ext.remote_locality_ids()]
+        for mode in modes:
+            for s in sizes:
+                calls = _size_calls_native(
+                    ext, x=x, n=n, payload_bytes=int(s), dispatch_timeout_s=dispatch_timeout_s,
+                    mode=mode, root_loc=root_loc, remote_locs=remote_locs, prewarm=prewarm,
+                    measured=measured, bootdirs=bootdirs)
+                per_cell.append((mode, int(s), calls))
+                if not (calls and all(cc["gates_pass"] for cc in calls)):
+                    failed_cells[mode] = int(s)  # do not dispatch a larger S for THIS mode
+                    break
+    except Exception as exc:  # noqa: BLE001
+        error = f"{type(exc).__name__}: {exc}"
+    finally:
+        # HARDENED completion: signal root.done so connectors leave via root_completion_signal, not the
+        # deadman. Only now (all calls done + about to tear down) -- no further remote dispatch occurs.
+        _write_completion(bootdirs)
+        for p in procs:
+            try:
+                p.wait(timeout=max(10, serve_timeout))
+            except Exception:  # noqa: BLE001
+                p.kill()
+        if started:
+            try:
+                ext.shutdown()
+            except Exception as exc:  # noqa: BLE001
+                error = error or f"shutdown: {type(exc).__name__}: {exc}"
+
+    connectors, connector_lifecycle_ok, cpuset_not_collapsed, nodelay_verified, anomaly_witness = \
+        _hardened_connectors(bootdirs, remote_hosts)
+    fences_ok, _ = validate_provenance(EXP64_DESIGN)
+
+    cfg = hpx_config or {}
+    hpx_serialization = {
+        "payload_representation": EXP64_DESIGN["payload_repr_cpp"],
+        "serialize_buffer_construction_mode": "owning_copy_ctor",  # payload_action.hpp: payload_buffer(s)
+        "zero_copy_optimization_config": cfg.get("hpx.parcel.tcp.zero_copy_optimization", "not_observed"),
+        "array_optimization_config": cfg.get("hpx.parcel.tcp.array_optimization", "not_observed"),
+        "coalescing_message_handlers_config": cfg.get("hpx.parcel.message_handlers", "not_observed"),
+        "max_message_size_config": cfg.get("hpx.parcel.max_message_size", "not_observed"),
+        "parcel_pool_size_config": cfg.get("hpx.parcel.tcp.parcel_pool_size", "not_observed"),
+        # config-level flags are OBSERVED; the per-call zero-copy path TAKEN is NOT (Phase A does not
+        # observe the serialization runtime path; that stays for Phase B).
+        "zero_copy_runtime_path_taken": "not_observed",
+        "serialization_runtime_path_evidence": "not_observed",
+    }
+    hpx_runtime = {
+        "hpx_threads": cfg.get("hpx.threads", str(root_hpx_threads)),
+        "root_threads": root_hpx_threads,
+        "root_threads_requested": int(root_threads),      # Phase A2 lever
+        "bg_threads_requested": bg_threads,               # Phase A2 lever (None = HPX default)
+        "connector_threads": connector_threads,
+        "hpx_bind": "balanced",
+        "hpx_connector_bind": "none",
+        "hpx_root_effective_cpuset": root_cpuset,
+        "hpx_connector_effective_cpusets": [c["connector_cpuset_effective"] for c in connectors],
+        "parcel_pool_size": cfg.get("hpx.parcel.tcp.parcel_pool_size", "not_observed"),
+        "hpx_max_background_threads": cfg.get("hpx.max_background_threads", "not_observed"),
+    }
+    numa_nic = _numa_nic_provenance(prefer_subnet, root_cpuset)
+
+    r_remote = len(remote_locs)
+    expected_each = sorted(n // r_remote + (1 if j < n % r_remote else 0) for j in range(r_remote)) \
+        if r_remote else []
+
+    def _hpx_all_remote(cc):
+        g = cc.get("gates", {})
+        return bool(g.get("leaves_local_zero")) and bool(g.get("leaves_remote_all"))
+
+    def _hpx_balanced(cc):
+        if not remote_locs:
+            return False
+        counts = {}
+        for loc in cc.get("leaf_localities", []):
+            counts[loc] = counts.get(loc, 0) + 1
+        got = sorted(counts.get(rl, 0) for rl in remote_locs)
+        return got == expected_each and sum(counts.get(rl, 0) for rl in remote_locs) == n
+
+    artifacts = []
+    for mode, payload_bytes, calls in per_cell:
+        is_native = mode in NATIVE_READINESS_MODES
+        all_calls_pass = bool(calls) and all(c["gates_pass"] for c in calls)
+        all_remote_all_calls = bool(calls) and all(_hpx_all_remote(c) for c in calls)
+        distribution_balanced_all_calls = bool(calls) and all(_hpx_balanced(c) for c in calls)
+        dispatch_no_timeout_all_calls = bool(calls) and all(
+            c["gates"].get("no_dispatch_timeout") is True for c in calls)
+        native_gates_all_calls = bool(calls) and all(
+            all(c.get("native_gates", {}).values()) for c in calls)
+        wait_for_ready_all_calls = bool(calls) and all(
+            c.get("wait_for_status") == "ready" for c in calls)
+        # Deadline-margin gate: native/diagnostic modes must complete MATERIALLY before the dispatch
+        # timeout. Closes the job-159418 false-positive (wait_for slept to the deadline yet passed).
+        margin = compute_native_deadline_margin_gate(
+            mode=mode, calls=calls, dispatch_timeout_s=dispatch_timeout_s)
+        structural_gates = {
+            "all_calls_gates_pass": all_calls_pass,
+            "connector_joined_served_graceful": connector_lifecycle_ok,
+            "connectors_root_completion_signal": anomaly_witness["all_connectors_root_completion_signal"],
+            "no_serve_timeout_expired": not anomaly_witness["serve_timeout_expired_any"],
+            "cpuset_not_collapsed": cpuset_not_collapsed,
+            "tcp_nodelay_verified": nodelay_verified,
+            "native_readiness_gates_all_calls": native_gates_all_calls,
+            "wait_for_status_ready_all_calls": wait_for_ready_all_calls,
+            "native_wait_deadline_margin_gate": margin["native_wait_deadline_margin_gate"],
+            "timed_call_returns_payload_bytes_to_python": True,
+            "digest_folded_inside_runtime": False,
+            "digest_check_after_timing_outside_rtt": True,
+            "root_flat_gather_retained": True,
+            "fences_locked_false": fences_ok,
+            "same_axis_comparison_false": EXP64_DESIGN["same_axis_comparison"] is False,
+        }
+        overall_pass = (error is None and all_calls_pass and connector_lifecycle_ok
+                        and cpuset_not_collapsed and nodelay_verified and native_gates_all_calls
+                        and margin["native_wait_deadline_margin_gate"]
+                        and anomaly_witness["all_connectors_root_completion_signal"])
+        # A3 idle-backoff + promptness disclosure and the poll-half retirement decision. The disclosure is
+        # derived from the OBSERVED root HPX config (exp58 convention); the promptness gate is a tight
+        # sanity bound; retirement can only flip True for a native claim mode that woke promptly under a
+        # disclosed runtime progress driver (idle-backoff disabled = runtime-spin, not event-driven).
+        promptness = compute_native_promptness_gate(mode=mode, calls=calls)
+        disclosure = compute_idle_backoff_disclosure(hpx_config)
+        retirement = compute_poll_half_retirement(
+            mode=mode, overall_pass=overall_pass, success_path_polling_used=(not is_native),
+            promptness_gate=promptness, disclosure=disclosure)
+        idle_backoff_scope = "island" if idle_backoff_ms is not None else "none"
+        # A4-progress-probe aggregate: collapse the per-call discriminator across the measured calls.
+        # Diagnostic/provenance only -- it never enters overall_pass or poll retirement.
+        progress_probe = aggregate_progress_probe(calls, mode=mode)
+        rec = build_provenance(x=x, n=n, sizes=[payload_bytes], phase="hpx-payload-native-smoke")
+        rec.update({
+            "kind": "hpx_payload_native_smoke",
+            "arm": "hpx",
+            "slice": 5, "phase_label": "phase_a_native_readiness",
+            "payload_bytes": payload_bytes,
+            "payload_representation": EXP64_DESIGN["payload_repr_cpp"],
+            "payload_is_synthetic": True,
+            "payload_not_model_output": True,
+            "no_inference": True,
+            "n_remote": n_remote,
+            "dispatch_timeout_s": dispatch_timeout_s,
+            "prewarm": prewarm, "measured": measured,
+            "root_port": root_port, "serve_timeout_s": serve_timeout, "await_timeout_s": await_timeout,
+            "prefer_subnet": prefer_subnet, "selected_subnet": prefer_subnet,
+            "root_ip": root_ip,
+            "root_locality": root_loc,
+            "remote_locality_ids": remote_locs,
+            "root_effective_cpuset": root_cpuset,
+            "node_set": [_short_host(root_host)] + [c["hostname"] for c in connectors],
+            "connectors": connectors,
+            "hpx_config": hpx_config,
+            "expected_digest": payload_digest(x, n, payload_bytes),
+            "calls": calls,
+            "structural_gates": structural_gates,
+            "overall_pass": overall_pass,
+            "error": error,
+            "slurm_job_id": slurm["slurm_job_id"],
+            "boundary": TIMING_BOUNDARY, "clock": TIMING_CLOCK,
+            "evidence_grade": EVIDENCE_GRADE_R1,
+            "distributional_evidence": False,
+            "percentiles_evidence_ready": False,
+
+            # Slice 5 Phase A readiness / topology / blocker labels
+            "readiness_composition": mode,
+            "success_path_polling_used": (not is_native),
+            "native_wait_variant": _native_wait_variant(mode),
+            "diagnostic_only": mode in DIAGNOSTIC_READINESS_MODES,
+            "root_flat_gather_retained": True,
+            "gather_half_blocker_retained": True,      # constant: raw-bytes-to-Python forces the gather
+            # poll_half_blocker_retired requires a native CLAIM mode that PASSED (incl. deadline margin),
+            # woke PROMPTLY, and did so under a DISCLOSED runtime progress driver (A3). A wait-to-deadline
+            # stall (job 159418), a slow-but-not-timeout wake, or an undisclosed driver can no longer flip
+            # this True. See compute_poll_half_retirement.
+            "poll_half_blocker_retired": retirement["poll_half_blocker_retired"],
+            "poll_retired_via": retirement["poll_retired_via"],
+
+            # A3 scheduler idle-backoff lever + disclosure (island-wide scope). idle-backoff-off is a
+            # CPU-for-latency runtime-spin workaround on the TCP parcelport, NOT an event-driven wakeup.
+            "idle_backoff_requested_ms": idle_backoff_ms,
+            "idle_backoff_scope": idle_backoff_scope,
+            # A4 confirmed-key parcel-pool lever (island-wide when set; None = HPX default of 2 observed).
+            "parcel_pool_size_requested": parcel_pool_size,
+            "parcel_pool_scope": ("island" if parcel_pool_size is not None else "none"),
+            "hpx_max_idle_backoff_time": disclosure["hpx_max_idle_backoff_time"],
+            "hpx_max_idle_loop_count": disclosure["hpx_max_idle_loop_count"],
+            "idle_backoff_mode": disclosure["idle_backoff_mode"],
+            "scheduler_idle_backoff_may_affect_qd1": disclosure["scheduler_idle_backoff_may_affect_qd1"],
+            "runtime_progress_driver": disclosure["runtime_progress_driver"],
+            "runtime_spins_when_idle": disclosure["runtime_spins_when_idle"],
+            "bg_thread_result_confounded_by_idle_backoff":
+                disclosure["bg_thread_result_confounded_by_idle_backoff"],
+            "idle_backoff_confound_note": disclosure["idle_backoff_confound_note"],
+            # A3 promptness sanity gate (tight fixed bound, no ratios; poll baseline exempt).
+            "native_wait_promptness_applicable": promptness["native_wait_promptness_applicable"],
+            "native_wait_promptness_observed_max_rtt_s":
+                promptness["native_wait_promptness_observed_max_rtt_s"],
+            "native_wait_promptness_threshold_s": promptness["native_wait_promptness_threshold_s"],
+            "native_wait_promptness_sanity_gate": promptness["native_wait_promptness_sanity_gate"],
+            # A4-progress-probe: continuation-vs-waiter discriminator (root-clock; diagnostic/provenance
+            # only). Distinguishes continuation_at_timeout (inbound parcelport/background progress not
+            # pumped) from waiter_resume_at_timeout (reduce ran early, caller resumed at timeout). Never
+            # feeds overall_pass or poll retirement; yield stays reference-only.
+            "progress_probe": progress_probe,
+            "progress_deferred_to_timeout_signature":
+                progress_probe["progress_deferred_to_timeout_signature"],
+            # Run1 blocked-waiter placement provenance. local_control is scored by leaves_all_local (not
+            # all-remote); all_waiter_suspended_before_ready gates whether a prompt local result counts as
+            # a resume result (True) or is only an is_ready fast-path artifact (False).
+            "placement_class": (calls[0].get("placement_class", "remote_all") if calls else "remote_all"),
+            "local_control": bool(mode in LOCAL_CONTROL_MODES),
+            "local_leaf_delay_ms": (calls[0].get("local_leaf_delay_ms", 0) if calls else 0),
+            "all_waiter_suspended_before_ready":
+                progress_probe.get("all_waiter_suspended_before_ready", False),
+            "payload_data_movement_topology": "root_flat_gather",
+            "payload_bytes_cross_python_boundary": True,
+            "python_bytes_direct_copy": True,
+            "native_claim_scope": NATIVE_CLAIM_SCOPE_PHASE_A,
+            # deadline-margin observation (the job-159418 guard)
+            "native_wait_deadline_margin_gate": margin["native_wait_deadline_margin_gate"],
+            "native_wait_completed_before_timeout_deadline":
+                margin["native_wait_completed_before_timeout_deadline"],
+            "native_wait_deadline_margin_threshold_s": margin["native_wait_deadline_margin_threshold_s"],
+            "native_wait_observed_max_rtt_s": margin["native_wait_observed_max_rtt_s"],
+            "native_wait_deadline_margin_applicable": margin["native_wait_deadline_margin_applicable"],
+            "wait_for_status_ready_all_calls": wait_for_ready_all_calls,
+            "dispatch_no_timeout_all_calls": dispatch_no_timeout_all_calls,
+            "all_remote_all_calls": all_remote_all_calls,
+            "distribution_balanced_all_calls": distribution_balanced_all_calls,
+            "prewarm_excluded_from_timed": True,
+            "effective_cpu_binding": root_cpuset,
+            "phase_affinity_recorded": root_cpuset is not None,
+
+            # HPX composition/transport OBSERVATIONS (recorded provenance, not tuned)
+            "hpx_parcelport": "tcp", "transport_family": "tcp", "tcp_nodelay": nodelay_verified,
+            "readiness_provenance": _readiness_provenance(mode),
+            "hpx_runtime": hpx_runtime,
+            "hpx_serialization": hpx_serialization,
+            "numa_nic": numa_nic,
+            "connector_anomaly_witness": anomaly_witness,
+            "connector_lifetime_mode": CONNECTOR_LIFETIME_MODE,
+        })
+        artifacts.append(rec)
+    return artifacts, failed_cells
+
+
+def run_payload_native_smoke(*, x=7, n=8, sizes=(0, 262144), modes=DEFAULT_NATIVE_PHASE_MODES,
+                             env=None, import_fn=None, write=True, dispatch_timeout_s=8.0,
+                             prefer_subnet="10.42.5.", root_port=7951, await_timeout=60,
+                             serve_timeout=90, n_remote=2, prewarm=3, measured=5,
+                             root_threads=4, bg_threads=None, idle_backoff_ms=None,
+                             parcel_pool_size=None):
+    """Slice 5 Phase A: HPX-only native readiness-composition payload probe over (modes x sizes) in ONE
+    HPX/connector lifecycle under the hardened connector lifetime. HPX-only, no Ray, fences locked False,
+    same_axis_comparison stays False. root_threads / bg_threads are Phase A2 progress-diagnosis levers;
+    idle_backoff_ms is the Phase A3 island-wide idle-backoff lever (0 disables scheduler idle backoff so
+    the runtime spins -- a CPU-for-latency workaround on TCP, NOT event-driven; None keeps the default).
+    Skips cleanly off-cluster/unbuilt."""
+    pre, skip = _payload_preconditions(env or os.environ, import_fn)
+    if skip:
+        print("exp64 hpx-payload-native-smoke:", skip)
+        return 0
+    ext, slurm, connector_bin = pre
+    os.makedirs(EXP64_RUNS, exist_ok=True)
+    artifacts, failed_cells = _drive_payload_native_smoke(
+        ext, slurm, connector_bin, x=x, n=n, sizes=[int(s) for s in sizes], modes=list(modes),
+        dispatch_timeout_s=dispatch_timeout_s, prefer_subnet=prefer_subnet, root_port=root_port,
+        await_timeout=await_timeout, serve_timeout=serve_timeout, n_remote=n_remote,
+        prewarm=prewarm, measured=measured, root_threads=root_threads, bg_threads=bg_threads,
+        idle_backoff_ms=idle_backoff_ms, parcel_pool_size=parcel_pool_size, env=env)
+    rc = 0
+    for art in artifacts:
+        mode, s = art["readiness_composition"], art["payload_bytes"]
+        if write:
+            path = os.path.join(
+                EXP64_RUNS,
+                f"exp64_payload_native_{slurm['slurm_job_id']}_{mode}_S{s}_hpx.json")
+            with open(path, "w") as f:
+                json.dump(art, f, indent=2)
+        ok = bool(art.get("overall_pass"))
+        print(f"exp64 payload-native mode={mode} S={s}: overall_pass={ok} "
+              f"wait_for_status_ready_all={art.get('wait_for_status_ready_all_calls')} "
+              f"success_path_polling_used={art.get('success_path_polling_used')} "
+              f"deadline_margin_gate={art.get('native_wait_deadline_margin_gate')} "
+              f"promptness_gate={art.get('native_wait_promptness_sanity_gate')} "
+              f"max_rtt_s={art.get('native_wait_observed_max_rtt_s'):.4f} "
+              f"idle_backoff_mode={art.get('idle_backoff_mode')} "
+              f"placement={art.get('placement_class')} "
+              f"waiter_suspended_before_ready={art.get('all_waiter_suspended_before_ready')} "
+              f"poll_half_blocker_retired={art.get('poll_half_blocker_retired')} "
+              f"poll_retired_via={art.get('poll_retired_via')} "
+              f"progress_signature={art.get('progress_deferred_to_timeout_signature')} "
+              f"calls={len(art.get('calls', []))} mean_rtt_ms={_mean_rtt_ms(art):.3f} "
+              f"error={art.get('error')}")
+        if not ok:
+            rc = 1
+    for mode, s in failed_cells.items():
+        print(f"exp64 payload-native: mode={mode} S={s} did NOT pass; larger sizes not dispatched.")
     return rc
 
 
@@ -2028,14 +2973,18 @@ def phase_stub(name):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="exp64 payload-carrying fanin size sweep.")
     ap.add_argument("--phase",
-                    choices=("selftest", "hpx-payload-remote-smoke", "ray-payload-remote-smoke",
+                    choices=("selftest", "hpx-payload-remote-smoke", "hpx-payload-native-smoke",
+                             "ray-payload-remote-smoke",
                              "payload-ladder-manifest", "payload-band-aggregate",
                              "smoke", "remote-smoke", "size-sweep"),
                     default="selftest",
                     help="selftest runs the pure oracle/design layer (runs anywhere); "
                          "hpx-payload-remote-smoke runs the Slice 1 HPX-only 3-node payload smoke; "
+                         "hpx-payload-native-smoke runs the Slice 5 Phase A HPX-only native "
+                         "readiness-composition payload probe (poll control + when_all/dataflow native "
+                         "modes; hardened connector lifetime; HPX-only, no Ray); "
                          "ray-payload-remote-smoke runs the Slice 2 Ray matched payload smoke (head + "
-                         "2 workers; both skip cleanly off-cluster/unbuilt/without Ray); "
+                         "2 workers; all skip cleanly off-cluster/unbuilt/without Ray); "
                          "payload-ladder-manifest pairs the Slice 3 HPX+Ray per-size artifacts for a "
                          "--job into a pure structural manifest (skips cleanly when artifacts absent); "
                          "payload-band-aggregate aggregates the Slice 4 R-island manifests for a "
@@ -2056,6 +3005,30 @@ def main(argv=None):
     ap.add_argument("--n-remote", type=int, default=2)
     ap.add_argument("--prewarm", type=int, default=3)
     ap.add_argument("--measured", type=int, default=5)
+    # hpx-payload-native-smoke controls (Slice 5 Phase A). Native root port distinct from the poll phase;
+    # native serve-timeout is a LOW deadman (heartbeat covers a long run). Modes: poll control + native.
+    ap.add_argument("--native-root-port", type=int, default=7951,
+                    help="embedded-root AGAS/parcelport port for the Slice 5 Phase A native probe")
+    ap.add_argument("--native-serve-timeout", type=int, default=90,
+                    help="Phase A connector deadman seconds (heartbeat keeps connectors alive across it)")
+    ap.add_argument("--native-modes", default=",".join(DEFAULT_NATIVE_PHASE_MODES),
+                    help="comma-separated readiness modes: root_flat_gather_poll (control), "
+                         "when_all_then_reduce, dataflow_reduce; when_all_then_reduce_yield is the "
+                         "Phase A2 progress DIAGNOSTIC (yielding poll on the composed future, not a claim)")
+    ap.add_argument("--native-root-threads", type=int, default=4,
+                    help="Phase A2 lever: embedded-root HPX worker count for the native probe")
+    ap.add_argument("--native-bg-threads", type=int, default=None,
+                    help="Phase A2 lever: hpx.max_background_threads on the root (None keeps HPX default)")
+    ap.add_argument("--native-idle-backoff-ms", type=int, default=None,
+                    help="Phase A3 island-wide lever: hpx.max_idle_backoff_time in ms on root + connectors "
+                         "(--hpx:ini). 0 disables scheduler idle backoff so the runtime idle loop spins -- "
+                         "a CPU-for-latency runtime-spin workaround on the TCP parcelport, NOT an "
+                         "event-driven wakeup. None keeps the HPX default (Slice 1-4 behavior).")
+    ap.add_argument("--native-parcel-pool-size", type=int, default=None,
+                    help="A4 island-wide progress lever: hpx.parcel.tcp.parcel_pool_size on root + "
+                         "connectors (--hpx:ini; CONFIRMED key, observed default 2 on this build). None "
+                         "keeps the HPX default. The A4 CORE deliverable is the timestamp discriminator; "
+                         "this flag is only a tiny optional sweep hook.")
     # ray-payload-remote-smoke controls (Slice 2).
     ap.add_argument("--ray-port", type=int, default=6379, help="Ray GCS port for the head")
     ap.add_argument("--worker-cpus", type=int, default=8, help="num_cpus advertised by each Ray worker")
@@ -2088,6 +3061,17 @@ def main(argv=None):
             prefer_subnet=args.prefer_subnet, root_port=args.root_port,
             await_timeout=args.await_timeout, serve_timeout=args.serve_timeout,
             n_remote=args.n_remote, prewarm=args.prewarm, measured=args.measured)
+    if args.phase == "hpx-payload-native-smoke":
+        sizes = [int(s) for s in args.smoke_sizes.split(",") if s.strip() != ""]
+        modes = [m.strip() for m in args.native_modes.split(",") if m.strip() != ""]
+        return run_payload_native_smoke(
+            x=args.x, n=args.n, sizes=sizes, modes=modes, dispatch_timeout_s=args.dispatch_timeout_s,
+            prefer_subnet=args.prefer_subnet, root_port=args.native_root_port,
+            await_timeout=args.await_timeout, serve_timeout=args.native_serve_timeout,
+            n_remote=args.n_remote, prewarm=args.prewarm, measured=args.measured,
+            root_threads=args.native_root_threads, bg_threads=args.native_bg_threads,
+            idle_backoff_ms=args.native_idle_backoff_ms,
+            parcel_pool_size=args.native_parcel_pool_size)
     if args.phase == "ray-payload-remote-smoke":
         sizes = [int(s) for s in args.smoke_sizes.split(",") if s.strip() != ""]
         return run_ray_payload_smoke(

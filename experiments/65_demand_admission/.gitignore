@@ -1,0 +1,12 @@
+# exp65 raw run outputs and build products stay untracked (curated aggregates may be
+# tracked from the experiment dir itself).
+_exp65_runs/
+build/
+*.so
+*.o
+*.jsonl
+*.summary.json
+*.out
+logs/
+__pycache__/
+*.pyc

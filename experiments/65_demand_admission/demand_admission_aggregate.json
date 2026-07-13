@@ -1,0 +1,1046 @@
+{
+  "experiment": "65_demand_admission",
+  "kind": "demand_triggered_connect_admission_mechanism",
+  "ray_free": true,
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "controller": "plain_python_orchestrator",
+  "structural_flags": {
+    "static_locality_count_used": false,
+    "expected_connector_count_used": false,
+    "admission_intent_flag_required": true
+  },
+  "claim_fences": {
+    "no_ray_or_ray_actors": true,
+    "no_hpx_inside_ray_worker_result": true,
+    "no_elasticity_under_load_result": true,
+    "no_concurrent_membership_churn": true,
+    "no_failure_recovery_result": true,
+    "no_lazy_tcp_socket_establishment_result": true,
+    "no_performance_comparison": true,
+    "no_multi_node_claim": true,
+    "durations_observational_only": true
+  },
+  "reps_per_arm": 3,
+  "dwell_s": 3.0,
+  "binary": "demand_admission_spike",
+  "demand_arm": {
+    "all_pass": true,
+    "reps": [
+      {
+        "rep": 1,
+        "arm": "demand",
+        "ports": {
+          "root": 49705,
+          "connector": 49706
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false
+        },
+        "durations_observational_ms": {
+          "demand_to_spawn_ms": 32,
+          "demand_to_admission_ms": 189,
+          "admission_to_served_ms": 100
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922316552,
+            "steady_ms": 8,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922316552,
+            "steady_ms": 8,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922319770,
+            "steady_ms": 3226,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 17,
+            "first_liveness_wall_ms": 1783922316552,
+            "last_liveness_wall_ms": 1783922319770
+          },
+          "served": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922319870,
+            "steady_ms": 3327,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922319972,
+            "steady_ms": 3428,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922319972,
+            "steady_ms": 3428,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11044,
+            "wall_ms": 1783922319972,
+            "steady_ms": 3428,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r1_wii49235",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49705",
+              "--hpx:hpx=127.0.0.1:49705",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783922319581,
+            "monotonic_s": 2009.765555458
+          },
+          "controller_popen_wall_ms": 1783922319582,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 11061,
+            "wall_ms": 1783922319613,
+            "steady_ms": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r1_wii49235",
+              "--serve-timeout",
+              "30",
+              "--hpx:agas=127.0.0.1:49705",
+              "--hpx:hpx=127.0.0.1:49706",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 11061,
+            "wall_ms": 1783922319628,
+            "steady_ms": 16,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 11061,
+            "wall_ms": 1783922319946,
+            "steady_ms": 333,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      },
+      {
+        "rep": 2,
+        "arm": "demand",
+        "ports": {
+          "root": 49710,
+          "connector": 49711
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false
+        },
+        "durations_observational_ms": {
+          "demand_to_spawn_ms": 31,
+          "demand_to_admission_ms": 197,
+          "admission_to_served_ms": 101
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922320067,
+            "steady_ms": 3,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922320067,
+            "steady_ms": 3,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922323285,
+            "steady_ms": 3221,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 17,
+            "first_liveness_wall_ms": 1783922320068,
+            "last_liveness_wall_ms": 1783922323285
+          },
+          "served": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922323386,
+            "steady_ms": 3322,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922323487,
+            "steady_ms": 3423,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922323487,
+            "steady_ms": 3423,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11067,
+            "wall_ms": 1783922323487,
+            "steady_ms": 3423,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r2_n6xsqf89",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49710",
+              "--hpx:hpx=127.0.0.1:49710",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783922323088,
+            "monotonic_s": 2013.272208541
+          },
+          "controller_popen_wall_ms": 1783922323088,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 11082,
+            "wall_ms": 1783922323119,
+            "steady_ms": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r2_n6xsqf89",
+              "--serve-timeout",
+              "30",
+              "--hpx:agas=127.0.0.1:49710",
+              "--hpx:hpx=127.0.0.1:49711",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 11082,
+            "wall_ms": 1783922323134,
+            "steady_ms": 15,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 11082,
+            "wall_ms": 1783922323836,
+            "steady_ms": 716,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      },
+      {
+        "rep": 3,
+        "arm": "demand",
+        "ports": {
+          "root": 49715,
+          "connector": 49716
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_before_demand": true,
+          "connector_absent_before_demand": true,
+          "demand_precedes_creation_and_admission": true,
+          "discovery_without_count_gate": true,
+          "remote_oracle_on_connector": true,
+          "connector_left_gracefully": true,
+          "root_operational_after_leave": true,
+          "clean_exits": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true,
+          "no_expected_count_gate": true
+        },
+        "rep_pass": true,
+        "fields": {
+          "connector_existed_before_demand": false,
+          "remote_work_started_before_admission": false
+        },
+        "durations_observational_ms": {
+          "demand_to_spawn_ms": 32,
+          "demand_to_admission_ms": 202,
+          "admission_to_served_ms": 100
+        },
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922323920,
+            "steady_ms": 4,
+            "arm": "demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922323921,
+            "steady_ms": 4,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922327140,
+            "steady_ms": 3223,
+            "baseline_ids": [
+              0
+            ],
+            "new_locality_id": 1,
+            "membership_ids": [
+              0,
+              1
+            ],
+            "liveness_ok_before_admission": 17,
+            "first_liveness_wall_ms": 1783922323921,
+            "last_liveness_wall_ms": 1783922327140
+          },
+          "served": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922327240,
+            "steady_ms": 3323,
+            "x": 49,
+            "dispatch_status": "returned",
+            "result": 1380014443,
+            "oracle": 1380014443,
+            "match": true,
+            "executed_on_locality": 1,
+            "remote_locality": 1,
+            "proved_remote": true,
+            "detected_before_bound": true,
+            "wait_slices_used": 1,
+            "error_type": "",
+            "error_what": ""
+          },
+          "leave_observed": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922327341,
+            "steady_ms": 3425,
+            "observed": true,
+            "membership_count_after": 1
+          },
+          "final_local": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922327342,
+            "steady_ms": 3425,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11086,
+            "wall_ms": 1783922327342,
+            "steady_ms": 3425,
+            "arm": "demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r3_0owd3l17",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49715",
+              "--hpx:hpx=127.0.0.1:49715",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 2,
+            "admission_detected": true,
+            "admitted_locality_id": 1,
+            "no_demand_finish_seen": false,
+            "dispatch_status": "returned",
+            "proved_remote": true,
+            "leave_observed": true,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "demand": {
+            "wall_ms": 1783922326938,
+            "monotonic_s": 2017.12183225
+          },
+          "controller_popen_wall_ms": 1783922326938,
+          "connector_spawned": {
+            "role": "connector",
+            "pid": 11094,
+            "wall_ms": 1783922326970,
+            "steady_ms": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "connector",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_demand_r3_0owd3l17",
+              "--serve-timeout",
+              "30",
+              "--hpx:agas=127.0.0.1:49715",
+              "--hpx:hpx=127.0.0.1:49716",
+              "--hpx:threads=1",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ]
+          },
+          "connector_joined": {
+            "role": "connector",
+            "pid": 11094,
+            "wall_ms": 1783922326985,
+            "steady_ms": 15,
+            "locality_id": 1
+          },
+          "connector_disconnected": {
+            "role": "connector",
+            "pid": 11094,
+            "wall_ms": 1783922327688,
+            "steady_ms": 718,
+            "clean": true,
+            "rc": 0,
+            "shutdown_reason": "root_completion_signal",
+            "teardown": "post(disconnect)+stop",
+            "error": ""
+          },
+          "connector_launched_before_demand": false,
+          "connector_exited": true,
+          "connector_rc": 0,
+          "connector_killed": false,
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      }
+    ]
+  },
+  "no_demand_arm": {
+    "all_pass": true,
+    "reps": [
+      {
+        "rep": 1,
+        "arm": "no_demand",
+        "ports": {
+          "root": 49720
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11103,
+            "wall_ms": 1783922327766,
+            "steady_ms": 4,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11103,
+            "wall_ms": 1783922327766,
+            "steady_ms": 4,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 11103,
+            "wall_ms": 1783922330785,
+            "steady_ms": 3023,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11103,
+            "wall_ms": 1783922330785,
+            "steady_ms": 3023,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_nodemand_r1_zd3q_xt5",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49720",
+              "--hpx:hpx=127.0.0.1:49720",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 16,
+            "heartbeat_count": 16,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      },
+      {
+        "rep": 2,
+        "arm": "no_demand",
+        "ports": {
+          "root": 49721
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11114,
+            "wall_ms": 1783922330879,
+            "steady_ms": 3,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11114,
+            "wall_ms": 1783922330880,
+            "steady_ms": 3,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 11114,
+            "wall_ms": 1783922334099,
+            "steady_ms": 3223,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11114,
+            "wall_ms": 1783922334099,
+            "steady_ms": 3223,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_nodemand_r2_3ifausfa",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49721",
+              "--hpx:hpx=127.0.0.1:49721",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      },
+      {
+        "rep": 3,
+        "arm": "no_demand",
+        "ports": {
+          "root": 49722
+        },
+        "gates": {
+          "root_started_alone": true,
+          "local_progress_alone": true,
+          "liveness_during_dwell": true,
+          "zero_connectors_ever": true,
+          "root_finalized_clean_alone": true,
+          "no_orphans": true,
+          "argv_no_static_localities": true
+        },
+        "rep_pass": true,
+        "markers": {
+          "root_ready": {
+            "role": "root",
+            "pid": 11132,
+            "wall_ms": 1783922334184,
+            "steady_ms": 4,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "local_phase": {
+            "role": "root",
+            "pid": 11132,
+            "wall_ms": 1783922334184,
+            "steady_ms": 4,
+            "k": 5,
+            "local_ok_count": 5,
+            "all_local_ok": true,
+            "membership_ids": [
+              0
+            ],
+            "membership_count": 1
+          },
+          "admission": null,
+          "served": null,
+          "leave_observed": null,
+          "final_local": {
+            "role": "root",
+            "pid": 11132,
+            "wall_ms": 1783922337402,
+            "steady_ms": 3222,
+            "ok": true,
+            "result": 1380022903,
+            "oracle": 1380022903
+          },
+          "root_result": {
+            "role": "root",
+            "pid": 11132,
+            "wall_ms": 1783922337402,
+            "steady_ms": 3222,
+            "arm": "no_demand",
+            "here_locality": 0,
+            "argv": [
+              "/Users/unick/Desktop/Repos/RayX/experiments/65_demand_admission/build/demand_admission_spike",
+              "--role",
+              "root",
+              "--arm",
+              "no_demand",
+              "--bootstrap",
+              "/var/folders/rg/7lnywy1n52vg02d95b4hbvk00000gn/T/exp65_nodemand_r3__cvx6125",
+              "--x",
+              "7",
+              "--local-k",
+              "5",
+              "--admit-timeout",
+              "60",
+              "--finish-timeout",
+              "15",
+              "--leave-timeout",
+              "20",
+              "--dispatch-bound",
+              "15",
+              "--tick-ms",
+              "200",
+              "--hpx:agas=127.0.0.1:49722",
+              "--hpx:hpx=127.0.0.1:49722",
+              "--hpx:expect-connecting-localities",
+              "--hpx:threads=2",
+              "--hpx:bind=none",
+              "--hpx:ignore-batch-env"
+            ],
+            "membership_at_start": [
+              0
+            ],
+            "membership_baseline": [
+              0
+            ],
+            "all_local_ok": true,
+            "local_ok_count": 5,
+            "liveness_ok": 17,
+            "heartbeat_count": 17,
+            "max_localities_ever": 1,
+            "admission_detected": false,
+            "admitted_locality_id": 0,
+            "no_demand_finish_seen": true,
+            "dispatch_status": "not_attempted",
+            "proved_remote": false,
+            "leave_observed": false,
+            "final_local_ok": true,
+            "remote_work_started_before_admission": false
+          },
+          "root_exit_path": "finalized_clean",
+          "root_rc": 0,
+          "root_killed": false,
+          "argv_audit_ok": true,
+          "orphans": []
+        }
+      }
+    ]
+  },
+  "overall": "pass"
+}

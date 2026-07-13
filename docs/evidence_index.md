@@ -9,11 +9,16 @@ arms timed at the same Python caller boundary) still report the two arms as
 **separate per-arm bands** and never difference, ratio, or rank them. Magnitudes
 are observation-only and machine-specific unless a write-up says otherwise.
 
-**Current headlines (experiments 61–64):** **exp62 Slice 4b** is the headline
+**Current headlines (experiments 61–65):** **exp62 Slice 4b** is the headline
 same-axis distributed closed-`int64` fanout/fanin evidence; **exp64 Slice 4** is the
-headline payload-size evidence (**within-arm only**, `matched_band_r5`); **exp63** is
-HPX-native composition/progress **mechanism** evidence (no Ray comparison); **exp61**
-is the scalar predecessor that established the same Python-boundary measurement plane.
+headline payload-size evidence (**within-arm only**, `matched_band_r5`), and **exp64
+Slice 5** is the completed native-readiness diagnostic that keeps the HPX poll
+baseline in place (`waiter_resume_at_timeout`; scoped, not a general HPX claim);
+**exp63** is HPX-native composition/progress **mechanism** evidence (no Ray
+comparison); **exp61** is the scalar predecessor that established the same
+Python-boundary measurement plane; **exp65** is demand-ordered connect-mode
+**admission** mechanism evidence, demonstrated on macOS loopback and reproduced
+across two Rostam nodes (medusa00/medusa01, TCP `10.42.5.x`, Slurm job 170014).
 No ratios, speedups, differences, or winners anywhere.
 
 Top-level reading guides that complement this index:
@@ -328,7 +333,8 @@ axis, measured at the same Python caller boundary. Each remote leaf returns `S` 
 payload bytes (plus its closed scalar); Python folds and checks the payload **digest**
 after timing, outside the RTT window, identically for both arms. The payload-size axis
 now has HPX smoke (Slice 1), Ray matched smoke (Slice 2), a **structural R=1** matched
-ladder (Slice 3), and an **R=5** matched band (Slice 4).
+ladder (Slice 3), an **R=5** matched band (Slice 4), and a completed **HPX-only
+native-readiness diagnostic** (Slice 5, Phase A→A4).
 
 **Claim fences:** the payload distributions are **within-arm only** — **no ratios, no
 speedups, no cross-arm differences, no winner**. HPX remains `root_flat_gather_poll`, a
@@ -368,3 +374,17 @@ Ray (coordinator + Ray object transport):
 the structural repeatability of the matched ladder across R=5 islands. Nothing beyond
 that — no cross-arm comparison, no ratio/speedup/winner, no p99 evidence, no full
 `distributional_payload_ladder`, and no HPX native-composition payload path.
+
+* **exp64 Slice 5 — Phase A→A4 native-readiness diagnosis (complete; HPX-only)** — asked whether HPX-native readiness composition could replace the poll-gather baseline for the payload path. Result: native `when_all`/`dataflow` continuations entered and completed **promptly**, but the **suspended timed waiter resumed only at the dispatch timeout** — classification `waiter_resume_at_timeout` — unchanged by root/background-thread tuning, disabled idle backoff, and TCP parcel-pool sizes 2 (observed default), 4, and 8, while the polling/yield controls stayed prompt throughout. Consequence: the poll baseline is **not retired**, the native payload-size ladder was **not started**, and `distributional_payload_ladder` stays blocked. Scope: HPX 1.11, TCP parcelport, Rostam, closed-`int64` S=0 diagnostic; the timeout-bound values are **diagnostic signatures, not latency measurements** — no performance, general-HPX, or Ray-comparison claim.
+
+---
+
+## Demand-triggered connect-mode admission (experiment 65)
+
+exp65 extends the island-lifecycle arc (exp49–52) with the one ordering no prior
+distributed experiment had proven: **demand-ordered admission**. Every earlier probe
+used late connect-mode admission inside an orchestrated assemble-then-measure pattern
+(connectors launched at orchestration start); exp65 shows the proven connect-mode
+mechanism does not require that pattern — on loopback and across two real nodes.
+
+* [experiments/65_demand_admission](../experiments/65_demand_admission/demand_triggered_admission.md) — demand arm and no-demand control both pass **3/3 in each of two slices**: the root starts **alone**, performs local HPX work before any connector exists, admits one connect-mode connector only after an **external demand event**, discovers it by membership set-difference **without a predetermined connector count**, executes a verified closed-`int64` remote action, observes the connector's graceful leave, continues local work, and finalizes cleanly; the no-demand root finalizes cleanly with zero connectors ever joining. **Loopback slice**: single-node macOS loopback, HPX 1.11, plain Python controller — 3/3 demand and 3/3 no-demand; curated [demand_admission_aggregate.json](../experiments/65_demand_admission/demand_admission_aggregate.json). **Rostam cross-node slice** (Slurm job **170014**): root/controller on **medusa00**, connector created only after the demand event on **medusa01**, TCP parcelport over `10.42.5.x`, no predetermined connector count, set-difference discovery, verified remote action on locality 1, graceful leave, root continued and finalized — 3/3 demand and 3/3 no-demand, **all structural/placement gates passed**; curated [demand_admission_crossnode_aggregate.json](../experiments/65_demand_admission/demand_admission_crossnode_aggregate.json). The root still pre-declares willingness to accept connectors (`--hpx:expect-connecting-localities`), so the safe claim stays narrow: demand-ordered connect-mode admission is demonstrated on loopback and across two real nodes, within that boot-time willingness — **not** HPX inside Ray actors, **not** elasticity during in-flight work, **not** concurrent churn, **not** failure recovery, **not** lazy parcelport TCP connection-establishment evidence, nothing beyond two nodes, and no performance claim (all recorded durations are observational only and never gate inputs). The loopback slice's side observation that a single full-bound `future::wait_for` on the dispatched action returned only at its full bound is scoped to loopback/macOS only; the cross-node slice used sliced waits and does not reproduce that wait construction.

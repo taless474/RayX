@@ -70,6 +70,21 @@ void write_text(const std::string& path, const std::string& content) {
     f << content;
 }
 
+// Connector-lifetime hardening (ported from exp63): unix seconds now, and a tiny double reader for the
+// root's completion-time stamp. Used only for provenance timestamps, never for the deadman comparison
+// (which is done on the connector's own steady clock to stay robust to cross-node wall-clock skew).
+double now_unix() {
+    return std::chrono::duration<double>(
+               std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+double read_double_file(const std::string& path) {
+    std::ifstream f(path);
+    double v = 0.0;
+    if (f.good()) f >> v;
+    return v;
+}
+
 std::string bquote(bool b) { return b ? "true" : "false"; }
 
 std::string json_escape(const std::string& s) {
@@ -362,15 +377,55 @@ int run_connector(int argc, char** argv,
                "{\"locality_id\":" + std::to_string(hereloc) + ",\"pid\":" + std::to_string(pid) +
                    ",\"hostname\":\"" + json_escape(get_hostname()) + "\"}\n");
 
-    // stay alive as a served remote locality until the root signals done (served1.ok) or timeout.
+    // CONNECTOR-LIFETIME HARDENING (ported from exp63, needed by Slice 5 Phase A native readiness):
+    // stay alive until the ROOT signals COMPLETION (root.done, or the legacy served1.ok), NOT until a
+    // fixed serve-timeout. serve-timeout is now a DEADMAN guard that fires ONLY if the root goes SILENT
+    // -- i.e. its heartbeat file (root.alive, whose mtime the root bumps before every dispatch) has not
+    // advanced for serve_timeout seconds, measured on the connector's OWN steady clock (robust to
+    // cross-node wall-clock skew). This is why a low serve-timeout can now cover a long run: as long as
+    // the root keeps dispatching (heartbeating), the deadman never fires, and the connector leaves only
+    // when the root says it is done. An OLD runner that never heartbeats degrades to fixed-timeout.
     const std::string served_path = bootdir + "/served1.ok";
-    bool served = false;
-    auto deadline = clk::now() + std::chrono::seconds(serve_timeout);
-    while (clk::now() < deadline) {
-        std::ifstream f(served_path);
-        if (f.good()) { served = true; break; }
+    const std::string done_path = bootdir + "/root.done";
+    const std::string alive_path = bootdir + "/root.alive";
+    bool root_completion_signaled = false;
+    bool serve_timeout_expired = false;
+    double root_completion_unix = 0.0;
+    double connector_observed_completion_unix = 0.0;
+    time_t last_seen_alive_mtime = 0;
+    auto last_progress = clk::now();  // start the deadman window at join
+    for (;;) {
+        {
+            std::ifstream fd(done_path);
+            if (fd.good()) {
+                root_completion_signaled = true;
+                root_completion_unix = read_double_file(done_path);
+                connector_observed_completion_unix = now_unix();
+                break;
+            }
+        }
+        {
+            std::ifstream fs(served_path);
+            if (fs.good()) {  // legacy completion signal
+                root_completion_signaled = true;
+                connector_observed_completion_unix = now_unix();
+                break;
+            }
+        }
+        struct stat ast {};
+        if (::stat(alive_path.c_str(), &ast) == 0 && ast.st_mtime != last_seen_alive_mtime) {
+            last_seen_alive_mtime = ast.st_mtime;
+            last_progress = clk::now();  // fresh root heartbeat -> reset the deadman window
+        }
+        if (clk::now() - last_progress >= std::chrono::seconds(serve_timeout)) {
+            serve_timeout_expired = true;
+            break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+    const bool served = root_completion_signaled;  // completion observed (done or legacy served1.ok)
+    const bool connector_stayed_alive_until_root_done =
+        root_completion_signaled && !serve_timeout_expired;
 
     // serve-end: the root dispatched the leaf actions during timing, so the parcelport peer connection
     // is warm -- sample the REAL TCP_NODELAY on it now and overwrite the attestation.
@@ -384,9 +439,25 @@ int run_connector(int argc, char** argv,
         rc = hpx::stop();
     } catch (const std::exception& e) { clean = false; err = e.what(); }
     catch (...) { clean = false; err = "unknown"; }
+    // A teardown error dominates the shutdown reason; otherwise it is root-completion vs deadman.
+    const std::string connector_shutdown_reason =
+        !clean ? std::string("error")
+        : (root_completion_signaled ? std::string("root_completion_signal")
+           : (serve_timeout_expired ? std::string("serve_timeout_expired")
+              : std::string("unknown")));
     write_text(bootdir + "/connect.disconnected1",
                "{\"clean\":" + bquote(clean) + ",\"rc\":" + std::to_string(rc) +
                    ",\"served\":" + bquote(served) + ",\"teardown\":\"post(disconnect)+stop\"," +
+                   "\"connector_lifetime_mode\":\"root_completion_or_heartbeat_deadman\"," +
+                   "\"connector_shutdown_reason\":\"" + connector_shutdown_reason + "\"," +
+                   "\"root_completion_signaled\":" + bquote(root_completion_signaled) + "," +
+                   "\"serve_timeout_expired\":" + bquote(serve_timeout_expired) + "," +
+                   "\"serve_timeout_s\":" + std::to_string(serve_timeout) + "," +
+                   "\"connector_stayed_alive_until_root_done\":" +
+                   bquote(connector_stayed_alive_until_root_done) + "," +
+                   "\"root_completion_unix\":" + std::to_string(root_completion_unix) + "," +
+                   "\"connector_observed_completion_unix\":" +
+                   std::to_string(connector_observed_completion_unix) + "," +
                    "\"agas_preprobe_active\":" + bquote(preprobe_active) +
                    ",\"agas_preprobe_ok\":" + bquote(agas_preprobe_ok) +
                    ",\"agas_preprobe_timeout\":" + bquote(agas_preprobe_timeout) +

@@ -51,6 +51,135 @@ exploration plus its synthetic evidence harness); **`rayx`** = the Python packag
   task semantics, or real model inference.
 * Not benchmarking real model inference.
 
+## Architecture at a glance
+
+Four distinct paths exist in this repo, and they should not be conflated:
+
+```
+Python caller ──┬─ rayx.Engine ───► HPX-backed FIFO service lanes   (synthetic harness)
+                └─ rayx.runtime ──► fixed native ops + local native  (experimental,
+                                    actors over HPX RuntimeLanes      one process)
+
+Ray actor (long-lived) ── hosts ──► one in-process RayX/HPX runtime (in-process
+                                    (Ray owns placement/lifecycle)   direction)
+
+experiments/ only ───────────────► standalone HPX root ⇄ connector  (evidence-only;
+                                    localities, connect-mode TCP;    NOT shipped
+                                    launched by Python/Slurm/Ray     rayx.runtime API)
+```
+
+| Path | What it is | Where it runs |
+|---|---|---|
+| **`rayx.Engine`** (+ `SyntheticActor`) | Thin Python frontend over local HPX-backed service lanes; the synthetic workload harness | Local process |
+| **`rayx.runtime`** | Experimental fixed registered native operations and local native actors | One local process |
+| **Ray-hosted HPX runtime direction** | One long-lived Ray actor hosts one local HPX-native runtime; Ray owns placement and process lifecycle | Inside one Ray actor process |
+| **Distributed HPX-island experiments** | Standalone experiment-only HPX localities, sometimes launched or supervised by Ray/Slurm | Standalone processes under `experiments/` — **not** the shipped `rayx.runtime` API |
+
+## What exists today
+
+Implemented and runnable now:
+
+* **`rayx.Engine` / `SyntheticActor`** — the Python frontend over serialized FIFO
+  service lanes (`ServiceLane` default; opt-in `HpxLane` behind the same
+  contract), with `lane_stats()`, bounded admission (`QueueFullError`), queued and
+  chunk-boundary cancellation, `get` / `wait` / `as_completed`, and shutdown
+  drain. Synthetic workloads only.
+* **`rayx.runtime`** (*experimental*) — fixed registered native operations
+  (`square`, `add`, `busy_sum`, `fanout_sum`, `park_ms`, and the other registered
+  diagnostics) plus the local native `CounterActor`
+  (`Runtime.create_actor("counter", ...)` → `ActorHandle.call(...)`). Futures
+  with `get` / `wait` / `as_completed`, cooperative cancellation, bounded
+  admission, and clean shutdown where supported. Closed `int64`/`double` values
+  only — no object store, no arbitrary Python execution.
+* **Baselines** — a Ray actor baseline (public Ray APIs only) and an HPX-native
+  C++ baseline, both over the shared workload contract and v1 JSONL metrics
+  schema.
+* **Experiment-only distributed pieces** (*evidence-only*) — standalone HPX
+  connect-mode binaries and Python→HPX pybind bindings under `experiments/`.
+  These exist to produce evidence and are never shipped `rayx` API.
+
+The `Engine` harness and baselines are synthetic evidence infrastructure;
+`rayx.runtime` is experimental; everything distributed is evidence-only.
+
+## Maturity at a glance
+
+| Area | Implemented? | Validated? | Scope |
+|---|---|---|---|
+| Local `rayx.Engine` service lanes | Yes | Yes — synthetic benchmark arc (benchmarks 01–10, experiments 01–23) | Local process; synthetic workloads only |
+| Local `rayx.runtime` fixed native ops | Yes (experimental) | Yes — contract smokes, unit/integration tests (exp24–26, 39–44) | One process; closed `int64`/`double`; no object store |
+| Local native actors (`CounterActor`) | Yes (experimental) | Yes — contract coverage (exp24–26, 30) | Local, fixed registered methods only |
+| HPX runtime hosted inside one Ray actor | Yes (composition) | Yes — exp27–38 in-process arc | One Ray actor, single node; no cross-actor HPX |
+| Ray-orchestrated HPX child-process island | Experiment-only | Bootstrap/supervision validated (exp52, 57) | Standalone child processes, not Ray actor workers |
+| HPX inside multiple Ray actor processes | No | No — [design gate](docs/design/rayx_hpx_to_hpx_across_ray_actors_gate.md) only | Gated, not demonstrated |
+| Distributed same-axis experiment path | Experiment-only | Completed evidence (exp61–64 on Rostam; exp65 on macOS loopback and reproduced across two Rostam nodes) | Per-arm measurements and mechanism probes only |
+| Real model inference / serving | No | — | Out of scope |
+
+The short version: local `rayx` and local Ray-hosting have real, validated code
+paths; the standalone distributed experiments have completed evidence; **HPX
+across multiple Ray actors remains a design gate with no code**.
+
+## Quickstart
+
+All commands assume the repo root as the working directory. Each benchmark driver
+writes a per-request JSONL file; `bench/analyze_jsonl.py` rolls it up into an
+aggregate summary under `results/`.
+
+### Easiest path: Ray-only baseline (no HPX toolchain needed)
+
+```bash
+pip install -r requirements.txt   # ray
+python bench/run_ray_baseline.py --service-ms 0 --concurrency 1 \
+    --requests 1000 --out results/ray_noop_c1.jsonl
+python bench/analyze_jsonl.py results/ray_noop_c1.jsonl
+```
+
+### Local HPX / `rayx` path
+
+*Not* a one-line setup. The `rayx` frontend and the HPX-native baseline require
+HPX v1.11.0 built/installed from source, then the local pybind11 `_rayx`
+extension built against that prefix. See
+[docs/hpx_build_notes.md](docs/hpx_build_notes.md) for the full build. Once HPX is
+installed:
+
+```bash
+pip install -r requirements-python.txt   # pybind11
+
+cmake -S python -B python/build -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DPYBIND11_FINDPYTHON=ON \
+    -DCMAKE_PREFIX_PATH="/path/to/hpx-install;$(python -m pybind11 --cmakedir)"
+cmake --build python/build
+
+python bench/run_hpx_python_baseline.py --service-ms 0 --concurrency 1 \
+    --requests 1000 --num-lanes 1 --hpx-threads 4 \
+    --out results/rayx_noop_c1.jsonl
+python bench/analyze_jsonl.py results/rayx_noop_c1.jsonl
+```
+
+### `rayx.runtime` example
+
+With `_rayx` built (previous step), the smallest native-runtime tour is:
+
+```bash
+python examples/rayx_runtime_basic.py
+```
+
+Other runnable API tours live under [examples/](examples/) (`rayx_basic.py`,
+`rayx_actor_pool.py`, `rayx_lane_impl.py`, `rayx_bounded_admission.py`,
+`rayx_runtime_basic.py`). To run the local smoke/golden gates in one step, use the
+stdlib-only aggregator `python bench/smoke_local.py` (it skips any unavailable
+tier — no built `_rayx`, no native binary, no Ray). The full `rayx` API and the
+`rayx.runtime` surface are documented in the reference docs (see the
+documentation map).
+
+### Distributed experiments are not part of the quickstart
+
+The distributed probes (exp57–65) need Rostam/Slurm-specific setup (multi-node
+exclusive allocations, pinned subnets, experiment-local binaries) or
+experiment-local standalone builds. They are evidence experiments under
+`experiments/`, not part of the normal quickstart and never part of the shipped
+`rayx` API.
+
 ## Current status
 
 Ray actor baseline, HPX-native synthetic baseline, and the `rayx` Python frontend
@@ -61,16 +190,42 @@ JSONL schema (still `1`) are unchanged across the additions below.
 
 Evidence spans the synthetic serving-control benchmarks, the `rayx.runtime` native
 operations and local native actors, Ray-hosting composition, in-process HPX
-composition, an HPX-island lifecycle policy, and a distributed same-axis /
-payload-ladder evidence arc (experiments 61–64). The full chronological
-**“what we learned”** index lives in
+composition, an HPX-island lifecycle policy (now including exp65 demand-triggered
+connect-mode admission, demonstrated on loopback and across two Rostam nodes), and
+a distributed same-axis / payload-ladder evidence arc
+(experiments 61–64, with the exp64 Phase A→A4 native-readiness diagnostic
+complete). The full chronological **“what we learned”** index lives in
 [docs/evidence_index.md](docs/evidence_index.md); the headline summary is below.
 
-## Current evidence snapshot (experiments 61–64)
+exp64 (through its Phase A→A4 readiness diagnostic) and exp65 (both its loopback
+and Rostam cross-node slices) are completed
+evidence. The next discussion point is upstream/maintainer review of connect-mode
+lifecycle and stale-locality handling, clearer disconnect/quiesce semantics,
+suspended timed-wait readiness behavior, and late locality admission versus lazy
+parcelport connection establishment; no new experiment has been approved out of
+that review.
+
+## Current evidence snapshot (experiments 61–65)
+
+**Evidence in one paragraph.** The distributed evidence progressed in five steps:
+**exp61** timed one scalar remote call with both arms at the same Python caller
+boundary; **exp62** extended that same-axis method to a distributed N=8
+fanout/fanin; **exp63** traced an HPX native-composition failure to connector
+lifetime and validated native composition once lifetime was hardened; **exp64**
+added the response-payload-size axis (within-arm distributions only) plus a
+suspended timed-wait readiness diagnostic; and **exp65** showed connect-mode
+admission can be demand-ordered rather than assembled up front, on loopback and
+across two real nodes. Together these
+inform the future distributed design direction — they are **not** a shipped
+distributed RayX API, and none of them licenses a Ray-vs-HPX ratio, speedup, or
+winner.
 
 Experiments 61, 62, and 64 use a single Python caller boundary on Rostam
 (medusa nodes, subnet `10.42.5.`), while exp63 is the HPX-native
-composition/progress diagnostic that explains and hardens the HPX side.
+composition/progress diagnostic that explains and hardens the HPX side. exp65 is
+a separate connect-mode **admission** mechanism probe with two slices — macOS
+loopback and a Rostam two-node cross-node reproduction (medusa00/medusa01, Slurm
+job 170014) — lifecycle evidence, not a same-axis timing arm.
 Every result reports the two arms **separately**: **no ratio, no speedup, no cross-arm difference, no
 winner**. Throughout, the HPX side is an **experiment-only Python→HPX action path** (a pybind binding),
 **not** the shipped `rayx.runtime` API and **not** distributed RayX; the closed-`int64` oracle / payload
@@ -83,7 +238,8 @@ HPX-native collective.
 | **exp61** | Scalar remote-call RTT at one Python boundary | Ray actor RPC vs experiment-only Python→HPX scalar action; medusa00→01; R=5; closed-`int64` | **Same-axis**; all gates passed | Per-arm RTT bands for this QD1 closed-`int64` call at the same boundary | Any ratio/speedup/winner; production API; broad benchmark |
 | **exp62** | Distributed fanout/fanin RTT at one Python boundary | N=8 **all-remote**, 4/4 hard-pinned; medusa00→01/02; R=5; K=1000/W=100 | **Same-axis**; strongest distributed scalar evidence | Per-arm RTT bands for this closed-`int64` N=8 fanout/fanin | Ratio/speedup/winner; production distributed API; final HPX collective |
 | **exp63** | Is HPX-native cross-node composition viable? | Native `when_all`/`dataflow` reduce + depth-2 star-of-partials; connector-lifetime hardening | **Mechanism validated** (20/20 per mode) | Native composition works once connector lifetime is correct; root-of-partials works cross-node | No Ray comparison; no performance numbers; no `hpx::collectives` |
-| **exp64** | How does response-payload size behave, per runtime? | Payload ladder `[0..256 KB]`; HPX poll-gather vs Ray coordinator; R=5 band, measured=30 | **`matched_band_r5`**; within-arm only | Each arm's own within-arm p50/p90 payload-size curve; structural repeatability | Cross-arm comparison; ratio/speedup/winner; p99; `distributional_payload_ladder` |
+| **exp64** | How does response-payload size behave, per runtime? | Payload ladder `[0..256 KB]`; HPX poll-gather vs Ray coordinator; R=5 band, measured=30 | **`matched_band_r5`**; within-arm only; **Phase A→A4 diagnostic complete** | Each arm's own within-arm p50/p90 payload-size curve; structural repeatability; scoped `waiter_resume_at_timeout` signature | Cross-arm comparison; ratio/speedup/winner; p99; `distributional_payload_ladder`; general HPX claim |
+| **exp65** | Can connect-mode admission be demand-ordered? | Root alone → local HPX work → external demand event → one connector; two slices: macOS loopback (HPX 1.11, plain-Python controller) and Rostam cross-node (medusa00→medusa01, TCP `10.42.5.x`, job 170014) | **Mechanism pass**, 3/3 both arms in both slices | Demand-ordered admission on loopback and across two real nodes, within a boot-time `--hpx:expect-connecting-localities` willingness: count-free discovery, verified remote action, graceful leave, clean finalize | HPX inside Ray actors; elasticity during in-flight work; concurrent churn; failure recovery; lazy TCP connection establishment; anything beyond two nodes; performance |
 
 ### exp61 — scalar same-boundary remote call
 
@@ -210,52 +366,41 @@ Ray (coordinator + Ray object transport):
 HPX here remains the `root_flat_gather_poll` poll-gather baseline — **not** the exp63 native-composition
 payload path yet. The HPX serialization **runtime** path is **not observed** (config-level flags are, the
 per-call zero-copy path taken is not), which is exactly what blocks a stronger distributional
-payload-ladder grade; the Ray object/plasma return path is **not observed** either. Detail:
+payload-ladder grade; the Ray object/plasma return path is **not observed** either.
+
+**Native readiness diagnosis (Phase A→A4 — complete).** An HPX-only diagnostic arc asked whether native
+readiness composition could replace the poll baseline for the payload path. Result: native
+`when_all`/`dataflow` continuations entered and completed promptly, but the suspended timed waiter resumed
+only at the dispatch timeout (`waiter_resume_at_timeout`). The signature was unchanged by
+root/background-thread tuning, disabled idle backoff, and TCP parcel-pool sizes 2 (observed default), 4,
+and 8, while the polling/yield controls stayed prompt throughout. Consequence: the polling baseline is
+**not retired**, the native payload-size ladder was **not started**, and `distributional_payload_ladder`
+stays blocked. This is a scoped HPX 1.11 / TCP-parcelport / Rostam progress diagnostic — the
+timeout-bound values are diagnostic signatures, not latency measurements — not a performance result and
+not a general HPX claim. Detail:
 [experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md).
 
-## Quickstart / smoke run
+### exp65 — demand-triggered connect-mode admission (mechanism evidence, complete)
 
-All commands assume the repo root as the working directory. Each driver writes a
-per-request JSONL file; `bench/analyze_jsonl.py` rolls it up into an aggregate
-summary under `results/`.
+exp65 is complete in two slices, passing **3/3 on both arms in each**. In the demand arm the connect-mode
+root starts **alone**, performs local HPX work before any connector exists, admits one connector only
+**after** an external demand event, discovers it by membership set-difference **without a predetermined
+connector count**, executes a verified remote action, observes the connector's graceful leave, continues
+local work, and finalizes cleanly; the no-demand control root finalizes cleanly with zero connectors ever
+joining.
 
-**Ray baseline** (Ray only, no HPX toolchain needed):
+- **Loopback slice** — single-node macOS loopback, HPX 1.11, plain-Python controller: 3/3 demand and
+  3/3 no-demand.
+- **Rostam cross-node slice** (Slurm job 170014) — root and controller on medusa00; the connector is
+  created only after the demand event, on medusa01; TCP parcelport over `10.42.5.x`; no predetermined
+  connector count; set-difference discovery; verified remote action on locality 1; graceful leave; root
+  continued and finalized: 3/3 demand and 3/3 no-demand, all structural/placement gates passed.
 
-```bash
-pip install -r requirements.txt   # ray
-python bench/run_ray_baseline.py --service-ms 0 --concurrency 1 \
-    --requests 1000 --out results/ray_noop_c1.jsonl
-python bench/analyze_jsonl.py results/ray_noop_c1.jsonl
-```
-
-**HPX / rayx smoke** — *not* a one-line setup. The `rayx` frontend and the
-HPX-native baseline require HPX v1.11.0 built/installed from source, then the
-local pybind11 `_rayx` extension built against that prefix. See
-[docs/hpx_build_notes.md](docs/hpx_build_notes.md) for the full build. Once HPX is
-installed:
-
-```bash
-pip install -r requirements-python.txt   # pybind11
-
-cmake -S python -B python/build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DPYBIND11_FINDPYTHON=ON \
-    -DCMAKE_PREFIX_PATH="/path/to/hpx-install;$(python -m pybind11 --cmakedir)"
-cmake --build python/build
-
-python bench/run_hpx_python_baseline.py --service-ms 0 --concurrency 1 \
-    --requests 1000 --num-lanes 1 --hpx-threads 4 \
-    --out results/rayx_noop_c1.jsonl
-python bench/analyze_jsonl.py results/rayx_noop_c1.jsonl
-```
-
-Runnable API tours live under [examples/](examples/) (`rayx_basic.py`,
-`rayx_actor_pool.py`, `rayx_lane_impl.py`, `rayx_bounded_admission.py`,
-`rayx_runtime_basic.py`). To run the local smoke/golden gates in one step, use the
-stdlib-only aggregator `python bench/smoke_local.py` (it skips any unavailable
-tier — no built `_rayx`, no native binary, no Ray). The full `rayx` API and the
-`rayx.runtime` surface are documented in the reference docs (see the
-documentation map).
+The safe claim: demand-ordered connect-mode admission is demonstrated on loopback and across two real
+nodes, within a boot-time `--hpx:expect-connecting-localities` willingness. Still open: HPX inside Ray
+actors, elasticity during in-flight work, concurrent churn, failure recovery, lazy TCP parcelport
+connection establishment, anything beyond two nodes, and all performance claims. Detail:
+[experiments/65_demand_admission/demand_triggered_admission.md](experiments/65_demand_admission/demand_triggered_admission.md).
 
 ## Separate in-process direction (HPX inside one Ray actor)
 
@@ -309,11 +454,12 @@ holds investigative write-ups / curated evidence packages.
 
 ### Evidence
 
-* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node precursors (58–60), and the distributed same-axis / payload-ladder arc (61 scalar, 62 distributed fanout/fanin, 63 native HPX composition, 64 payload ladder).
+* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node precursors (58–60), the distributed same-axis / payload-ladder arc (61 scalar, 62 distributed fanout/fanin, 63 native HPX composition, 64 payload ladder), and demand-triggered connect-mode admission (65).
 * [experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) — exp61: the scalar same-axis Python-boundary write-up (experiment-only).
 * [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — exp62: the same-axis Python-boundary **distributed fanout/fanin** write-up (experiment-only; not shipped `rayx.runtime` API).
 * [experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md](experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md) — exp63: HPX-native composition / progress diagnosis (mechanism evidence only; no Ray comparison, no `hpx::collectives`).
-* [experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md) — exp64: payload fanin size sweep through the Slice 4 `matched_band_r5` within-arm band (experiment-only).
+* [experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md) — exp64: payload fanin size sweep through the Slice 4 `matched_band_r5` within-arm band, plus the Slice 5 Phase A→A4 native-readiness diagnostic (`waiter_resume_at_timeout`; poll baseline not retired) (experiment-only).
+* [experiments/65_demand_admission/demand_triggered_admission.md](experiments/65_demand_admission/demand_triggered_admission.md) — exp65: demand-triggered connect-mode admission — root starts alone, admits one connector only on an external demand event, count-free discovery, graceful leave, clean finalize; demonstrated on macOS loopback and reproduced across two Rostam nodes (medusa00/medusa01, TCP `10.42.5.x`, job 170014) (mechanism evidence; experiment-only).
 * Source write-ups live beside the code under [benchmarks/](benchmarks/) and [experiments/](experiments/).
 
 ### Project rules

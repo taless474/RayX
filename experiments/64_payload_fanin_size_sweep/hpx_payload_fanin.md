@@ -106,6 +106,12 @@ both.
   still no ratio/speedup/winner and no cross-arm arithmetic. Ran clean on band `band20260702_174335`
   (jobs 159385/159386/159388/159389/159390); see
   [Slice 4 below](#slice-4--matched-payload-ladder-band-r5--measured30).
+- **Slice 5 (done, HPX-only diagnostic):** Phase A→A4 native readiness-composition diagnosis (jobs
+  159418, 159419, 159854, 159855, 169815, 169816). Verdict: the native claim modes' suspended waiter
+  resumes only at the dispatch timeout (`waiter_resume_at_timeout`), insensitive to thread/background-
+  thread levers, idle-backoff disablement, and parcel-pool sizes 4/8 -- so the **poll baseline is NOT
+  retired** and `distributional_payload_ladder` stays blocked; see
+  [Slice 5 below](#slice-5--phase-aa4-native-readiness-composition-diagnosis-hpx-only-poll-baseline-not-retired).
 
 ## Slice 1 mechanism (implemented)
 
@@ -417,6 +423,123 @@ cluster-wide placement variance. Across-island spread here is dominated by run-t
   from the poll-gather baseline to an exp63-style native-composition payload path. Do **not** update README /
   `docs/evidence_index.md` yet unless explicitly asked.
 
+## Slice 5 — Phase A→A4: native readiness-composition diagnosis (HPX-only; poll baseline NOT retired)
+
+**Status:** complete as a diagnostic arc. HPX-only, no Ray, S=0 closed-int64 control (Phase A also ran
+S=262144), all exp64 fences locked False throughout, `same_axis_comparison` untouched. **Outcome: the
+polling gather baseline stands; no native payload ladder is started.**
+
+### Research question
+
+Can HPX-native readiness composition -- a `when_all`/`dataflow` continuation on the root with the caller
+**passively waiting** on the composed future -- replace the `root_flat_gather_poll` baseline for the exp64
+payload path? This is a prerequisite question for the payload-size axis: one of the two recorded blockers
+of the stronger `distributional_payload_ladder` grade is `hpx_poll_gather_baseline`, and a native payload
+ladder is only *meaningful* if the native wait wakes promptly -- otherwise every ladder point would measure
+the dispatch timeout, not payload-size behavior, and the poll half cannot honestly be retired.
+
+### Modes tested (one hardened root/connector lifecycle per job)
+
+| mode | role |
+| --- | --- |
+| `root_flat_gather_poll` | proven poll-gather **control** (bounded `is_ready` poll, 50 µs sleep) |
+| `when_all_then_reduce_yield` | **diagnostic**: composes via `when_all` but drives readiness with a yielding `is_ready` loop; polls, so it can never retire the poll half |
+| `sequential_leaf_wait` | A3 **control**: per-leaf sequential timed waits (exp58-analog), no composition |
+| `when_all_then_reduce` | **native claim mode** (passive wait on the composed future) |
+| `dataflow_reduce` | **native claim mode** (passive wait on the composed future) |
+
+### Phase progression and lever/outcome table
+
+| Phase | job | levers (beyond common shape) | modes × sizes | outcome |
+| --- | --- | --- | --- | --- |
+| A | 159418 | none | poll, when_all, dataflow × S∈{0, 262144} | all `overall_pass=True` **structurally** (scalar + payload-digest oracles, incl. S=262144 through native composition) -- but promptness instrumentation did not exist yet; the deadline-margin gate was added afterwards precisely to close this job's hidden stall |
+| A2 | 159419 | `--native-root-threads 4 --native-bg-threads 8`; +yield mode | 4 modes × S=0 | poll and yield prompt (max RTT 0.000429 s / 0.000461 s); `when_all`/`dataflow` **deferred to the 8 s timeout** (8.000295 s / 8.000253 s) -- thread/background-thread levers do not help |
+| A3 | 159854 | `--native-idle-backoff-ms 0` (island-wide), `--native-root-threads 4`; +sequential mode | 5 modes × S=0 | disclosure recorded (`idle_backoff_mode=disabled`, `runtime_progress_driver=idle_backoff_disabled`); `when_all`/`dataflow`/`sequential_leaf_wait` still deferred (8.000470/8.000366/8.000389 s); poll/yield prompt -- **idle backoff ruled out**; poll half NOT retired |
+| A4 probe | 159855 | defaults (`--native-root-threads 4`); root-clock discriminator active | 5 modes × S=0 | **`progress_deferred_to_timeout_signature=waiter_resume_at_timeout`** for both claim modes, valid instrumentation; observed default `parcel_pool_size_config=2` |
+| A4 pool sweep | 169815 / 169816 | `--native-parcel-pool-size 4` / `8` (island-wide, root + connectors), ports 7955/7956 | 5 modes × S=0 | signature **unchanged** at pool 4 and pool 8; runtime-observed `parcel_pool_size_config=4` / `=8` in every artifact |
+
+Common shape for every phase: `hpx-payload-native-smoke`, N=8, `--n-remote 2`, three exclusive medusa
+nodes, prewarm 3 / measured 5, `--dispatch-timeout-s 8.0`, `--native-serve-timeout 90` (deadman only, under
+the exp63-ported completion-sentinel/heartbeat connector lifetime), `--prefer-subnet 10.42.5.`,
+`placement_class=remote_all` in every artifact.
+
+### Evidence
+
+Copyback directories (all under the gitignored `_exp64_runs/`):
+`native_phase_a_copyback_159418/`, `native_phase_a2_copyback_159419/`,
+`native_phase_a3_copyback_159854/`, `native_phase_a4_probe_copyback_159855/`,
+`native_phase_a4_pool4_copyback_169815/`, `native_phase_a4_pool8_copyback_169816/`. Each holds the
+per-mode artifacts `exp64_payload_native_<job>_<mode>_S<S>_hpx.json`, the two connector bootstrap dirs
+`native_<job>_c1_*/c2_*`, the job log, and (from A3 on) the sbatch. Key pool-sweep artifacts:
+`exp64_payload_native_169815_when_all_then_reduce_S0_hpx.json`,
+`exp64_payload_native_169815_dataflow_reduce_S0_hpx.json`, and the 169816 counterparts.
+
+- **Slurm `FAILED 1:0` on 159854/159855/169815/169816 is the designed driver exit signature**, not a
+  runtime or launch failure: the phase returns rc=1 whenever any mode's diagnostic gates fail, which is the
+  *expected* outcome while the deferral persists; the sbatch propagates rc. Logs show all five modes
+  completing with per-mode summaries and `error=None`; elapsed 4:02 for 159855, 169815, and 169816 alike.
+- Recorded parcel-pool values: observed default `2` (159854/159855); `4` (169815); `8` (169816) -- the
+  lever is runtime-observed island-wide, not merely requested.
+- Prompt controls in every phase: `root_flat_gather_poll` and `when_all_then_reduce_yield` pass all gates
+  with max RTT 0.000321–0.000461 s.
+- Deferred modes in every instrumented phase: `sequential_leaf_wait`, `when_all_then_reduce`,
+  `dataflow_reduce` at max RTT 8.0002–8.0005 s (the dispatch bound).
+- Discriminator instrumentation valid where it applies: `all_progress_instrumentation_ok=True` and
+  `all_waiter_suspended_before_ready=True` for both claim modes in 159855/169815/169816; per-call
+  signatures uniform (no `mixed`, no `instrumentation_invalid`, no `continuation_uncaptured`).
+
+### Core finding
+
+On this build and configuration, the native claim modes' **continuations enter and complete promptly**
+while the **suspended waiter resumes only at the timeout**. In the pool-sweep artifacts the maximum
+continuation delay after dispatch is 0.000416–0.009424 s, while the wait-return delay *after* the
+continuation completed is ~7.9997 s in all four claim-mode cells -- i.e., the reduced result exists almost
+immediately and the passively waiting caller is not woken until the 8 s deadline. The classification is
+uniformly **`waiter_resume_at_timeout`**, and it is unchanged by:
+
+- root/background-thread adjustments (A2: `--native-root-threads 4 --native-bg-threads 8`);
+- island-wide idle-backoff disablement (A3: `--native-idle-backoff-ms 0`, a CPU-for-latency runtime-spin
+  workaround, not an event-driven wakeup);
+- island-wide `hpx.parcel.tcp.parcel_pool_size` 4 and 8 (169815/169816; observed default 2).
+
+Polling-driven readiness (the poll control, the yield diagnostic) is sub-millisecond throughout -- the
+data path and the composition are fine; the deferral is specific to resuming a suspended waiter.
+
+### Decision
+
+- The **polling gather baseline is not retired**: `poll_half_blocker_retired=False` in every artifact, and
+  no run satisfied the retirement invariant (no native claim mode passed promptly without user-level
+  polling under a disclosed runtime progress driver). The retirement rule itself is unchanged.
+- **No native payload-size ladder is started**: with the native wait deferring to the deadline, a native
+  ladder would measure the timeout, not payload size.
+- **`distributional_payload_ladder` remains blocked** -- both recorded reasons stand
+  (`hpx_serialization_runtime_path_not_observed`, `hpx_poll_gather_baseline`).
+- The result is suitable for **upstream discussion as a scoped HPX progress/readiness observation**: a
+  precise, reproduced (three jobs), lever-insensitive waiter-resume deferral signature on this build over
+  the TCP parcelport.
+
+### Claim fences (Slice 5)
+
+- The 8-second values are **timeout signatures** (the 8.0 s dispatch bound), never latency measurements.
+- S=0 is a **closed-int64 control**; nothing here is payload-serialization evidence (Phase A's S=262144
+  cells are structural-correctness evidence only, with no promptness instrumentation).
+- No HPX-vs-Ray winner, speedup, or ratio; the Ray arm is not involved in Slice 5 at all.
+- No general HPX scaling or transport-wide claim: scope is this HPX 1.11 build, the TCP parcelport, and
+  the tested Rostam configuration (medusa nodes, `10.42.5.x`, the shapes above).
+- exp65's macOS-loopback observation (a single `future::wait_for(bound)` returning only at its full bound
+  with the future long ready) is **deferred corroborating evidence only** -- a separate experiment on a
+  separate platform; it is not merged into this result.
+
+### Roadmap impact (Slice 5)
+
+- **Roadmap narrowed.** The within-HPX lever space for waking the native waiter promptly is now exhausted
+  on this build (threads, background threads, idle backoff, parcel pool); moving the HPX payload arm off
+  the poll-gather baseline is blocked pending upstream insight, and the poll baseline remains the honest
+  exp64 HPX path.
+- **Next recommended step:** raise the `waiter_resume_at_timeout` signature (with the A2–A4 lever table
+  and artifact citations) in the upstream HPX discussion, and only revisit the native payload ladder if
+  that discussion yields a wake mechanism that passes the existing retirement invariant.
+
 ## Files
 
 - `shared_payload.hpp` -- pure oracle (leaf_value / composite_oracle / payload_byte); mirrors the
@@ -424,12 +547,19 @@ cluster-wide placement variance. Across-island spread here is dominated by run-t
 - `payload_action.hpp` -- `payload_leaf_record` (with `serialize_buffer<char>` payload) + the
   `exp64_payload_leaf_action` HPX plain action (ONE TU per binary).
 - `payload_ext.cpp` -- pybind `payload_ext`: embedded HPX root, `fanout_fanin_payload_remote`
-  (root_flat_gather_poll, returns payload bytes), config provenance.
-- `payload_connector.cpp` -- standalone connect-mode remote locality registering the same action.
+  (root_flat_gather_poll, returns payload bytes), config provenance; plus the Slice 5 native
+  readiness-composition modes (`when_all_then_reduce`, `dataflow_reduce`, the yield diagnostic, the
+  sequential-wait control) with the A4 root-clock timestamps (`t_waiter_entered_ns`,
+  `t_continuation_entered_ns`/`completed`, `t_wait_returned_ns`).
+- `payload_connector.cpp` -- standalone connect-mode remote locality registering the same action; exp63-
+  ported completion-sentinel (`root.done`) + heartbeat (`root.alive`) lifetime, serve-timeout as deadman
+  only.
 - `CMakeLists.txt` -- builds `payload_ext` + `payload_connector`.
 - `run_exp64_payload.py` -- oracles, design record, gates, and phase dispatch (`selftest` pure;
   `hpx-payload-remote-smoke` Slice 1 + `ray-payload-remote-smoke` Slice 2 hardware; the pure
   `payload-ladder-manifest` Slice 3 pairing/validator over `--job`; the pure `payload-band-aggregate`
-  Slice 4 R-island within-arm band over `--band-id`; all skip cleanly off-cluster).
+  Slice 4 R-island within-arm band over `--band-id`; the `hpx-payload-native-smoke` Slice 5 Phase A→A4
+  diagnostic with the pure A4 progress discriminator, promptness/deadline-margin gates, and the
+  poll-half retirement invariant; all skip cleanly off-cluster).
 - `selftest_slice0.py` -- pure oracle + design-label + fence + gate + off-cluster-skip checks.
 - `.gitignore` -- keeps `_exp64_runs/` raw outputs / build products untracked.
