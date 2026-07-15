@@ -1,0 +1,10 @@
+# exp68 -- EXPERIMENT-ONLY build/run artifacts stay untracked (curated aggregate is the only
+# tracked evidence, added after acceptance). Mirrors exp67 hygiene.
+build/
+build*/
+_exp68_runs/
+__pycache__/
+*.so
+*.dylib
+*.o
+*.pyc

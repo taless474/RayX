@@ -429,6 +429,11 @@ cluster-wide placement variance. Across-island spread here is dominated by run-t
 S=262144), all exp64 fences locked False throughout, `same_axis_comparison` untouched. **Outcome: the
 polling gather baseline stands; no native payload ladder is started.**
 
+> **Superseded in part by Slice 5V below.** The waiter deferral was upstream-confirmed as an HPX bug
+> (PR #7367) and is verified fixed on HPX `master` @ `20bc3d4b`. The Slice 5 findings remain the valid
+> characterization of the pinned HPX 1.11 build, and the poll-baseline decision continues to stand for
+> every 1.11-linked exp64 binary; the "blocked pending upstream insight" framing below is resolved.
+
 ### Research question
 
 Can HPX-native readiness composition -- a `when_all`/`dataflow` continuation on the root with the caller
@@ -532,13 +537,123 @@ data path and the composition are fine; the deferral is specific to resuming a s
 
 ### Roadmap impact (Slice 5)
 
-- **Roadmap narrowed.** The within-HPX lever space for waking the native waiter promptly is now exhausted
-  on this build (threads, background threads, idle backoff, parcel pool); moving the HPX payload arm off
-  the poll-gather baseline is blocked pending upstream insight, and the poll baseline remains the honest
-  exp64 HPX path.
-- **Next recommended step:** raise the `waiter_resume_at_timeout` signature (with the A2–A4 lever table
-  and artifact citations) in the upstream HPX discussion, and only revisit the native payload ladder if
-  that discussion yields a wake mechanism that passes the existing retirement invariant.
+- **Roadmap narrowed.** The waiter-resume deferral on this build was insensitive to every lever tested
+  (threads, background threads, idle backoff, parcel pool); moving the HPX payload arm off the
+  poll-gather baseline was blocked pending upstream insight, and the poll baseline remained the honest
+  exp64 HPX path on HPX 1.11. *(Both resolved by Slice 5V below: the behavior was upstream-confirmed as
+  an HPX bug, fixed by PR #7367, and verified fixed on the exact tested master commit.)*
+- **Next recommended step (as executed):** the `waiter_resume_at_timeout` signature was raised in the
+  upstream discussion, upstream confirmation identified it as a bug fixed by PR #7367, and Slice 5V
+  verified the fix; the native payload path is revisited only on the verified fixed build.
+
+## Slice 5V — HPX-master waiter-fix verification (control reproduced; fix verified on master)
+
+**Status:** complete. **Verdict: `waiter_resumed_on_ready` with all 12 structural gates passing.**
+Curated aggregate: `waiter_fix_verification_aggregate.json` (built by `verify_waiter_fix.py
+--phase aggregate` from copied-back artifacts only).
+
+### What was verified
+
+Upstream confirmation identified the Slice 5 `waiter_resume_at_timeout` signature as an HPX bug and
+pointed to PR #7367 ("Fixing future::wait_until (and wait_for) to return once future was made ready"),
+with maintainer guidance that `master` should behave correctly. This slice re-runs the *exact* Slice 5
+A4 discriminator — same runner,
+same ext/connector sources, same modes, shape, gates, and instrumentation — against two HPX builds that
+differ only in the linked install, plus the exp65 loopback full-bound `wait_for` observation as formally
+separate corroboration.
+
+### Version identities and build discipline (gated)
+
+- **Control:** the existing pinned install `/work/bitayekrang/apps/hpx-install` — runtime-observed
+  `HPX V1.11.0 (AGAS V3.0), Git c9b81b401f`. The repo's HPX 1.11 pin is unchanged.
+- **Master:** separate prefix `/work/bitayekrang/apps/hpx-master-20bc3d4b-install`, source
+  `hpx-master-src` @ **`20bc3d4bf3068383edcb63be13f22e9ff95842fa`** — runtime-observed
+  `HPX V2.0.0 (AGAS V3.0), Git 20bc3d4bf3`.
+- **PR #7367 ancestry proven:** merge commit `f5fed9a4be737a2f292f06495a03502e3bb46b2c` satisfies
+  `git merge-base --is-ancestor` against the tested SHA.
+- Both experiment binaries record their linked HPX identity at runtime (`hpx::complete_version()`, which
+  embeds the git commit) into every artifact, so each result is scoped to the exact build that produced
+  it, not merely the requested prefix.
+- Common build config: Release, g++ 15.1.0, Boost 1.91.0, hwloc 2.12.0, TCP parcelport ON,
+  malloc=system. Version selection is `--native-build-dir` (`build-v111-verify` / `build-master-verify`);
+  experiment logic is byte-identical across arms.
+
+### Run table (all on exclusive medusa00–02, N=8, 2 remote connectors, S=0, 8.0 s dispatch bound)
+
+| run | job | HPX build | root threads | claim-mode classification (uniform, 5+5 calls) | claim-cell RTT (observational) | poll/yield controls |
+| --- | --- | --- | --- | --- | --- | --- |
+| control | 170136 | 1.11.0 `c9b81b401f` | 4 | `waiter_resume_at_timeout` | 8.000154–8.000253 s (the bound) | prompt, pass |
+| master r1 | 170138 | master `20bc3d4bf3` | 4 | `waiter_resumed_on_ready` | 0.000263–0.000485 s | prompt, pass |
+| master r2 | 170140 | master `20bc3d4bf3` | 4 | `waiter_resumed_on_ready` | 0.000273–0.000391 s | prompt, pass |
+| master r3 | 170141 | master `20bc3d4bf3` | 4 | `waiter_resumed_on_ready` | 0.000257–0.000362 s | prompt, pass |
+| master t2 | 170142 | master `20bc3d4bf3` | 2 | `waiter_resumed_on_ready` | 0.000273–0.000339 s | prompt, pass |
+
+`waiter_resumed_on_ready` is structural, not a performance threshold: valid A4 instrumentation, the
+waiter provably suspended before readiness (`t_waiter_entered_ns < t_continuation_completed_ns`), the
+continuation entered and completed, `wait_for` reported ready, the waiter returned at/after readiness,
+and the wait-return is materially separated from the timeout bound (the existing
+`NATIVE_DEADLINE_MARGIN_FRACTION` gate). RTT values are observational only.
+
+### exp65 loopback re-check (formally separate corroboration)
+
+The smallest exp65 local case was rerun with `--wait-probe full_bound_instrumented`: the ONE full-bound
+`future::wait_for(15 s)` on the dispatched action future, on one medusa node (loopback TCP), 3 demand
+reps per arm, both binaries in one job (170143), all exp65 structural gates passing throughout:
+
+- **HPX 1.11:** `waiter_resume_at_timeout` 3/3 — wait returned at 15.0 s with the readiness witness
+  having fired ~14.999 s earlier. This reproduces the original macOS-loopback observation on Rostam.
+- **HPX master:** `waiter_resumed_on_ready` 3/3 — `is_ready()` false at wait entry (race-free suspension
+  proof), wait returned ~0.0001 s later, oracle matched.
+
+Probe hardening note: the first re-check run (job 170137) classified the master arm
+`invalid_instrumentation` because the waiter, once woken *on readiness*, could harvest the witness
+timestamp before the witness continuation ran — an instrumentation race, not an HPX property. The probe
+was hardened (an `is_ready()` sample at wait entry as the suspension proof, plus a bounded post-harvest
+witness settle) and BOTH arms were rerun identically; the 170137 aggregates are preserved as
+`waiter_recheck_*_probe_v1.json` provenance. Both exp64 and exp65 exercise `future::wait_for`, the API
+PR #7367 fixes, but this experiment does not trace the internal code path; the exp65 result stays
+corroborating evidence, not proof of one shared root cause.
+
+### Consequence analysis
+
+1. **`root_flat_gather_poll` as the required readiness workaround:** retired *conditionally* — the
+   readiness defect is fixed on `master` @ `20bc3d4b`, so the polling workaround is no longer forced by
+   HPX itself on that build. It remains required for any exp64 binary still linked against the pinned
+   1.11 build, remains the historical HPX 1.11 evidence path, and may remain an in-run diagnostic
+   control on the fixed build (as it was in every Slice 5V master job). Actually moving exp64 off the
+   poll baseline requires choosing a fixed HPX for the experiment builds, which is a separate, explicit
+   decision.
+2. **Native `when_all`/`dataflow` as the primary exp64 composition path:** verified viable on the tested
+   master commit (uniform prompt resume-on-ready across 4 runs and 2 thread configurations).
+3. **`distributional_payload_ladder` blockers:** the `hpx_poll_gather_baseline` readiness blocker is
+   closed *scoped to the tested master commit*. The `hpx_serialization_runtime_path_not_observed` blocker
+   remains open. No payload ladder was started; the ladder grade is unchanged.
+4. All Slice 5 conclusions about the pinned 1.11 build stand as provenance.
+
+### Claim fences (Slice 5V)
+
+- No performance, latency, speedup, ratio, or winner claim; every timing above is observational.
+- Scope: the exact tested master commit `20bc3d4bf3...42fa`, HPX 1.11.0 `c9b81b401f` as control, TCP
+  parcelport, the tested Rostam shapes (3-node exp64 discriminator; single-node loopback exp65). Not a
+  general HPX claim and not a claim about any other commit, transport, or platform.
+- No Ray involvement anywhere in this slice; `same_axis_comparison` untouched; all exp64 fences remain
+  locked False.
+
+### Interpretation and roadmap impact (Slice 5V)
+
+- **Interpretation:** the HPX 1.11 control reproduced the prior signature exactly (both claim modes, all
+  calls, valid instrumentation), and the identical discriminator on HPX master resumed the suspended
+  waiter on readiness in 4/4 runs — including at 2 root threads — with polling/yield controls prompt in
+  every run. The exp65 full-bound `wait_for` observation disappeared on master in the same fashion. What
+  remains ambiguous: nothing about the defect/fix itself at this scope; what must not be claimed:
+  anything about performance, other commits, other transports, or a shared exp64/exp65 root cause.
+- **Roadmap impact: Roadmap strengthened.** The native-composition direction is unblocked at the HPX
+  level; the poll baseline no longer has to be the permanent exp64 HPX path.
+- **Updated roadmap:** unchanged tracks; within the same-axis direction, the exp64 payload arm may move
+  to native composition once an HPX version decision for experiment builds is made explicitly.
+- **Next recommended step:** decide whether exp64's HPX arm adopts a fixed-HPX build (master pin or a
+  release containing PR #7367) for the payload ladder, then re-run the native-smoke promptness gate on
+  that build before touching the ladder grade.
 
 ## Files
 
@@ -562,4 +677,10 @@ data path and the composition are fine; the deferral is specific to resuming a s
   diagnostic with the pure A4 progress discriminator, promptness/deadline-margin gates, and the
   poll-half retirement invariant; all skip cleanly off-cluster).
 - `selftest_slice0.py` -- pure oracle + design-label + fence + gate + off-cluster-skip checks.
+- `verify_waiter_fix.py` -- pure Slice 5V waiter-fix verification analyzer: per-call/cell/run
+  classifiers over the A4 timestamps, the exp65 full-bound-probe classifier (kept formally separate),
+  build-identity checks, the final-verdict logic, `--phase selftest`, and `--phase aggregate` (which
+  wrote `waiter_fix_verification_aggregate.json` from copied-back artifacts).
+- `waiter_fix_verification_aggregate.json` -- curated Slice 5V aggregate (verdict, structural gates,
+  per-run cells, exp65 re-check section, build/identity provenance).
 - `.gitignore` -- keeps `_exp64_runs/` raw outputs / build products untracked.

@@ -596,39 +596,69 @@ def build_connector_srun_cmd(rhost, bootstrap_dir, *, connector_bin, connector_t
     return cmd
 
 
-def _default_payload_import():
+def _build_dir_candidates(build_dir=None):
+    """Build dirs to search for payload_ext / payload_connector. Default (None) keeps the original
+    exp64 behavior (build/, build/Release). An explicit build_dir is the waiter-fix-verification
+    VERSION-SELECTION hook: it lets one runner drive binaries built against different HPX installs
+    (e.g. build-v111-verify vs build-master-verify) with IDENTICAL experiment logic."""
     here = os.path.dirname(os.path.abspath(__file__))
-    for d in (os.path.join(here, "build"), os.path.join(here, "build", "Release")):
+    if build_dir:
+        d = build_dir if os.path.isabs(build_dir) else os.path.join(here, build_dir)
+        return [d, os.path.join(d, "Release")]
+    return [os.path.join(here, "build"), os.path.join(here, "build", "Release")]
+
+
+def _default_payload_import(build_dir=None):
+    for d in _build_dir_candidates(build_dir):
         if os.path.isdir(d) and d not in sys.path:
             sys.path.insert(0, d)
     import payload_ext
     return payload_ext
 
 
-def _find_connector_bin(here=None):
-    here = os.path.dirname(os.path.abspath(__file__)) if here is None else here
-    for d in (os.path.join(here, "build"), os.path.join(here, "build", "Release")):
+def _find_connector_bin(here=None, build_dir=None):
+    dirs = ([os.path.join(here, "build"), os.path.join(here, "build", "Release")]
+            if here is not None else _build_dir_candidates(build_dir))
+    for d in dirs:
         cand = os.path.join(d, "payload_connector")
         if os.path.isfile(cand):
             return cand
     return None
 
 
-def _payload_preconditions(env, import_fn=None):
+def _payload_preconditions(env, import_fn=None, build_dir=None):
     """Resolve (payload_ext, slurm, connector_bin) or a SKIP reason. The 3-node all-remote 4/4 payload
-    shape needs a >=3-node Slurm allocation (root + 2 connectors); off-cluster and unbuilt both skip."""
+    shape needs a >=3-node Slurm allocation (root + 2 connectors); off-cluster and unbuilt both skip.
+    build_dir (default None = original behavior) selects the binaries' build dir -- the waiter-fix
+    verification version-selection hook; ext and connector always come from the SAME dir."""
     slurm = _slurm_info(env)
     if len(slurm["hostnames"]) < 3:
         return None, (f"SKIP -- need a >=3-node Slurm allocation (root + 2 connectors) for the 3-node "
                       f"all-remote payload shape (hostnames={slurm['hostnames']}).")
-    connector_bin = _find_connector_bin()
+    connector_bin = _find_connector_bin(build_dir=build_dir)
     if connector_bin is None:
         return None, "SKIP -- payload_connector not built (build the exp64 CMake target first)."
     try:
-        ext = (import_fn or _default_payload_import)()
+        ext = import_fn() if import_fn is not None else _default_payload_import(build_dir)
     except ImportError as exc:
         return None, f"SKIP -- payload_ext not built ({exc})."
     return (ext, slurm, connector_bin), None
+
+
+def _hpx_build_provenance(ext, connector_bin):
+    """Runtime-observed HPX build identity for the waiter-fix verification. Fails soft on an ext
+    built before hpx_version_info existed ('not_recorded'); never fabricates a version."""
+    try:
+        ver = dict(ext.hpx_version_info()) if hasattr(ext, "hpx_version_info") else {}
+    except Exception:  # noqa: BLE001
+        ver = {}
+    return {
+        "hpx_version_full": ver.get("hpx_version_full", "not_recorded"),
+        "hpx_complete_version": ver.get("hpx_complete_version", "not_recorded"),
+        "ext_build_dir": os.path.dirname(os.path.abspath(connector_bin)) if connector_bin else None,
+        "connector_bin": connector_bin,
+        "ext_and_connector_same_build_dir": True,  # structural: both resolved from ONE dir above
+    }
 
 
 def _size_calls(ext, *, x, n, payload_bytes, dispatch_timeout_s, root_loc, remote_locs, prewarm,
@@ -1838,19 +1868,25 @@ def run_payload_native_smoke(*, x=7, n=8, sizes=(0, 262144), modes=DEFAULT_NATIV
                              prefer_subnet="10.42.5.", root_port=7951, await_timeout=60,
                              serve_timeout=90, n_remote=2, prewarm=3, measured=5,
                              root_threads=4, bg_threads=None, idle_backoff_ms=None,
-                             parcel_pool_size=None):
+                             parcel_pool_size=None, build_dir=None, artifact_tag=None):
     """Slice 5 Phase A: HPX-only native readiness-composition payload probe over (modes x sizes) in ONE
     HPX/connector lifecycle under the hardened connector lifetime. HPX-only, no Ray, fences locked False,
     same_axis_comparison stays False. root_threads / bg_threads are Phase A2 progress-diagnosis levers;
     idle_backoff_ms is the Phase A3 island-wide idle-backoff lever (0 disables scheduler idle backoff so
     the runtime spins -- a CPU-for-latency workaround on TCP, NOT event-driven; None keeps the default).
-    Skips cleanly off-cluster/unbuilt."""
-    pre, skip = _payload_preconditions(env or os.environ, import_fn)
+    build_dir/artifact_tag are the waiter-fix-verification hooks: build_dir selects which built
+    ext/connector pair runs (None = original build/), artifact_tag suffixes artifact filenames so
+    control and master cells of one job can never overwrite each other. Skips cleanly
+    off-cluster/unbuilt."""
+    pre, skip = _payload_preconditions(env or os.environ, import_fn, build_dir=build_dir)
     if skip:
         print("exp64 hpx-payload-native-smoke:", skip)
         return 0
     ext, slurm, connector_bin = pre
     os.makedirs(EXP64_RUNS, exist_ok=True)
+    hpx_build = _hpx_build_provenance(ext, connector_bin)
+    print(f"exp64 payload-native hpx_build: {hpx_build['hpx_version_full']} "
+          f"build_dir={hpx_build['ext_build_dir']}")
     artifacts, failed_cells = _drive_payload_native_smoke(
         ext, slurm, connector_bin, x=x, n=n, sizes=[int(s) for s in sizes], modes=list(modes),
         dispatch_timeout_s=dispatch_timeout_s, prefer_subnet=prefer_subnet, root_port=root_port,
@@ -1859,11 +1895,14 @@ def run_payload_native_smoke(*, x=7, n=8, sizes=(0, 262144), modes=DEFAULT_NATIV
         idle_backoff_ms=idle_backoff_ms, parcel_pool_size=parcel_pool_size, env=env)
     rc = 0
     for art in artifacts:
+        art["hpx_build_provenance"] = hpx_build
+        art["artifact_tag"] = artifact_tag
         mode, s = art["readiness_composition"], art["payload_bytes"]
         if write:
+            tag = f"_{artifact_tag}" if artifact_tag else ""
             path = os.path.join(
                 EXP64_RUNS,
-                f"exp64_payload_native_{slurm['slurm_job_id']}_{mode}_S{s}_hpx.json")
+                f"exp64_payload_native_{slurm['slurm_job_id']}_{mode}_S{s}{tag}_hpx.json")
             with open(path, "w") as f:
                 json.dump(art, f, indent=2)
         ok = bool(art.get("overall_pass"))
@@ -3029,6 +3068,14 @@ def main(argv=None):
                          "connectors (--hpx:ini; CONFIRMED key, observed default 2 on this build). None "
                          "keeps the HPX default. The A4 CORE deliverable is the timestamp discriminator; "
                          "this flag is only a tiny optional sweep hook.")
+    ap.add_argument("--native-build-dir", default=None,
+                    help="waiter-fix-verification VERSION-SELECTION hook: build dir (absolute or "
+                         "relative to this experiment dir) holding the payload_ext/payload_connector "
+                         "pair to run, e.g. build-v111-verify or build-master-verify. None keeps the "
+                         "original build/ lookup. Identical experiment logic runs either way.")
+    ap.add_argument("--native-artifact-tag", default=None,
+                    help="waiter-fix-verification artifact filename tag (e.g. v111ctl / masterv2) so "
+                         "control and master cells of one Slurm job cannot overwrite each other.")
     # ray-payload-remote-smoke controls (Slice 2).
     ap.add_argument("--ray-port", type=int, default=6379, help="Ray GCS port for the head")
     ap.add_argument("--worker-cpus", type=int, default=8, help="num_cpus advertised by each Ray worker")
@@ -3071,7 +3118,8 @@ def main(argv=None):
             n_remote=args.n_remote, prewarm=args.prewarm, measured=args.measured,
             root_threads=args.native_root_threads, bg_threads=args.native_bg_threads,
             idle_backoff_ms=args.native_idle_backoff_ms,
-            parcel_pool_size=args.native_parcel_pool_size)
+            parcel_pool_size=args.native_parcel_pool_size,
+            build_dir=args.native_build_dir, artifact_tag=args.native_artifact_tag)
     if args.phase == "ray-payload-remote-smoke":
         sizes = [int(s) for s in args.smoke_sizes.split(",") if s.strip() != ""]
         return run_ray_payload_smoke(

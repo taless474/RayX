@@ -52,6 +52,7 @@
 #include <hpx/runtime_distributed/find_all_localities.hpp>
 #include <hpx/runtime_distributed/find_here.hpp>
 #include <hpx/runtime_local/get_locality_id.hpp>
+#include <hpx/version.hpp>  // waiter-fix verification: runtime-observed HPX build identity
 
 #include <unistd.h>  // gethostname
 
@@ -215,6 +216,17 @@ std::string ext_hostname() {
         return std::string(buf);
     }
     return std::string("unknown");
+}
+
+// Waiter-fix verification: runtime-observed HPX build identity via the PUBLIC version API only.
+// complete_version() embeds the git commit when the HPX build recorded one, so a verification
+// artifact is scoped to the exact linked HPX build, not merely the requested prefix. Pure strings;
+// callable before start(). Provenance only -- no behavior change to any timed path.
+std::map<std::string, std::string> ext_hpx_version_info() {
+    std::map<std::string, std::string> out;
+    out["hpx_version_full"] = hpx::full_version_as_string();
+    out["hpx_complete_version"] = hpx::complete_version();
+    return out;
 }
 
 // ---- the timed payload fanin op ---------------------------------------------------------------
@@ -675,6 +687,9 @@ PYBIND11_MODULE(payload_ext, m) {
           "Selected HPX config entries (parcelport bootstrap / TCP / zero-copy / array-optimization / "
           "coalescing / message-size / background keys) via get_config_entry; 'unknown' when absent.");
     m.def("hostname", &ext_hostname, "This process's hostname (provenance only).");
+    m.def("hpx_version_info", &ext_hpx_version_info,
+          "Runtime-observed HPX build identity (full_version_as_string / complete_version, the "
+          "latter embedding the git commit when recorded). Waiter-fix verification provenance only.");
     m.attr("__experiment__") = "exp64";
     m.attr("__action_registration_name__") = "exp64_payload_leaf_action";
     m.attr("__payload_representation__") = "hpx::serialization::serialize_buffer<char>";

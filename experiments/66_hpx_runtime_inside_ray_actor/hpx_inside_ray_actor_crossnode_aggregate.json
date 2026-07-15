@@ -1,0 +1,755 @@
+{
+  "experiment": "66_hpx_runtime_inside_ray_actor",
+  "kind": "hpx_connect_locality_hosted_in_one_ray_actor_worker_crossnode",
+  "design": "interpreter_aware_slices_A_B_C_D",
+  "phase": "rostam-cross-node",
+  "single_node": false,
+  "cross_node": true,
+  "transport": "tcp_cross_node",
+  "verdict_rule": "PASS iff all Slice A and Slice B gates pass in every rep (Slice C diagnostic-only, Slice D deferred)",
+  "claim_fences": {
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "not_two_ray_actors": true,
+    "not_cross_node": true,
+    "no_elasticity_or_recovery": true,
+    "no_performance_speedup_ratio_winner": true,
+    "slice_c_is_diagnostic_not_verdict": true,
+    "timing_not_correctness_oracle": true,
+    "durations_observational_only": true
+  },
+  "reps": 3,
+  "preflight": {
+    "slurm_job_id": "170524",
+    "slurm_nodelist": "medusa[00-01]",
+    "allocation_nodes": [
+      "medusa00",
+      "medusa01"
+    ],
+    "controller_host": "medusa00",
+    "nodeA": "medusa00",
+    "nodeB": "medusa01",
+    "nodeA_ip": "10.42.5.30",
+    "nodeB_ip": "10.42.5.31",
+    "subnet_prefix": "10.42.5."
+  },
+  "ray_gcs_ready_from_nodeB": true,
+  "ray_gcs_detail": "READY",
+  "ray_init_ok": true,
+  "ray_init_attempts": 1,
+  "ray_nodes_ready": true,
+  "ray_nodes_alive_seen": 2,
+  "ray_cluster": {
+    "head_node": "medusa00",
+    "worker_node": "medusa01",
+    "head_ip": "10.42.5.30",
+    "worker_ip": "10.42.5.31",
+    "nodeA_ray_node_id": "da6cfc33afb0c843c84a8e678fef8451cc456f4562270d3ead0add24",
+    "nodeB_ray_node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db",
+    "driver_hostname": "medusa00.rostam.cct.lsu.edu",
+    "driver_node_id": "da6cfc33afb0c843c84a8e678fef8451cc456f4562270d3ead0add24",
+    "driver_on_nodeA": true,
+    "ray_nodes_raw": [
+      {
+        "NodeID": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db",
+        "NodeManagerAddress": "10.42.5.31",
+        "NodeName": "10.42.5.31",
+        "Alive": true
+      },
+      {
+        "NodeID": "da6cfc33afb0c843c84a8e678fef8451cc456f4562270d3ead0add24",
+        "NodeManagerAddress": "10.42.5.30",
+        "NodeName": "10.42.5.30",
+        "Alive": true
+      }
+    ]
+  },
+  "ray_head_cleanup": {
+    "existed": true,
+    "pid": 2441651,
+    "returncode": 1
+  },
+  "ray_worker_cleanup": {
+    "existed": true,
+    "pid": 2441889,
+    "returncode": 1
+  },
+  "final_orphans": {
+    "ray_nodeA": [],
+    "ray_nodeB": [],
+    "peer_nodeA": [],
+    "peer_nodeB": [],
+    "no_ray_orphans": true,
+    "no_peer_orphans": true
+  },
+  "provenance": {
+    "python_version_full": "3.12.3 (main, May 22 2024, 15:27:39) [GCC 11.4.1 20231218 (Red Hat 11.4.1-3)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-312-x86_64-linux-gnu.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "Linux-5.14.0-570.37.1.el9_6.x86_64-x86_64-with-glibc2.34",
+    "machine": "x86_64",
+    "processor_count": 40,
+    "compiler_note": "extension built with Apple clang (see build), HPX identity below",
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp66_actor_ext.cpython-312-x86_64-linux-gnu.so",
+    "actor_ext_suffix_expected": ".cpython-312-x86_64-linux-gnu.so",
+    "actor_ext_abi_match": true,
+    "actor_gil_declaration": "gil_used_default",
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "overall": "pass",
+  "slice_a_b_reps": [
+    {
+      "rep": 1,
+      "boot_rel": "_exp66_runs/crossnode_170524_20260714T172259Z/rep_1",
+      "ports": {
+        "root": 7710,
+        "actor": 7711,
+        "prober": 7712
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true,
+        "two_node_slurm_allocation": true,
+        "actor_hard_placed_on_actor_node": true,
+        "root_on_root_node": true,
+        "root_and_actor_different_nodes": true,
+        "hostname_witness_actor_node": true,
+        "endpoints_pinned_subnet": true,
+        "remote_orphan_check_ran": true,
+        "evidence_fields_complete_crossnode": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "medusa00.rostam.cct.lsu.edu",
+        "ports": {
+          "root": 7710,
+          "actor": 7711,
+          "prober": 7712
+        },
+        "argv_audit_ok": true,
+        "endpoints_subnet_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 2442263,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067782950,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_placement": {
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db",
+          "actor_id": "ac4a83abec16f329fd9f083f01000000",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1342471,
+          "placement_soft": false,
+          "target_node": "medusa01"
+        },
+        "actor_identity": {
+          "pid": 1342471,
+          "os_getpid": 1342471,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/work/bitayekrang/RayX/experiments/66_hpx_runtime_inside_ray_actor/build_rostam/exp66_actor_ext.cpython-312-x86_64-linux-gnu.so",
+          "ext_suffix_expected": ".cpython-312-x86_64-linux-gnu.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 1342471
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 1342471
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 2442293,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067783723,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 2442293,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067783824,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067783825,
+          "return_wall_ms": 1784067783825,
+          "both_ready": true,
+          "pid_result": 1342471,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 1342471,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 2442293,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067784027,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067784027,
+          "return_wall_ms": 1784067784027,
+          "both_ready": true,
+          "pid_result": 1342471,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_return": {
+          "acc": 41000000,
+          "started_ms": 1784067782417,
+          "done_ms": 1784067785430
+        },
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "ok": true,
+          "pid": 1342567,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db"
+        },
+        "actor_recreate_on_node": true,
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 2442293,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067787390,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 2442263,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067787570,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": [],
+        "remote_orphan_check_ran": true
+      }
+    },
+    {
+      "rep": 2,
+      "boot_rel": "_exp66_runs/crossnode_170524_20260714T172259Z/rep_2",
+      "ports": {
+        "root": 7720,
+        "actor": 7721,
+        "prober": 7722
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true,
+        "two_node_slurm_allocation": true,
+        "actor_hard_placed_on_actor_node": true,
+        "root_on_root_node": true,
+        "root_and_actor_different_nodes": true,
+        "hostname_witness_actor_node": true,
+        "endpoints_pinned_subnet": true,
+        "remote_orphan_check_ran": true,
+        "evidence_fields_complete_crossnode": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "medusa00.rostam.cct.lsu.edu",
+        "ports": {
+          "root": 7720,
+          "actor": 7721,
+          "prober": 7722
+        },
+        "argv_audit_ok": true,
+        "endpoints_subnet_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 2442326,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067787888,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_placement": {
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db",
+          "actor_id": "f6b6d60b0bda896080309fb701000000",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1342719,
+          "placement_soft": false,
+          "target_node": "medusa01"
+        },
+        "actor_identity": {
+          "pid": 1342719,
+          "os_getpid": 1342719,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/work/bitayekrang/RayX/experiments/66_hpx_runtime_inside_ray_actor/build_rostam/exp66_actor_ext.cpython-312-x86_64-linux-gnu.so",
+          "ext_suffix_expected": ".cpython-312-x86_64-linux-gnu.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 1342719
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 1342719
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 2442337,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067788461,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 2442337,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067788563,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067788563,
+          "return_wall_ms": 1784067788564,
+          "both_ready": true,
+          "pid_result": 1342719,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 1342719,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 2442337,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067788766,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067788766,
+          "return_wall_ms": 1784067788767,
+          "both_ready": true,
+          "pid_result": 1342719,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_return": {
+          "acc": 41000000,
+          "started_ms": 1784067787157,
+          "done_ms": 1784067790166
+        },
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "ok": true,
+          "pid": 1342786,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db"
+        },
+        "actor_recreate_on_node": true,
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 2442337,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067792130,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 2442326,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067792151,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": [],
+        "remote_orphan_check_ran": true
+      }
+    },
+    {
+      "rep": 3,
+      "boot_rel": "_exp66_runs/crossnode_170524_20260714T172259Z/rep_3",
+      "ports": {
+        "root": 7730,
+        "actor": 7731,
+        "prober": 7732
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true,
+        "two_node_slurm_allocation": true,
+        "actor_hard_placed_on_actor_node": true,
+        "root_on_root_node": true,
+        "root_and_actor_different_nodes": true,
+        "hostname_witness_actor_node": true,
+        "endpoints_pinned_subnet": true,
+        "remote_orphan_check_ran": true,
+        "evidence_fields_complete_crossnode": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "medusa00.rostam.cct.lsu.edu",
+        "ports": {
+          "root": 7730,
+          "actor": 7731,
+          "prober": 7732
+        },
+        "argv_audit_ok": true,
+        "endpoints_subnet_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 2442356,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067792426,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_placement": {
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db",
+          "actor_id": "b05e6e9ad08e4a611fc9897d01000000",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1342936,
+          "placement_soft": false,
+          "target_node": "medusa01"
+        },
+        "actor_identity": {
+          "pid": 1342936,
+          "os_getpid": 1342936,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/work/bitayekrang/RayX/experiments/66_hpx_runtime_inside_ray_actor/build_rostam/exp66_actor_ext.cpython-312-x86_64-linux-gnu.so",
+          "ext_suffix_expected": ".cpython-312-x86_64-linux-gnu.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 1342936
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 1342936
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 2442366,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067793001,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 2442366,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067793103,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067793103,
+          "return_wall_ms": 1784067793104,
+          "both_ready": true,
+          "pid_result": 1342936,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 1342936,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 2442366,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067793306,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784067793306,
+          "return_wall_ms": 1784067793306,
+          "both_ready": true,
+          "pid_result": 1342936,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_return": {
+          "acc": 41000000,
+          "started_ms": 1784067791696,
+          "done_ms": 1784067794703
+        },
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "ok": true,
+          "pid": 1343002,
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "node_id": "20a143904aafa0768301e42a7b348014bc80632c191ccdfb71b156db"
+        },
+        "actor_recreate_on_node": true,
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 2442366,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067796669,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 2442356,
+          "hostname": "medusa00.rostam.cct.lsu.edu",
+          "wall_ms": 1784067796844,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": [],
+        "remote_orphan_check_ran": true
+      }
+    }
+  ],
+  "slice_c_diagnostic": [
+    {
+      "rep": 1,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    },
+    {
+      "rep": 2,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    },
+    {
+      "rep": 3,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    }
+  ],
+  "slice_d": {
+    "status": "deferred_skipped",
+    "reasons": [
+      "no free-threaded interpreter available in this environment",
+      "no established free-threaded Ray environment",
+      "Ray not installed in the local CPython 3.14 environment"
+    ],
+    "affects_verdict": false,
+    "note": "Slice D reruns A+B+C on a t-ABI interpreter; not built in this task."
+  },
+  "safe_claim": "On CPython 3.12.3 (GIL build), Ray 2.55.1, HPX commit 20bc3d4bf3..., across two Rostam nodes (medusa00->medusa01 on 10.42.5.x), a networking HPX connect-mode locality ran in-process inside a Ray actor worker on the actor node (hard-placed, PID identity, no HPX child), joined a separately supervised work-free root on the root node over TCP, executed verified remote HPX actions, progressed while its Python thread was idle, and shut down cleanly with the Ray worker healthy across actor recreation."
+}

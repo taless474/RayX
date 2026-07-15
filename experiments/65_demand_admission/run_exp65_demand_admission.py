@@ -500,16 +500,19 @@ def eval_crossnode_no_demand_gates(m, expect):
 # Arms
 # ---------------------------------------------------------------------------------------
 
-def root_cmd(binary, arm, bootdir, x, p0, dwell):
+def root_cmd(binary, arm, bootdir, x, p0, dwell, wait_probe="sliced"):
     # --hpx:threads=2 (exp50 correction: waits/serves/polling must not contend on one
     # worker); --hpx:bind=none (macOS warns+ignores; harmless); --hpx:ignore-batch-env
     # (exp52/exp61 lesson: never let batch-env autodetect override explicit endpoints);
     # numeric 127.0.0.1 always. NO --hpx:localities. NO expected-count option exists.
+    # wait_probe: "sliced" keeps the exp65 dispatch-wait semantics unchanged;
+    # "full_bound_instrumented" is the waiter-fix verification re-check hook only.
     finish_timeout = max(15, int(dwell) + 12)
     return [
         binary, "--role", "root", "--arm", arm, "--bootstrap", bootdir, "--x", str(x),
         "--local-k", "5", "--admit-timeout", "60", "--finish-timeout", str(finish_timeout),
         "--leave-timeout", "20", "--dispatch-bound", "15", "--tick-ms", "200",
+        "--wait-probe", wait_probe,
         f"--hpx:agas=127.0.0.1:{p0}", f"--hpx:hpx=127.0.0.1:{p0}",
         "--hpx:expect-connecting-localities",
         "--hpx:threads=2", "--hpx:bind=none", "--hpx:ignore-batch-env",
@@ -536,11 +539,11 @@ def collect_root_markers(bootdir):
     }
 
 
-def run_demand_rep(binary, x, rep, dwell):
+def run_demand_rep(binary, x, rep, dwell, wait_probe="sliced"):
     bootdir = tempfile.mkdtemp(prefix=f"exp65_demand_r{rep}_")
     p0 = find_free_port()
     p1 = find_free_port()
-    rcmd = root_cmd(binary, "demand", bootdir, x, p0, dwell)
+    rcmd = root_cmd(binary, "demand", bootdir, x, p0, dwell, wait_probe)
     ccmd = connector_cmd(binary, bootdir, p0, p1)
     audit_ok = argv_audit(rcmd, ccmd)
 
@@ -613,6 +616,7 @@ def run_demand_rep(binary, x, rep, dwell):
     return {
         "rep": rep, "arm": "demand", "bootdir": bootdir,
         "ports": {"root": p0, "connector": p1},
+        "wait_probe": wait_probe,
         "gates": gates, "rep_pass": all(gates.values()),
         "fields": rep_fields,
         "durations_observational_ms": durations,
@@ -1042,6 +1046,13 @@ def main():
                     help="cross-node connector DEADMAN seconds (never the release path)")
     ap.add_argument("--aggregate", default=None,
                     help="curated aggregate path (default depends on --phase)")
+    ap.add_argument("--wait-probe", choices=["sliced", "full_bound_instrumented"],
+                    default="sliced",
+                    help="local-phase dispatch wait probe. sliced (default) keeps exp65 "
+                         "semantics unchanged; full_bound_instrumented is the waiter-fix "
+                         "verification re-check (ONE full-bound wait_for + readiness "
+                         "witness). Non-default runs never write the curated exp65 "
+                         "aggregate by default.")
     ap.add_argument("--selftest", action="store_true",
                     help="run pure-Python gate-logic selftests and exit")
     args = ap.parse_args()
@@ -1050,9 +1061,15 @@ def main():
         return selftest()
 
     if args.aggregate is None:
-        args.aggregate = os.path.join(
-            HERE, "demand_admission_crossnode_aggregate.json"
-            if args.phase == "rostam-cross-node" else "demand_admission_aggregate.json")
+        if args.phase == "local" and args.wait_probe != "sliced":
+            # Waiter-fix re-check runs must not clobber the curated exp65 evidence aggregate.
+            os.makedirs(os.path.join(HERE, "_exp65_runs"), exist_ok=True)
+            args.aggregate = os.path.join(
+                HERE, "_exp65_runs", f"demand_admission_waiter_recheck_{args.wait_probe}.json")
+        else:
+            args.aggregate = os.path.join(
+                HERE, "demand_admission_crossnode_aggregate.json"
+                if args.phase == "rostam-cross-node" else "demand_admission_aggregate.json")
 
     if args.phase == "rostam-cross-node":
         return run_crossnode_phase(args)
@@ -1067,6 +1084,7 @@ def main():
         "claim_fences": dict(CLAIM_FENCES),
         "reps_per_arm": args.reps,
         "dwell_s": args.dwell,
+        "wait_probe": args.wait_probe,
         "binary": os.path.basename(binary) if binary else None,
     }
     if binary is None:
@@ -1077,10 +1095,11 @@ def main():
         return 0
 
     print(f"[exp65] binary: {binary}")
+    print(f"[exp65] wait_probe: {args.wait_probe}")
     demand_reps, nodemand_reps = [], []
     for r in range(1, args.reps + 1):
         print(f"[exp65] demand arm rep {r} ...")
-        rep = run_demand_rep(binary, args.x, r, args.dwell)
+        rep = run_demand_rep(binary, args.x, r, args.dwell, args.wait_probe)
         print(f"[exp65]   rep {r}: {'pass' if rep['rep_pass'] else 'FAIL'} "
               f"(gates_failed={[k for k, v in rep['gates'].items() if not v]})")
         demand_reps.append(rep)

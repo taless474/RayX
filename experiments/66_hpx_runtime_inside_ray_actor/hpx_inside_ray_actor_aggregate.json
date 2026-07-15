@@ -1,0 +1,627 @@
+{
+  "experiment": "66_hpx_runtime_inside_ray_actor",
+  "kind": "hpx_connect_locality_hosted_in_one_ray_actor_worker_local",
+  "design": "interpreter_aware_slices_A_B_C_D",
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "verdict_rule": "PASS iff all Slice A and Slice B gates pass in every rep (Slice C diagnostic-only, Slice D deferred)",
+  "claim_fences": {
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "not_two_ray_actors": true,
+    "not_cross_node": true,
+    "no_elasticity_or_recovery": true,
+    "no_performance_speedup_ratio_winner": true,
+    "slice_c_is_diagnostic_not_verdict": true,
+    "timing_not_correctness_oracle": true,
+    "durations_observational_only": true
+  },
+  "reps": 3,
+  "provenance": {
+    "python_version_full": "3.11.15 (main, Mar  3 2026, 00:52:57) [Clang 17.0.0 (clang-1700.6.3.2)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-311-darwin.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor_count": 10,
+    "compiler_note": "extension built with Apple clang (see build), HPX identity below",
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp66_actor_ext.cpython-311-darwin.so",
+    "actor_ext_suffix_expected": ".cpython-311-darwin.so",
+    "actor_ext_abi_match": true,
+    "actor_gil_declaration": "gil_used_default",
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "overall": "pass",
+  "slice_a_b_reps": [
+    {
+      "rep": 1,
+      "boot_rel": "_exp66_runs/20260714T163621Z/rep_1",
+      "ports": {
+        "root": 51337,
+        "actor": 51338,
+        "prober": 51339
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "hostname_identity": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 51337,
+          "actor": 51338,
+          "prober": 51339
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 39394,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072181807,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_identity": {
+          "pid": 39393,
+          "os_getpid": 39393,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/66_hpx_runtime_inside_ray_actor/build/exp66_actor_ext.cpython-311-darwin.so",
+          "ext_suffix_expected": ".cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 39393
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 39393
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 39396,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072181979,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 39396,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072182034,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072182035,
+          "return_wall_ms": 1784072182036,
+          "both_ready": true,
+          "pid_result": 39393,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 39393,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 39396,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072182199,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072182199,
+          "return_wall_ms": 1784072182199,
+          "both_ready": true,
+          "pid_result": 39393,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_started_ms": 1784072182098,
+        "busy_done_ms": 1784072185103,
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 39392,
+          "hostname": "Bitas-MacBook-Air.local",
+          "node_id": "027efddc82fe283bb3642626c970293bed5be796d5f9c90182f4205c"
+        },
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 39396,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185248,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 39394,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185431,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    },
+    {
+      "rep": 2,
+      "boot_rel": "_exp66_runs/20260714T163621Z/rep_2",
+      "ports": {
+        "root": 51363,
+        "actor": 51364,
+        "prober": 51365
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "hostname_identity": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 51363,
+          "actor": 51364,
+          "prober": 51365
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 39422,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185589,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_identity": {
+          "pid": 39391,
+          "os_getpid": 39391,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/66_hpx_runtime_inside_ray_actor/build/exp66_actor_ext.cpython-311-darwin.so",
+          "ext_suffix_expected": ".cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 39391
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 39391
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 39424,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185717,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 39424,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185768,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072185768,
+          "return_wall_ms": 1784072185769,
+          "both_ready": true,
+          "pid_result": 39391,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 39391,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 39424,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072185871,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072185871,
+          "return_wall_ms": 1784072185871,
+          "both_ready": true,
+          "pid_result": 39391,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_started_ms": 1784072185786,
+        "busy_done_ms": 1784072188787,
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 39440,
+          "hostname": "Bitas-MacBook-Air.local",
+          "node_id": "027efddc82fe283bb3642626c970293bed5be796d5f9c90182f4205c"
+        },
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 39424,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189152,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 39422,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189213,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    },
+    {
+      "rep": 3,
+      "boot_rel": "_exp66_runs/20260714T163621Z/rep_3",
+      "ports": {
+        "root": 51392,
+        "actor": 51393,
+        "prober": 51394
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "hpx_started_in_worker": true,
+        "actor_pid_equals_locality_pid": true,
+        "hostname_identity": true,
+        "no_hpx_child_process": true,
+        "connect_mode_admission": true,
+        "no_static_locality_count": true,
+        "root_work_free": true,
+        "remote_action_on_actor": true,
+        "exact_oracle_and_witness": true,
+        "ray_worker_healthy": true,
+        "heartbeat_completion_lifecycle": true,
+        "graceful_leave": true,
+        "clean_hpx_stop_in_process": true,
+        "root_finalized_clean": true,
+        "actor_destruction": true,
+        "actor_recreation": true,
+        "no_orphans": true,
+        "evidence_complete": true
+      },
+      "slice_b_gates": {
+        "idle_progress_oracle": true,
+        "actor_python_idle_during_dispatch": true,
+        "no_python_polling_loop": true
+      },
+      "rep_pass": true,
+      "slice_a_failed": [],
+      "slice_b_failed": [],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 51392,
+          "actor": 51393,
+          "prober": 51394
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "actor_idle_during_idle_probe": true,
+        "prober_drove_dispatch": true,
+        "root_ready": {
+          "who": "root",
+          "pid": 39451,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189345,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "actor_identity": {
+          "pid": 39452,
+          "os_getpid": 39452,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp66",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/66_hpx_runtime_inside_ray_actor/build/exp66_actor_ext.cpython-311-darwin.so",
+          "ext_suffix_expected": ".cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "actor_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 39452
+        },
+        "actor_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 39452
+        },
+        "prober_joined": {
+          "who": "prober",
+          "pid": 39454,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189711,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 2,
+          "started": true
+        },
+        "idle_probe": {
+          "who": "prober",
+          "pid": 39454,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189766,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "idle",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072189766,
+          "return_wall_ms": 1784072189767,
+          "both_ready": true,
+          "pid_result": 39452,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "actor_health": {
+          "ok": true,
+          "pid": 39452,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "busy_probe": {
+          "who": "prober",
+          "pid": 39454,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072189878,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "phase": "busy",
+          "actor_locality": 1,
+          "x": 7,
+          "dispatch_wall_ms": 1784072189878,
+          "return_wall_ms": 1784072189878,
+          "both_ready": true,
+          "pid_result": 39452,
+          "probe_result": 6734043,
+          "executed_on": 1,
+          "oracle_match": true,
+          "ok": true
+        },
+        "busy_started_ms": 1784072189775,
+        "busy_done_ms": 1784072192779,
+        "busy_overlap_observed": true,
+        "actor_stop_rc": 0,
+        "actor_stop_error": null,
+        "actor1_destroyed": true,
+        "actor_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 39464,
+          "hostname": "Bitas-MacBook-Air.local",
+          "node_id": "027efddc82fe283bb3642626c970293bed5be796d5f9c90182f4205c"
+        },
+        "prober_disconnected": {
+          "who": "prober",
+          "pid": 39454,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072193162,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "clean": true,
+          "shutdown_reason": "root_completion_signal",
+          "stop_rc": 0,
+          "teardown": "post(disconnect)+stop",
+          "error": ""
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 39451,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784072193170,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "prober_exit": "finalized_clean",
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    }
+  ],
+  "slice_c_diagnostic": [
+    {
+      "rep": 1,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    },
+    {
+      "rep": 2,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    },
+    {
+      "rep": 3,
+      "classification": "progressed_under_actor_saturation",
+      "progressed": true,
+      "overlap_observed": true,
+      "both_ready": true,
+      "oracle_match": true,
+      "executed_on": 1,
+      "actor_hpx_threads": 2,
+      "actor_ray_num_cpus": 2,
+      "free_threaded_build": false,
+      "gil_enabled_runtime": null,
+      "affects_verdict": false,
+      "note": "HPX action executed and oracle-matched while the actor's Python thread was in a tight CPU loop; actions are pure C++ and never touch the GIL"
+    }
+  ],
+  "slice_d": {
+    "status": "deferred_skipped",
+    "reasons": [
+      "no free-threaded interpreter available in this environment",
+      "no established free-threaded Ray environment",
+      "Ray not installed in the local CPython 3.14 environment"
+    ],
+    "affects_verdict": false,
+    "note": "Slice D reruns A+B+C on a t-ABI interpreter; not built in this task."
+  },
+  "safe_claim": "On the tested CPython 3.11 GIL build with Ray 2.55.1 and HPX commit 20bc3d4bf3..., a networking HPX connect-mode locality ran in-process inside one Ray actor worker (PID identity, no HPX child), executed verified remote HPX actions, made progress while the actor's Python thread was idle, and shut down cleanly while the Ray worker stayed usable across actor destruction and recreation."
+}

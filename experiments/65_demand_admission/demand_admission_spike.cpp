@@ -41,12 +41,15 @@
 #include <hpx/runtime_distributed/find_here.hpp>
 #include <hpx/runtime_local/get_locality_id.hpp>
 #include <hpx/naming_base/id_type.hpp>
+#include <hpx/version.hpp>  // waiter-fix verification: runtime-observed HPX build identity
 
 #include <algorithm>
+#include <atomic>   // waiter-fix verification: readiness-witness timestamp store
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
+#include <memory>   // waiter-fix verification: shared_ptr witness lifetime
 #include <string>
 #include <thread>   // std::this_thread on the connector's (non-HPX) main thread
 #include <vector>
@@ -73,6 +76,14 @@ long long wall_ms() {
 
 long long steady_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now() - g_t0)
+        .count();
+}
+
+// Waiter-fix verification probe clock: ns since the per-process steady epoch. Comparable ONLY
+// among this process's own probe timestamps (never across processes, never against wall_ms).
+long long steady_ns() {
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(
                std::chrono::steady_clock::now() - g_t0)
         .count();
 }
@@ -202,6 +213,18 @@ struct RemoteDispatch {
     std::int64_t result = 0, oracle = 0;
     std::uint32_t executed_on = 0, remote_id = 0;
     std::string error_type, error_what;
+    // Waiter-fix verification probe provenance (full_bound_instrumented only; 0 = not captured).
+    // Timestamps are per-process steady_ns(): comparable only among themselves.
+    std::string wait_probe = "sliced";
+    long long t_dispatch_ns = 0;        // just before hpx::async
+    long long t_wait_entered_ns = 0;    // just before the ONE full-bound wait_for
+    long long t_wait_returned_ns = 0;   // just after that wait_for returned
+    long long t_ready_witness_ns = 0;   // readiness-witness continuation fired (0 = never)
+    // Race-free suspension precondition: sf.is_ready() sampled AT wait entry. false proves
+    // the future became ready only AFTER the waiter entered its wait (no dependence on when
+    // the witness continuation gets scheduled); true is the is_ready fast path, which cannot
+    // test the resume path either way.
+    bool wait_entry_future_ready = false;
 };
 
 // ONE bounded remote dispatch, exp50 discipline: bounded wait; .get() ONLY when ready
@@ -212,14 +235,67 @@ struct RemoteDispatch {
 // bound exactly (15000 ms at bound 15, 2000 ms at bound 2, oracle matched in both). Slicing
 // keeps the wait strictly bounded, records early detection (exp50's detected_before_bound
 // semantics), and removes that deadline-wake artifact. OBSERVATION ONLY; no timing claim.
+//
+// wait_probe == "full_bound_instrumented" (waiter-fix verification re-check ONLY; default
+// "sliced" keeps the exp65 semantics above byte-identical): deliberately reintroduces the
+// ONE full-bound wait_for that produced the original observation, plus a readiness-witness
+// continuation on the shared state so the artifact can prove the future became ready while
+// the waiter was still suspended. Classification happens in the verification analyzer, not
+// here. OBSERVATION ONLY; no timing claim; never the default.
 RemoteDispatch bounded_remote_dispatch(const hpx::id_type& remote, std::int64_t x,
-                                       std::uint32_t here, int bound_s) {
+                                       std::uint32_t here, int bound_s,
+                                       const std::string& wait_probe = "sliced") {
     RemoteDispatch d;
     d.remote_id = hpx::naming::get_locality_id_from_id(remote);
+    d.wait_probe = wait_probe;
     try {
+        bool ready = false;
+        if (wait_probe == "full_bound_instrumented") {
+            d.t_dispatch_ns = steady_ns();
+            auto sf = hpx::async<dist_probe_action>(remote, x).share();
+            // Readiness witness: fires when the shared state becomes ready, independent of
+            // the suspended waiter below. shared_ptr keeps the slot alive even if the
+            // continuation outlives this frame (never-ready path); witness_f is held (not
+            // waited on) so the continuation is not abandoned before harvest.
+            auto witness = std::make_shared<std::atomic<long long>>(0);
+            auto witness_f = sf.then([witness](auto&&) {
+                witness->store(steady_ns(), std::memory_order_release);
+            });
+            d.t_wait_entered_ns = steady_ns();
+            d.wait_entry_future_ready = sf.is_ready();     // race-free suspension precondition
+            ready = (sf.wait_for(std::chrono::seconds(bound_s)) ==
+                     hpx::future_status::ready);           // the ONE full-bound suspension
+            d.t_wait_returned_ns = steady_ns();
+            // Let the witness continuation land before harvesting its timestamp: on a build
+            // where the waiter wakes ON readiness it can win the race against the witness
+            // continuation, and a same-instant harvest reads 0 -- a false instrumentation
+            // failure. Bounded side-channel settle; never part of the timed observation.
+            if (ready) {
+                witness_f.wait_for(std::chrono::seconds(2));
+            }
+            d.t_ready_witness_ns = witness->load(std::memory_order_acquire);
+            d.wait_slices = 0;  // no slicing on this path
+            // "detected early" analog: returned ready materially before the full bound.
+            d.detected_before_bound =
+                ready && (d.t_wait_returned_ns - d.t_wait_entered_ns <
+                          static_cast<long long>(bound_s) * 1000000000LL / 2);
+            if (ready) {
+                d.result = sf.get();
+                d.status = "returned";
+                d.oracle =
+                    (x ^ DIST_PROBE_XOR) + (static_cast<std::int64_t>(d.remote_id) << 1);
+                d.match = (d.result == d.oracle);
+                d.executed_on =
+                    static_cast<std::uint32_t>((d.result - (x ^ DIST_PROBE_XOR)) >> 1);
+                d.proved_remote = d.match && (d.executed_on == d.remote_id) &&
+                                  (d.executed_on != here);
+            } else {
+                d.status = "timed_out";
+            }
+            return d;
+        }
         auto f = hpx::async<dist_probe_action>(remote, x);
         const int max_slices = bound_s * 10;  // 100 ms slices
-        bool ready = false;
         for (int i = 0; i < max_slices; ++i) {
             ++d.wait_slices;
             if (f.wait_for(std::chrono::milliseconds(100)) == hpx::future_status::ready) {
@@ -272,6 +348,7 @@ int run_root(hpx::program_options::variables_map& vm) {
     const int leave_timeout = vm["leave-timeout"].as<int>();
     const int dispatch_bound = vm["dispatch-bound"].as<int>();
     const int tick_ms = vm["tick-ms"].as<int>();
+    const std::string wait_probe = vm["wait-probe"].as<std::string>();
 
     const std::uint32_t here = hpx::get_locality_id();
     const long pid = static_cast<long>(::getpid());
@@ -362,7 +439,7 @@ int run_root(hpx::program_options::variables_map& vm) {
                        "}\n");
 
         write_text(alive_path, "alive pre-dispatch\n");  // heartbeat before dispatch (exp63)
-        disp = bounded_remote_dispatch(new_locality, x + 42, here, dispatch_bound);
+        disp = bounded_remote_dispatch(new_locality, x + 42, here, dispatch_bound, wait_probe);
         write_text(bootdir + "/served",
                    "{" + stamp("root", pid) + ",\"x\":" + std::to_string(x + 42) +
                        ",\"dispatch_status\":\"" + disp.status + "\"" +
@@ -374,6 +451,13 @@ int run_root(hpx::program_options::variables_map& vm) {
                        ",\"proved_remote\":" + bquote(disp.proved_remote) +
                        ",\"detected_before_bound\":" + bquote(disp.detected_before_bound) +
                        ",\"wait_slices_used\":" + std::to_string(disp.wait_slices) +
+                       ",\"wait_probe\":\"" + jesc(disp.wait_probe) + "\"" +
+                       ",\"dispatch_bound_s\":" + std::to_string(dispatch_bound) +
+                       ",\"t_dispatch_ns\":" + std::to_string(disp.t_dispatch_ns) +
+                       ",\"t_wait_entered_ns\":" + std::to_string(disp.t_wait_entered_ns) +
+                       ",\"t_wait_returned_ns\":" + std::to_string(disp.t_wait_returned_ns) +
+                       ",\"t_ready_witness_ns\":" + std::to_string(disp.t_ready_witness_ns) +
+                       ",\"wait_entry_future_ready\":" + bquote(disp.wait_entry_future_ready) +
                        ",\"error_type\":\"" + jesc(disp.error_type) + "\"" +
                        ",\"error_what\":\"" + jesc(disp.error_what) + "\"}\n");
 
@@ -427,6 +511,17 @@ int run_root(hpx::program_options::variables_map& vm) {
     j += "\"proved_remote\":" + bquote(disp.proved_remote) + ",";
     j += "\"leave_observed\":" + bquote(leave_observed) + ",";
     j += "\"final_local_ok\":" + bquote(fin.ok) + ",";
+    // Waiter-fix verification provenance: probe selection, per-process probe timestamps, and the
+    // runtime-observed HPX build identity (public version API; commit embedded when recorded).
+    j += "\"wait_probe\":\"" + jesc(disp.wait_probe) + "\",";
+    j += "\"dispatch_bound_s\":" + std::to_string(dispatch_bound) + ",";
+    j += "\"t_dispatch_ns\":" + std::to_string(disp.t_dispatch_ns) + ",";
+    j += "\"t_wait_entered_ns\":" + std::to_string(disp.t_wait_entered_ns) + ",";
+    j += "\"t_wait_returned_ns\":" + std::to_string(disp.t_wait_returned_ns) + ",";
+    j += "\"t_ready_witness_ns\":" + std::to_string(disp.t_ready_witness_ns) + ",";
+    j += "\"wait_entry_future_ready\":" + bquote(disp.wait_entry_future_ready) + ",";
+    j += "\"hpx_version_full\":\"" + jesc(hpx::full_version_as_string()) + "\",";
+    j += "\"hpx_complete_version\":\"" + jesc(hpx::complete_version()) + "\",";
     // Structural by construction: the only remote dispatch site in this binary runs strictly
     // after set-difference admission; there is no pre-admission remote path to take.
     j += "\"remote_work_started_before_admission\":false";
@@ -555,6 +650,10 @@ int main(int argc, char* argv[]) {
             "root: max seconds waiting for the admitted locality to depart")
         ("dispatch-bound", po::value<int>()->default_value(15),
             "root: bounded wait_for seconds on the one remote dispatch")
+        ("wait-probe", po::value<std::string>()->default_value("sliced"),
+            "root dispatch wait probe: sliced (default; 100ms wait_for slices, unchanged "
+            "exp65 semantics) | full_bound_instrumented (waiter-fix verification re-check: "
+            "ONE full-bound wait_for plus readiness-witness continuation; observation only)")
         ("tick-ms", po::value<int>()->default_value(200),
             "root: available-wait tick period (heartbeat + liveness)")
         ("serve-timeout", po::value<int>()->default_value(30),

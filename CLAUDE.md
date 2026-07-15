@@ -158,14 +158,21 @@ The post-exp52 distributed evidence arc has advanced beyond single-node mechanis
 * exp61 established the first same-axis Python-boundary QD1 scalar remote-call comparison. Slice 4 is the cross-node band; Slice 5 is the corrected same-node placement control.
 * exp62 extends the same-axis direction from one scalar remote call to distributed fanout/fanin. Slice 4b is the strongest same-axis distributed closed-int64 fanout/fanin evidence: matched R=5, N=8, all-remote, three-node fanout/fanin with Ray and experiment-only Python→HPX measured at the same Python caller boundary.
 * exp63 resolved the HPX native-composition/progress concern raised after exp62. The earlier native-composition failure was traced to connector lifetime, not intrinsic HPX native progress failure. Hardened root-completion/heartbeat lifetime validated cross-node `when_all_then_reduce`, `dataflow_reduce`, and a depth-2 root-of-partials topology. exp63 is HPX mechanism evidence, not a Ray comparison and not HPX collectives evidence.
-* exp64 adds the payload-size fanin axis. It has HPX and Ray payload smoke arms, a structural R=1 matched ladder manifest, and an R=5 matched payload ladder band. exp64 reports within-arm p50/p90 payload-size distributions and structural same-axis correlation, but computes no cross-arm timing arithmetic, ratios, speedups, or winner. Its Slice 5 HPX-only native-readiness diagnostic found that `when_all` / `dataflow` continuations completed promptly while the suspended timed waiter resumed only at the timeout. The `waiter_resume_at_timeout` signature was unchanged by root/background-thread adjustments, disabled idle backoff, and TCP parcel-pool sizes 2, 4, and 8. Polling/yield controls remained prompt, so the `root_flat_gather_poll` baseline was not retired and no native payload-size ladder was started. This is scoped HPX 1.11 / TCP parcelport / Rostam progress evidence, not a general HPX or performance claim.
-* exp65 demonstrates demand-ordered HPX connect-mode admission in a single-node loopback probe. The root starts alone, completes verified local HPX work before any connector process exists, and admits one connector only after an external demand event. The root discovers the connector without a predetermined connector count, executes a verified remote action, observes a graceful leave, continues local work, and finalizes cleanly. Both the demand and no-demand arms passed 3/3. Scope: macOS, HPX 1.11, loopback TCP, and a plain Python controller. This is not HPX inside Ray actors, not elasticity under in-flight work, and not evidence about lazy TCP parcelport connection establishment.
+* exp64 adds the payload-size fanin axis. It has HPX and Ray payload smoke arms, a structural R=1 matched ladder manifest, and an R=5 matched payload ladder band. exp64 reports within-arm p50/p90 payload-size distributions and structural same-axis correlation, but computes no cross-arm timing arithmetic, ratios, speedups, or winner. Its HPX-only timed-wait discriminator reproduced `waiter_resume_at_timeout` on HPX 1.11 and verified prompt readiness wake-up on HPX commit `20bc3d4bf3068383edcb63be13f22e9ff95842fa`, which contains the upstream fix. Polling remains a diagnostic control but is no longer required as a readiness workaround on that verified commit. This does not directly observe the HPX serialization/runtime data path and does not license a general HPX or performance claim.
+* exp65 demonstrates demand-ordered HPX connect-mode admission locally and across two Rostam nodes. The root starts alone, completes verified local HPX work before any connector process exists, and admits one connector only after an external demand event. The root discovers the connector without a predetermined connector count, executes a verified remote action, observes a graceful leave, continues local work, and finalizes cleanly. This is late demand-ordered admission, not autoscaling, concurrent membership churn, or elasticity under in-flight work.
+* exp66 demonstrates that a networking HPX connect-mode locality can run in-process inside one Ray actor worker. Exact actor-PID/action-PID equality and zero HPX child processes prove same-process hosting. The result passed locally and across two Rostam nodes with a separately supervised, work-free root, verified remote HPX actions, idle progress, graceful shutdown, actor destruction/recreation, and clean orphan checks. Scope remains one actor; not Python 3.14, not free-threaded, and not a performance result.
+* exp67 demonstrates two distinct Ray actor workers hosting HPX connect-mode localities in one shared runtime under a separately supervised, work-free root. Bidirectional actor-to-actor HPX actions prove each actor’s PID, locality, and hostname remotely. The result passed locally and across three Rostam nodes with hard Ray placement, clean lifecycle, actor recreation, and no orphans. The operation-over-HPX-not-Ray property is proven by construction because the actors hold no mutual Ray handle for the application path; direct wire/serialization instrumentation is not claimed.
+* exp68 demonstrates a deterministic vocabulary-sharded top-k workload across the two Ray-hosted HPX localities. Both coordinator directions use HPX actions, futures, and continuations; local and global top-k results match an independent oracle exactly in token IDs, order, and float32 bit patterns. The result passed locally and across three Rostam nodes over a seven-case matrix. Across the cross-node HPX action path, 204 transferred candidate bit patterns were checked with zero mismatches. This is synthetic LLM-shaped work, not real inference, and carries no performance claim.
 
 Durable interpretation:
 
 * exp62 Slice 4b remains the headline same-axis distributed closed-int64 fanout/fanin evidence.
-* exp64 is the headline payload-size evidence. Its `matched_band_r5` result supports within-arm payload-size distributions and structural correlation only. It does not claim an HPX-vs-Ray performance winner.
-* exp65 strengthens the late-connect evidence by proving demand-ordered admission without a predetermined connector count. It does not close the HPX-across-Ray-actors gate: HPX inside Ray worker processes, elastic membership during in-flight work, concurrent churn, multi-node demand admission, and lazy parcelport connection establishment remain open.
+* exp64 remains the headline payload-size evidence and timed-wait-fix verification. Its matched payload bands support within-arm distributions and structural same-axis correlation only; no Ray-vs-HPX timing arithmetic is licensed.
+* exp65 closes the tested late, demand-ordered admission mechanism locally and across two nodes, but does not establish autoscaling, in-flight churn, or individual-locality recovery.
+* exp66 closes the one-Ray-actor in-process HPX-hosting gate for the tested local and two-node environments.
+* exp67 closes the two-Ray-actor shared-HPX-runtime and bidirectional actor-to-actor action gate locally and across three nodes.
+* exp68 closes the first deterministic LLM-shaped distributed-workload gate locally and across three nodes, with exact token-ID, ordering, and float32-bit agreement against an independent oracle.
+* exp69 is planned as the first experiment explicitly permitted to compare Ray-mediated and HPX-mediated execution-path performance for the identical exp68 workload at the same Python caller boundary. Until exp69 passes its same-axis gates, no ratio, speedup, or cross-arm winner claim is permitted.
 * exp61 remains the scalar QD1 predecessor. It is useful for explaining why same-axis Python-boundary measurement matters.
 * exp63 is mechanism/progress evidence for HPX-native composition after connector-lifetime hardening. It does not claim Ray performance, HPX collectives, payload-size behavior, or production API behavior.
 * exp58/59/60 remain useful precursor and within-runtime decomposition evidence, but they are no longer the headline Ray-vs-HPX measurement framing.
@@ -173,13 +180,14 @@ Durable interpretation:
 * The proven exp62 cross-node HPX path is `root_flat_gather_poll`, an interim/polled composition. exp63 separately validated native HPX composition variants after connector-lifetime hardening.
 * exp64’s stronger `distributional_payload_ladder` grade remains blocked until the HPX serialization runtime path is observed and/or the HPX payload arm moves beyond the poll-gather baseline.
 * Within-runtime decompositions are allowed:
+
   * Ray same-host vs Ray cross-node.
   * HPX same-node TCP vs HPX cross-node TCP.
   * exp61 same-node vs cross-node as placement controls within the same Python-boundary experiment.
   * exp62/63 HPX composition variants as within-HPX mechanism diagnostics.
   * exp64 within-arm payload-size distributions for HPX and Ray separately.
-* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60/61/62/63/64 unless a future experiment explicitly permits them.
-* Respect artifact fences: `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, and `placement_bands_differenced=false`.
+* Do not compute or report Ray-vs-HPX speedups or ratios from exp58/59/60/61/62/63/64/65/66/67/68. exp69 may report scoped ratios only if that experiment explicitly passes its correctness, placement, resource, sampling, and same-axis gates.
+* Respect artifact fences: `speedup_computed=false`, `ratio_reported=false`, `arms_differenced=false`, and `placement_bands_differenced=false`, unless an explicitly authorized experiment such as exp69 sets them under its own gates.
 * Do not say “HPX beats Ray,” “Ray is slower than HPX,” or “RayX makes Ray faster.”
 * Do not use pipeline/QD8/QD32/QD128 rows for Ray-vs-HPX comparison unless a specific same-regime experiment is designed and gated.
 * Do not say the value oracle alone proves physical placement. Placement proof requires node ids, hostnames, locality ids where applicable, affinity/transport gates where applicable, lifecycle evidence where applicable, and hard placement gates; the oracle proves intended closed-value execution.
@@ -339,6 +347,10 @@ For Ray-vs-HPX or Ray-vs-RayX timing:
 * Do not compare pipeline/QD8/QD32/QD128 numbers across Ray and HPX unless a specific same-regime experiment is explicitly designed.
 * Record clock, clock overhead, warmup, K/W/R, node pair, selected subnet, placement proof basis, transport, and band construction.
 * Use per-island primary percentiles plus across-island median/spread unless an experiment explicitly chooses another statistical construction.
+* For exp69, keep the deterministic exp68 workload, actor topology, placement, resources, coordinator direction, payload representation, warm-up policy, and Python caller boundary matched between arms.
+* In exp69, verify every measured result exactly after the timing boundary. Invalid results do not contribute timing samples.
+* Exp69 latency and throughput phases must remain separate. QD1 latency samples must not be mixed with bounded-concurrency throughput results.
+* Exp69 may report a scoped ratio only when all experiment-specific same-axis gates pass and uncertainty/dispersion is reported. A scoped ratio does not license a general HPX-vs-Ray claim.
 
 ## Documentation rules
 
@@ -410,7 +422,7 @@ For the runtime test split:
 * runtime integration tests include native runtime and local actor contract coverage.
 * do not run runtime integration tests or runtime smokes in repo-sanity.
 * Ray-hosting and Ray-orchestrated HPX-island smoke checks may live only in a native/Ray/HPX-capable smoke tier and must skip cleanly when Ray, the built `_rayx` extension, or the required standalone HPX experiment binary is unavailable.
-* Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38 and exp57–64 hardware runners, in normal CI.
+* Do not run Ray-hosting performance drivers or observation probes, including exp35/36/37/38 and exp57–69 hardware runners, in normal CI.
 
 Use `bench/smoke_local.py` as the local validation aggregator when appropriate. It should remain a smoke/golden/contract helper, not a benchmark matrix.
 
@@ -436,9 +448,11 @@ For every completed benchmark, diagnostic, or experiment report, include a short
 
 * Updated roadmap: keep directions separated.
 
-  * In-process HPX-inside-Ray-actors direction: local scheduling, nonblocking lanes, native continuation/composition, Python-boundary characterization, serving-shaped synthetic workloads, and concurrency/overlap.
-  * Future distributed-fabric direction: Ray as placement/bootstrap/lifecycle supervision, HPX locality-to-locality action/data-plane probes, whole-island restart policy, Ray-orchestrated HPX bootstrap, and eventual multi-node comparison only when justified.
-  * Same-axis Python-boundary comparison direction: Python-observed Ray actor path vs Python-observed experiment-only HPX/RayX action path. This begins with exp61, extends through exp62, adds HPX-native composition diagnostics in exp63, and adds payload-size fanin evidence in exp64. It must not mutate shipped `rayx.runtime`.
+  * Local `rayx.runtime` direction: registered native operations and actors, nonblocking lanes, native continuation/composition, Python-boundary characterization, serving-shaped synthetic workloads, and concurrency/overlap. This remains separate from the distributed HPX-island experiments.
+
+  * Ray-hosted distributed HPX direction: exp66 proves one Ray actor can host HPX in-process; exp67 proves two Ray actors can join one shared HPX runtime and communicate bidirectionally across nodes; exp68 proves an exactly checkable vocabulary-sharded top-k workload across those actors. Ray owns placement, lifecycle, supervision, and whole-island restart; HPX actions and futures own the distributed operation/composition path.
+
+  * Same-axis comparison direction: exp61–64 provide predecessor scalar, fanout/fanin, composition, and payload evidence under strict claim fences. exp69 is the planned matched Ray-mediated versus HPX-mediated performance experiment for the identical exp68 workload, topology, resources, and Python caller boundary. Ratios are allowed only if exp69 explicitly passes all correctness, placement, resource, sampling, and same-axis gates.
 
 * Next recommended step: end with one concrete technical next step, not a vague list.
 

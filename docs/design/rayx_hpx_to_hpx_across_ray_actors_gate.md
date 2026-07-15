@@ -95,8 +95,10 @@ Ray-as-launcher orchestration), never inside Ray actor worker processes:
   demonstrated on loopback and across two real nodes, within a boot-time
   `--hpx:expect-connecting-localities` willingness. (The loopback slice's side
   observation that a single full-bound `future::wait_for` on the dispatched action
-  returned only at its full bound is scoped to loopback/macOS only; the cross-node
-  slice used sliced waits and does not reproduce that wait construction.)
+  returned only at its full bound was later rechecked in the waiter-fix verification:
+  reproduced under HPX 1.11 on a Rostam node, gone — readiness wakeup — on the verified
+  fixed master build; separate corroborating evidence for the exp64 finding below, not
+  proof of one shared root cause.)
 * **Fault / lifecycle boundary (exp50/51 — single-node loopback / macOS / HPX 1.11 only).**
   After ungraceful **non-root** locality loss, stale membership allowed continued service
   to a fresh connector but blocked collective shutdown. No supported public
@@ -108,14 +110,24 @@ Ray-as-launcher orchestration), never inside Ray actor worker processes:
   root-completion-sentinel protocol was required to prevent connector departure during
   root dispatch. Whether HPX should offer a clearer disconnect/quiesce contract is a
   maintainer discussion item, not a proven required HPX design.
-* **Scoped progress/readiness finding (exp64 Phase A→A4 — HPX 1.11 / TCP parcelport /
-  Rostam).** Native `when_all` / `dataflow` continuations entered and completed promptly,
-  but the suspended timed waiter resumed only at the timeout
-  (`waiter_resume_at_timeout`) — unchanged by root/background-thread adjustments,
-  disabled idle backoff, and TCP parcel-pool sizes 2 (observed default), 4, and 8, while
-  polling/yield controls stayed prompt. Consequence: the polling gather baseline was not
-  retired and no native payload-size ladder was started. A scoped per-build observation —
-  not a general HPX defect claim and not a performance claim.
+* **Scoped progress/readiness finding, upstream-confirmed and verified fixed (exp64
+  Phase A→A4 + waiter-fix verification).** On HPX 1.11 / TCP parcelport / Rostam, native
+  `when_all` / `dataflow` continuations entered and completed promptly, but the suspended
+  timed waiter resumed only at the timeout (`waiter_resume_at_timeout`) — unchanged by
+  root/background-thread adjustments, disabled idle backoff, and TCP parcel-pool sizes 2
+  (observed default), 4, and 8, while polling/yield controls stayed prompt. The upstream
+  discussion confirmed this as an HPX bug, fixed upstream by PR #7367; rerunning the
+  identical discriminator against HPX master commit
+  `20bc3d4bf3068383edcb63be13f22e9ff95842fa` (PR #7367 ancestry proven) changed the
+  classification to `waiter_resumed_on_ready` across four runs and two thread
+  configurations, with an HPX 1.11 control reproducing the prior signature first
+  (curated aggregate:
+  `experiments/64_payload_fanin_size_sweep/waiter_fix_verification_aggregate.json`).
+  Consequence: native timed waiting is viable on the exact tested fixed build, and
+  polling is no longer the required readiness workaround there (it remains the
+  historical HPX 1.11 evidence path and a diagnostic control); the HPX serialization
+  runtime path is still unobserved. Scoped to the tested commits — not a general HPX
+  claim and not a performance claim.
 
 **Still explicitly open, none of it closed by the above:** HPX embedded inside separate
 Ray actor worker processes (this gate); the shared-vs-federated runtime decision (§5);
@@ -186,11 +198,20 @@ not designed until this proposition is argued.
 
 ## 5. The architecture fork
 
-Two fundamentally different topologies. Federated (B) is the likely first probe if the
-goal is Ray-lifecycle compatibility and the loss of HPX global addressing is acceptable;
-shared (A) remains the stronger HPX-distributed-semantics path with the hardest
-lifecycle / fault-model gate. Neither is asserted as the answer — the fork is the
-question.
+Two fundamentally different topologies. Federated (B) was the likely first probe if the
+goal was Ray-lifecycle compatibility and the loss of HPX global addressing was
+acceptable; shared (A) remains the stronger HPX-distributed-semantics path with the
+hardest lifecycle / fault-model gate.
+
+**Upstream design guidance (recorded as guidance, not experimental evidence):** the
+upstream discussion favored **one shared HPX runtime** if HPX is to provide cross-worker
+semantics — the value of HPX here *is* the shared-runtime semantics — and agreed that
+**isolating the AGAS root in a separately supervised process that hosts no application
+work** might help, because application/Ray operations could not bring it down. The
+shared/federated fork is therefore **no longer neutral**: shared-runtime with an
+isolated, supervised, work-free root/AGAS process is the favored L4 direction, and the
+federated branch is de-prioritized unless new evidence changes the direction. This
+guidance is untested inside Ray actor workers; every mechanism gate below still applies.
 
 ### A. Shared HPX distributed runtime
 
@@ -232,10 +253,10 @@ under Ray: AGAS-root SPOF, locality loss, dynamic actor restart, bootstrap order
 Federated (B) is Ray-lifecycle-compatible, but its HPX delta over L3 may be thin for
 closed int64/double values if it reduces to HPX serialization over a custom transport.
 The lifecycle-friendly option may buy little over Ray-mediated coordination, while the
-high-value option is the fault-hostile one. Whether L4's value proposition actually
-requires shared HPX global addressing (A), or a narrower federated channel (B) is still
-meaningful for the closed-value, fixed-op workload, is unresolved — and a primary
-question for the HPX experts (§8).
+high-value option is the fault-hostile one. The upstream guidance above answers the
+fork's direction (shared-runtime semantics are the point of using HPX for cross-worker
+work, so the federated channel is de-prioritized); articulating L4's concrete value
+proposition over L3 for the closed-value, fixed-op workload remains open (§4, §11).
 
 ## 6. Decisive risks
 
@@ -244,13 +265,19 @@ Each is an open question, not a result:
 * **Continuous progress.** HPX cross-actor communication cannot be suspended between
   Python calls — parcel / message progress needs live HPX threads even when the Ray actor
   is idle in Python. That rules out suspend / resume for L4, unlike the in-process
-  hosting case. Related, scoped input: the exp64 `waiter_resume_at_timeout` observation
-  (§1a); suspended timed-wait readiness is a maintainer question (§8).
+  hosting case. The former scoped input here — the exp64 `waiter_resume_at_timeout`
+  observation — is resolved: upstream confirmed it as an HPX bug fixed by PR #7367, and
+  the control/master verification passed (§1a, §8 Q17); suspended timed waiting is
+  viable on the exact tested fixed build. Progress inside a Ray actor worker remains
+  mechanically untested.
 * **Ray lifecycle vs HPX distributed-runtime lifecycle.** Independent, dynamic,
   restartable actors vs a runtime that expects a stable set of participants.
 * **AGAS-root / locality-0 single point of failure** (shared model) — its loss collides
-  directly with Ray's per-actor restart value. AGAS-root loss remains untested; exp50/51
-  probed only non-root loss (§1a).
+  directly with Ray's per-actor restart value. AGAS-root loss remains untested by our
+  experiments; exp50/51 probed only non-root loss (§1a). Upstream design guidance: root
+  loss invalidates the island (no recovery expectation in baseline HPX), which is
+  exactly why the isolated, supervised, work-free root process (§5) is the preferred
+  design variable, and why whole-island restart remains the recovery boundary.
 * **Actor restart / failure behavior** — what a peer observes when an actor (runtime /
   locality) dies or restarts. The scoped exp50/51 boundary (§1a): stale membership after
   ungraceful non-root loss allowed continued service but blocked collective shutdown.
@@ -279,7 +306,7 @@ Each is an open question, not a result:
 Design targets only — not built, gated, single-node, closed-value, no performance or
 multi-node claim.
 
-### Federated (likely first probe — see §5 caveats)
+### Federated (de-prioritized by the §5 upstream guidance; kept for completeness)
 
 * Single node; two Ray actors, each running an independent HPX runtime.
 * Ray bootstraps endpoint discovery between them.
@@ -296,7 +323,7 @@ each side. It does not by itself establish strong-L4 HPX-distributed semantics, 
 delta over L3 for a closed int64 should be weighed against the value-vs-lifecycle paradox
 (§5).
 
-### Shared-runtime alternative (heavier, higher risk)
+### Shared-runtime probe (favored by the §5 upstream guidance; heavier lifecycle gate)
 
 * Single node; two Ray actors join one shared HPX runtime as localities.
 * Ray exchanges endpoints / AGAS-root info.
@@ -306,9 +333,14 @@ delta over L3 for a closed int64 should be weighed against the value-vs-lifecycl
 
 ## 8. Questions for HPX maintainers / upstream reviewers
 
+The upstream discussion has since answered several of these. Answers are recorded inline
+as **upstream design guidance — not experimental evidence**; unanswered questions stand.
+
 1. For **independently launched, independently restartable** Ray actors, do you recommend a
    **shared HPX runtime / localities** or **federated independent runtimes exchanging
    messages**? Where is the crossover?
+   *Upstream guidance: a shared HPX runtime — shared-runtime semantics are the point of
+   using HPX for cross-worker work (§5).*
 2. Is a **federated HPX-native message channel** a sane first step, or does HPX's model push
    toward **shared localities / AGAS**?
 3. **Is there any supported HPX path for two independently-started HPX runtimes to exchange
@@ -321,7 +353,14 @@ delta over L3 for a closed int64 should be weighed against the value-vs-lifecycl
 5. What keeps **parcel / message progress alive** inside a Ray actor while Python is idle?
 6. What **thread / CPU budget** does **continuous progress** need?
 7. In the shared model, **what happens when a locality dies**?
+   *Upstream guidance: HPX currently has **no way to detect** a failed (non-root)
+   locality; eviction of dead localities would need heartbeat support, which does not
+   exist today — an in-HPX heartbeat/liveness feature would be new upstream work.
+   Whole-island restart remains our recovery boundary; the user-space
+   heartbeat/root-completion protocol (exp63) remains the current lifecycle mechanism.*
 8. Is **AGAS-root / locality-0 loss recoverable** in baseline HPX?
+   *Upstream guidance: no — if the root dies, the island is invalidated. Hence the
+   isolated, supervised, work-free root process as the preferred design variable (§5).*
 9. Does **HPX resilience** research change this, or is it **not turnkey** for Ray-actor
    restart?
 10. Which **transport** is realistic inside Ray workers — **TCP, LCI / libfabric, other**?
@@ -340,16 +379,33 @@ delta over L3 for a closed int64 should be weighed against the value-vs-lifecycl
 15. Should departing connectors have a **clearer disconnect/quiesce contract**? exp63 needed
     a user-space heartbeat / root-completion protocol to prevent connector departure during
     root dispatch — a discussion item, not a proven required HPX design.
+    *Upstream guidance: root-initiated shutdown of a late-connected locality does not
+    currently exist; the user-space heartbeat/root-completion protocol remains the
+    current lifecycle mechanism.*
 16. Is there a supported **stale-locality eviction** path after ungraceful non-root loss?
     We found no supported public path in the inspected HPX 1.11 build and headers (exp50/51,
     single-node loopback / macOS; stale membership served a fresh connector but blocked
     collective shutdown; AGAS-root loss untested) — does a supported or intended mechanism
     exist elsewhere?
+    *Upstream guidance: none exists — HPX cannot currently detect such failures; eviction
+    would require heartbeat support, i.e. new upstream work. Integrating a user-space
+    heartbeat/liveness design into HPX was suggested as a natural upstream contribution,
+    outside the immediate experiment scope.*
 17. What is the intended **wake behavior of a suspended timed waiter** on a composed future?
     exp64 observed `waiter_resume_at_timeout` (continuations prompt, waiter woken only at
     its bound) on HPX 1.11 / TCP parcelport; the result was insensitive to every lever
     tested (root/background threads, idle backoff, parcel-pool size) — a scoped
     observation offered for review, not a defect claim.
+    ***Answered and verified:** upstream confirmed the behavior as an HPX bug, fixed
+    upstream by PR #7367 ("Fixing future::wait_until (and wait_for) to return once future
+    was made ready"). Our control/master verification passed: the HPX 1.11 control
+    reproduced `waiter_resume_at_timeout`, and the identical discriminator on master
+    commit `20bc3d4bf3068383edcb63be13f22e9ff95842fa` classified `waiter_resumed_on_ready`
+    across four runs and two thread configurations, with a formally separate exp65
+    loopback re-check corroborating. Native timed waiting is viable on the exact tested
+    fixed build; fixed-build native smoke and payload work may proceed.
+    Transport/serialization-path attribution remains open
+    (`hpx_serialization_runtime_path_not_observed`). Scoped to the tested commits only.*
 
 ## 9. Lineage: the federated branch continues the `rayx.endpoint` seam
 
@@ -413,22 +469,37 @@ Before any L4 code is attempted, in order (status annotations reflect exp49–65
 
 1. **Value proposition over L3** articulated (§4) — what HPX-mediated communication buys
    that Ray-mediated coordination does not. **Open.**
-2. **Federated-vs-shared decision** made or narrowed (§5). **Open.**
+2. **Federated-vs-shared decision** made or narrowed (§5). **Narrowed by upstream design
+   guidance**: shared HPX runtime favored, with an isolated, supervised, work-free
+   root/AGAS process as the preferred design variable; the federated branch is
+   de-prioritized unless new evidence changes the direction. Guidance, not evidence —
+   nothing is yet demonstrated inside Ray actor workers.
 3. **Continuous-progress model** understood (§6) — how an embedded locality progresses while
-   the actor is idle in Python. **Open**; the scoped exp64 `waiter_resume_at_timeout`
-   observation is an input to the maintainer discussion, not an answer.
+   the actor is idle in Python. **Open** for Ray workers; the former exp64
+   `waiter_resume_at_timeout` input is resolved (upstream-confirmed HPX bug, fixed by
+   PR #7367, control/master verification passed — native timed waiting viable on the
+   exact tested fixed build).
 4. **Fault / restart model** understood (§6) — what a peer sees when an actor dies/restarts.
-   **Open**; exp50/51 give a scoped non-root-loss boundary only, and AGAS-root loss remains
-   untested.
+   **Open**, now bounded by upstream design guidance: root loss invalidates the island;
+   non-root failure detection and eviction do not currently exist in HPX (heartbeat
+   support would be new upstream work); whole-island restart remains the recovery
+   boundary; the user-space heartbeat/root-completion protocol remains the current
+   lifecycle mechanism. exp50/51 give a scoped non-root-loss boundary only, and
+   AGAS-root loss remains untested by experiment.
 5. **Transport / bootstrap model** selected (§6, §8). **Open**; connect-mode **admission** is
    now **substantially informed** (late admission across the distributed HPX-island probes
    from exp49 Phase 2 onward; demand-ordered admission in exp65, on loopback and reproduced
    cross-node on two real nodes) but **not fully closed** — lazy parcelport TCP connection
    establishment, connector churn, and reproduction of exp65 beyond two nodes are all
    unobserved.
-6. **HPX maintainer / upstream-reviewer vetting** of the above. **Actively initiated** —
-   Hartmut's invitation opened the upstream discussion — but **not completed**.
-7. Only then, a **tiny single-node feasibility probe** (§7), starting federated. **Gated**;
+6. **HPX maintainer / upstream-reviewer vetting** of the above. **Substantially advanced**:
+   the upstream discussion confirmed the exp64 waiter behavior as a bug (fixed by
+   PR #7367, verified by our control/master runs), favored the shared-runtime direction
+   with an isolated work-free root, and clarified the failure-detection/eviction and
+   root-loss picture (§8, answers 1, 7, 8, 15, 16, 17). Treated as design guidance, not
+   experimental evidence; HPX inside Ray actor workers remains mechanically untested.
+7. Only then, a **tiny single-node feasibility probe** (§7), now shaped by the upstream
+   guidance toward the shared-runtime form with an isolated supervised root. **Gated**;
    HPX-inside-Ray-worker execution stays gated and no L4 code is written.
 
 Until these hold, Level 4 stays gated and no code is written.

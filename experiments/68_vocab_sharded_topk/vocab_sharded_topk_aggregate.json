@@ -1,0 +1,4923 @@
+{
+  "experiment": "68_vocab_sharded_topk",
+  "kind": "deterministic_llm_shaped_sharded_topk_two_ray_actors_local",
+  "design": "six_gating_slices_A_F_plus_nongating_saturation_G",
+  "single_node": true,
+  "transport": "tcp_loopback",
+  "verdict_rule": "PASS iff Slice A, F, and every matrix case's B/C/D/E gates pass in every rep",
+  "generation_rule": {
+    "name": "int_grid_over_8",
+    "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+    "grid_range": [
+      -65,
+      65
+    ],
+    "denominator": 8,
+    "float32_exact": true,
+    "total_order": "higher logit; tie -> lower global token id",
+    "value_range": [
+      -8.125,
+      8.125
+    ]
+  },
+  "total_order": "higher logit wins; on equal logit, lower global token id wins",
+  "matrix": [
+    {
+      "name": "tiny_k1",
+      "V": 8,
+      "split": 4,
+      "k": 1,
+      "seed": 7,
+      "tags": [
+        "small",
+        "k1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "tiny_k3",
+      "V": 8,
+      "split": 4,
+      "k": 3,
+      "seed": 7,
+      "tags": [
+        "small",
+        "kgt1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "cross_both",
+      "V": 64,
+      "split": 32,
+      "k": 6,
+      "seed": 1,
+      "tags": [
+        "both_shards",
+        "kgt1"
+      ]
+    },
+    {
+      "name": "tie_cutoff",
+      "V": 200,
+      "split": 100,
+      "k": 5,
+      "seed": 1,
+      "tags": [
+        "tie_at_cutoff"
+      ]
+    },
+    {
+      "name": "shardA_dom",
+      "V": 128,
+      "split": 64,
+      "k": 8,
+      "seed": 1,
+      "tags": [
+        "one_shard_dominant"
+      ]
+    },
+    {
+      "name": "both_contrib",
+      "V": 100,
+      "split": 50,
+      "k": 10,
+      "seed": 1,
+      "tags": [
+        "both_shards"
+      ]
+    },
+    {
+      "name": "k1_large",
+      "V": 256,
+      "split": 128,
+      "k": 1,
+      "seed": 13,
+      "tags": [
+        "k1"
+      ]
+    }
+  ],
+  "claim_fences": {
+    "not_real_llm_inference": true,
+    "no_model_weights_tokenizer_gpu": true,
+    "not_cross_node": true,
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "no_elasticity_churn_or_recovery": true,
+    "no_performance_speedup_ratio_winner": true,
+    "no_direct_serialization_or_wire_claim": true,
+    "not_production_api": true,
+    "saturation_is_diagnostic_not_verdict": true,
+    "timing_not_correctness_oracle": true
+  },
+  "failure_classes": [
+    "invalid_shard_partition",
+    "nondeterministic_logit_generation",
+    "local_topk_a_failed",
+    "local_topk_b_failed",
+    "tie_break_contract_failed",
+    "a_fetch_b_failed",
+    "b_fetch_a_failed",
+    "a_merge_failed",
+    "b_merge_failed",
+    "global_oracle_mismatch",
+    "float32_bit_mismatch",
+    "coordinator_asymmetry",
+    "hpx_composition_not_evidenced",
+    "ray_payload_path_confounded",
+    "root_executed_application_work",
+    "lifecycle_failed",
+    "actor_recreation_failed",
+    "orphan_detected",
+    "invalid_instrumentation",
+    "pass"
+  ],
+  "reps": 3,
+  "provenance": {
+    "python_version_full": "3.11.15 (main, Mar  3 2026, 00:52:57) [Clang 17.0.0 (clang-1700.6.3.2)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-311-darwin.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor_count": 10,
+    "compiler_note": "extension built with Apple clang (see build), HPX identity below",
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp68_actor_ext.cpython-311-darwin.so",
+    "actor_ext_abi_match": true,
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "overall": "pass",
+  "slice_reps": [
+    {
+      "rep": 1,
+      "boot_rel": "_exp68_runs/20260714T221036Z/rep_1",
+      "ports": {
+        "root": 52952,
+        "actor_a": 52953,
+        "actor_b": 52954
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "actor_a_started_in_worker": true,
+        "actor_b_started_in_worker": true,
+        "two_distinct_ray_processes": true,
+        "distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "shared_island_membership": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "all_shards_disjoint_complete": true,
+        "hostname_identity": true,
+        "evidence_complete": true
+      },
+      "slice_f_gates": {
+        "actor_a_graceful_leave": true,
+        "actor_b_graceful_leave": true,
+        "clean_hpx_stop_both": true,
+        "root_finalized_clean": true,
+        "heartbeat_completion_lifecycle": true,
+        "actor_a_recreation": true,
+        "actor_b_recreation": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ray_no_actor_payload_path": true
+      },
+      "case_gates": {
+        "tiny_k1": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tiny_k3": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "cross_both": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tie_cutoff": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "shardA_dom": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "both_contrib": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "k1_large": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        }
+      },
+      "rep_pass": true,
+      "failure_class": "pass",
+      "slice_a_failed": [],
+      "slice_f_failed": [],
+      "cases_failed": {},
+      "saturation_diagnostic": [
+        {
+          "case": "cross_both",
+          "overlap_observed": true,
+          "progressed_under_dest_saturation": true,
+          "affects_verdict": false
+        }
+      ],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 52952,
+          "actor_a": 52953,
+          "actor_b": 52954
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "generation_rule": {
+          "name": "int_grid_over_8",
+          "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+          "grid_range": [
+            -65,
+            65
+          ],
+          "denominator": 8,
+          "float32_exact": true,
+          "total_order": "higher logit; tie -> lower global token id",
+          "value_range": [
+            -8.125,
+            8.125
+          ]
+        },
+        "operation_over_hpx_not_ray": true,
+        "all_waits_bounded": true,
+        "no_python_polling": true,
+        "all_partitions_ok": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "V": 8,
+            "split": 4,
+            "k": 1,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              }
+            ]
+          },
+          {
+            "name": "tiny_k3",
+            "V": 8,
+            "split": 4,
+            "k": 3,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ],
+              [
+                5,
+                1074266112
+              ],
+              [
+                3,
+                1071644672
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              },
+              {
+                "token_id": 3,
+                "logit_bits": 1071644672,
+                "logit": 1.75
+              },
+              {
+                "token_id": 0,
+                "logit_bits": 3227516928,
+                "logit": -3.5
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              },
+              {
+                "token_id": 7,
+                "logit_bits": 1061158912,
+                "logit": 0.75
+              },
+              {
+                "token_id": 4,
+                "logit_bits": 3234332672,
+                "logit": -6.25
+              }
+            ]
+          },
+          {
+            "name": "cross_both",
+            "V": 64,
+            "split": 32,
+            "k": 6,
+            "seed": 1,
+            "shard_a": [
+              0,
+              32
+            ],
+            "shard_b": [
+              32,
+              64
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ]
+          },
+          {
+            "name": "tie_cutoff",
+            "V": 200,
+            "split": 100,
+            "k": 5,
+            "seed": 1,
+            "shard_a": [
+              0,
+              100
+            ],
+            "shard_b": [
+              100,
+              200
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                159,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 159,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 193,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 178,
+                "logit_bits": 1089470464,
+                "logit": 7.5
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              }
+            ]
+          },
+          {
+            "name": "shardA_dom",
+            "V": 128,
+            "split": 64,
+            "k": 8,
+            "seed": 1,
+            "shard_a": [
+              0,
+              64
+            ],
+            "shard_b": [
+              64,
+              128
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 127,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 112,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              }
+            ]
+          },
+          {
+            "name": "both_contrib",
+            "V": 100,
+            "split": 50,
+            "k": 10,
+            "seed": 1,
+            "shard_a": [
+              0,
+              50
+            ],
+            "shard_b": [
+              50,
+              100
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ],
+              [
+                74,
+                1088684032
+              ],
+              [
+                25,
+                1087635456
+              ],
+              [
+                59,
+                1087635456
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 27,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 76,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 61,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              },
+              {
+                "token_id": 95,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ]
+          },
+          {
+            "name": "k1_large",
+            "V": 256,
+            "split": 128,
+            "k": 1,
+            "seed": 13,
+            "shard_a": [
+              0,
+              128
+            ],
+            "shard_b": [
+              128,
+              256
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29948,
+            "b_pid": 29949,
+            "oracle_global": [
+              [
+                12,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29949,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29948,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29948,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29949,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 12,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 148,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ]
+          }
+        ],
+        "root_ready": {
+          "who": "root",
+          "pid": 29950,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092236075,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "a_identity": {
+          "pid": 29948,
+          "os_getpid": 29948,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "a_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 29948
+        },
+        "a_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 29948
+        },
+        "b_identity": {
+          "pid": 29949,
+          "os_getpid": 29949,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "b_start": {
+          "started": true,
+          "locality_id": 2,
+          "membership": 3,
+          "pid": 29949
+        },
+        "b_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 29949
+        },
+        "a_health": {
+          "ok": true,
+          "pid": 29948,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "b_health": {
+          "ok": true,
+          "pid": 29949,
+          "membership": 3,
+          "locality_id": 2
+        },
+        "a_stop_rc": 0,
+        "a_stop_error": null,
+        "b_stop_rc": 0,
+        "b_stop_error": null,
+        "a_destroyed": true,
+        "b_destroyed": true,
+        "a_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 29947,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "b_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 29946,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 29950,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092239700,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    },
+    {
+      "rep": 2,
+      "boot_rel": "_exp68_runs/20260714T221036Z/rep_2",
+      "ports": {
+        "root": 52984,
+        "actor_a": 52985,
+        "actor_b": 52986
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "actor_a_started_in_worker": true,
+        "actor_b_started_in_worker": true,
+        "two_distinct_ray_processes": true,
+        "distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "shared_island_membership": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "all_shards_disjoint_complete": true,
+        "hostname_identity": true,
+        "evidence_complete": true
+      },
+      "slice_f_gates": {
+        "actor_a_graceful_leave": true,
+        "actor_b_graceful_leave": true,
+        "clean_hpx_stop_both": true,
+        "root_finalized_clean": true,
+        "heartbeat_completion_lifecycle": true,
+        "actor_a_recreation": true,
+        "actor_b_recreation": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ray_no_actor_payload_path": true
+      },
+      "case_gates": {
+        "tiny_k1": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tiny_k3": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "cross_both": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tie_cutoff": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "shardA_dom": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "both_contrib": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "k1_large": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        }
+      },
+      "rep_pass": true,
+      "failure_class": "pass",
+      "slice_a_failed": [],
+      "slice_f_failed": [],
+      "cases_failed": {},
+      "saturation_diagnostic": [
+        {
+          "case": "cross_both",
+          "overlap_observed": true,
+          "progressed_under_dest_saturation": true,
+          "affects_verdict": false
+        }
+      ],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 52984,
+          "actor_a": 52985,
+          "actor_b": 52986
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "generation_rule": {
+          "name": "int_grid_over_8",
+          "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+          "grid_range": [
+            -65,
+            65
+          ],
+          "denominator": 8,
+          "float32_exact": true,
+          "total_order": "higher logit; tie -> lower global token id",
+          "value_range": [
+            -8.125,
+            8.125
+          ]
+        },
+        "operation_over_hpx_not_ray": true,
+        "all_waits_bounded": true,
+        "no_python_polling": true,
+        "all_partitions_ok": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "V": 8,
+            "split": 4,
+            "k": 1,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              }
+            ]
+          },
+          {
+            "name": "tiny_k3",
+            "V": 8,
+            "split": 4,
+            "k": 3,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ],
+              [
+                5,
+                1074266112
+              ],
+              [
+                3,
+                1071644672
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              },
+              {
+                "token_id": 3,
+                "logit_bits": 1071644672,
+                "logit": 1.75
+              },
+              {
+                "token_id": 0,
+                "logit_bits": 3227516928,
+                "logit": -3.5
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              },
+              {
+                "token_id": 7,
+                "logit_bits": 1061158912,
+                "logit": 0.75
+              },
+              {
+                "token_id": 4,
+                "logit_bits": 3234332672,
+                "logit": -6.25
+              }
+            ]
+          },
+          {
+            "name": "cross_both",
+            "V": 64,
+            "split": 32,
+            "k": 6,
+            "seed": 1,
+            "shard_a": [
+              0,
+              32
+            ],
+            "shard_b": [
+              32,
+              64
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ]
+          },
+          {
+            "name": "tie_cutoff",
+            "V": 200,
+            "split": 100,
+            "k": 5,
+            "seed": 1,
+            "shard_a": [
+              0,
+              100
+            ],
+            "shard_b": [
+              100,
+              200
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                159,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 159,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 193,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 178,
+                "logit_bits": 1089470464,
+                "logit": 7.5
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              }
+            ]
+          },
+          {
+            "name": "shardA_dom",
+            "V": 128,
+            "split": 64,
+            "k": 8,
+            "seed": 1,
+            "shard_a": [
+              0,
+              64
+            ],
+            "shard_b": [
+              64,
+              128
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 127,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 112,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              }
+            ]
+          },
+          {
+            "name": "both_contrib",
+            "V": 100,
+            "split": 50,
+            "k": 10,
+            "seed": 1,
+            "shard_a": [
+              0,
+              50
+            ],
+            "shard_b": [
+              50,
+              100
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ],
+              [
+                74,
+                1088684032
+              ],
+              [
+                25,
+                1087635456
+              ],
+              [
+                59,
+                1087635456
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 27,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 76,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 61,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              },
+              {
+                "token_id": 95,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ]
+          },
+          {
+            "name": "k1_large",
+            "V": 256,
+            "split": 128,
+            "k": 1,
+            "seed": 13,
+            "shard_a": [
+              0,
+              128
+            ],
+            "shard_b": [
+              128,
+              256
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 29977,
+            "b_pid": 29979,
+            "oracle_global": [
+              [
+                12,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 29979,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 29977,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 29977,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 29979,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 12,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 148,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ]
+          }
+        ],
+        "root_ready": {
+          "who": "root",
+          "pid": 29976,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092239865,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "a_identity": {
+          "pid": 29977,
+          "os_getpid": 29977,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "a_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 29977
+        },
+        "a_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 29977
+        },
+        "b_identity": {
+          "pid": 29979,
+          "os_getpid": 29979,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "b_start": {
+          "started": true,
+          "locality_id": 2,
+          "membership": 3,
+          "pid": 29979
+        },
+        "b_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 29979
+        },
+        "a_health": {
+          "ok": true,
+          "pid": 29977,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "b_health": {
+          "ok": true,
+          "pid": 29979,
+          "membership": 3,
+          "locality_id": 2
+        },
+        "a_stop_rc": 0,
+        "a_stop_error": null,
+        "b_stop_rc": 0,
+        "b_stop_error": null,
+        "a_destroyed": true,
+        "b_destroyed": true,
+        "a_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 29994,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "b_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 29993,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 29976,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092244094,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    },
+    {
+      "rep": 3,
+      "boot_rel": "_exp68_runs/20260714T221036Z/rep_3",
+      "ports": {
+        "root": 53038,
+        "actor_a": 53039,
+        "actor_b": 53040
+      },
+      "slice_a_gates": {
+        "fixed_hpx_commit": true,
+        "actor_a_started_in_worker": true,
+        "actor_b_started_in_worker": true,
+        "two_distinct_ray_processes": true,
+        "distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "shared_island_membership": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "all_shards_disjoint_complete": true,
+        "hostname_identity": true,
+        "evidence_complete": true
+      },
+      "slice_f_gates": {
+        "actor_a_graceful_leave": true,
+        "actor_b_graceful_leave": true,
+        "clean_hpx_stop_both": true,
+        "root_finalized_clean": true,
+        "heartbeat_completion_lifecycle": true,
+        "actor_a_recreation": true,
+        "actor_b_recreation": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ray_no_actor_payload_path": true
+      },
+      "case_gates": {
+        "tiny_k1": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tiny_k3": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "cross_both": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "tie_cutoff": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "shardA_dom": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "both_contrib": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        },
+        "k1_large": {
+          "shard_partition_ok": true,
+          "local_topk_a_correct": true,
+          "local_topk_b_correct": true,
+          "local_topk_order_ok": true,
+          "a_fetch_b_ready": true,
+          "a_peer_is_b": true,
+          "a_own_is_a": true,
+          "a_merge_ids_match": true,
+          "a_merge_equals_oracle": true,
+          "b_fetch_a_ready": true,
+          "b_peer_is_a": true,
+          "b_own_is_b": true,
+          "b_merge_ids_match": true,
+          "b_merge_equals_oracle": true,
+          "coordinator_symmetry": true,
+          "global_token_ids_exact": true,
+          "float32_bits_exact": true,
+          "hpx_composition_a": true,
+          "hpx_composition_b": true,
+          "no_application_on_root": true
+        }
+      },
+      "rep_pass": true,
+      "failure_class": "pass",
+      "slice_a_failed": [],
+      "slice_f_failed": [],
+      "cases_failed": {},
+      "saturation_diagnostic": [
+        {
+          "case": "cross_both",
+          "overlap_observed": true,
+          "progressed_under_dest_saturation": true,
+          "affects_verdict": false
+        }
+      ],
+      "markers": {
+        "controller_hostname": "Bitas-MacBook-Air.local",
+        "ports": {
+          "root": 53038,
+          "actor_a": 53039,
+          "actor_b": 53040
+        },
+        "argv_audit_ok": true,
+        "actor_hpx_threads": 2,
+        "actor_ray_num_cpus": 2,
+        "generation_rule": {
+          "name": "int_grid_over_8",
+          "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+          "grid_range": [
+            -65,
+            65
+          ],
+          "denominator": 8,
+          "float32_exact": true,
+          "total_order": "higher logit; tie -> lower global token id",
+          "value_range": [
+            -8.125,
+            8.125
+          ]
+        },
+        "operation_over_hpx_not_ray": true,
+        "all_waits_bounded": true,
+        "no_python_polling": true,
+        "all_partitions_ok": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "V": 8,
+            "split": 4,
+            "k": 1,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              }
+            ]
+          },
+          {
+            "name": "tiny_k3",
+            "V": 8,
+            "split": 4,
+            "k": 3,
+            "seed": 7,
+            "shard_a": [
+              0,
+              4
+            ],
+            "shard_b": [
+              4,
+              8
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                1,
+                1078460416
+              ],
+              [
+                5,
+                1074266112
+              ],
+              [
+                3,
+                1071644672
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 1,
+                  "logit_bits": 1078460416,
+                  "logit": 3.125
+                },
+                {
+                  "token_id": 5,
+                  "logit_bits": 1074266112,
+                  "logit": 2.125
+                },
+                {
+                  "token_id": 3,
+                  "logit_bits": 1071644672,
+                  "logit": 1.75
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 1,
+                "logit_bits": 1078460416,
+                "logit": 3.125
+              },
+              {
+                "token_id": 3,
+                "logit_bits": 1071644672,
+                "logit": 1.75
+              },
+              {
+                "token_id": 0,
+                "logit_bits": 3227516928,
+                "logit": -3.5
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 5,
+                "logit_bits": 1074266112,
+                "logit": 2.125
+              },
+              {
+                "token_id": 7,
+                "logit_bits": 1061158912,
+                "logit": 0.75
+              },
+              {
+                "token_id": 4,
+                "logit_bits": 3234332672,
+                "logit": -6.25
+              }
+            ]
+          },
+          {
+            "name": "cross_both",
+            "V": 64,
+            "split": 32,
+            "k": 6,
+            "seed": 1,
+            "shard_a": [
+              0,
+              32
+            ],
+            "shard_b": [
+              32,
+              64
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              }
+            ]
+          },
+          {
+            "name": "tie_cutoff",
+            "V": 200,
+            "split": 100,
+            "k": 5,
+            "seed": 1,
+            "shard_a": [
+              0,
+              100
+            ],
+            "shard_b": [
+              100,
+              200
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                159,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 159,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 159,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 193,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 178,
+                "logit_bits": 1089470464,
+                "logit": 7.5
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              }
+            ]
+          },
+          {
+            "name": "shardA_dom",
+            "V": 128,
+            "split": 64,
+            "k": 8,
+            "seed": 1,
+            "shard_a": [
+              0,
+              64
+            ],
+            "shard_b": [
+              64,
+              128
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                125,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 125,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 125,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 108,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 127,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 112,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              }
+            ]
+          },
+          {
+            "name": "both_contrib",
+            "V": 100,
+            "split": 50,
+            "k": 10,
+            "seed": 1,
+            "shard_a": [
+              0,
+              50
+            ],
+            "shard_b": [
+              50,
+              100
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                23,
+                1090519040
+              ],
+              [
+                57,
+                1090519040
+              ],
+              [
+                91,
+                1090519040
+              ],
+              [
+                21,
+                1089732608
+              ],
+              [
+                55,
+                1089732608
+              ],
+              [
+                6,
+                1088684032
+              ],
+              [
+                40,
+                1088684032
+              ],
+              [
+                74,
+                1088684032
+              ],
+              [
+                25,
+                1087635456
+              ],
+              [
+                59,
+                1087635456
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 23,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 57,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 91,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                },
+                {
+                  "token_id": 21,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 55,
+                  "logit_bits": 1089732608,
+                  "logit": 7.625
+                },
+                {
+                  "token_id": 6,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 40,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 74,
+                  "logit_bits": 1088684032,
+                  "logit": 7.125
+                },
+                {
+                  "token_id": 25,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                },
+                {
+                  "token_id": 59,
+                  "logit_bits": 1087635456,
+                  "logit": 6.625
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 23,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 21,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 6,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 40,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 25,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 10,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 44,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 8,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 42,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 27,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 57,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 91,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              },
+              {
+                "token_id": 55,
+                "logit_bits": 1089732608,
+                "logit": 7.625
+              },
+              {
+                "token_id": 74,
+                "logit_bits": 1088684032,
+                "logit": 7.125
+              },
+              {
+                "token_id": 59,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 93,
+                "logit_bits": 1087635456,
+                "logit": 6.625
+              },
+              {
+                "token_id": 78,
+                "logit_bits": 1086586880,
+                "logit": 6.125
+              },
+              {
+                "token_id": 76,
+                "logit_bits": 1085800448,
+                "logit": 5.75
+              },
+              {
+                "token_id": 61,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              },
+              {
+                "token_id": 95,
+                "logit_bits": 1084751872,
+                "logit": 5.25
+              }
+            ]
+          },
+          {
+            "name": "k1_large",
+            "V": 256,
+            "split": 128,
+            "k": 1,
+            "seed": 13,
+            "shard_a": [
+              0,
+              128
+            ],
+            "shard_b": [
+              128,
+              256
+            ],
+            "a_loc": 1,
+            "b_loc": 2,
+            "a_pid": 30006,
+            "b_pid": 30008,
+            "oracle_global": [
+              [
+                12,
+                1090519040
+              ]
+            ],
+            "a_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 2,
+              "peer_pid": 30008,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 1,
+              "own_pid": 30006,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "b_coord": {
+              "ready": true,
+              "target_found": true,
+              "global_topk": [
+                {
+                  "token_id": 12,
+                  "logit_bits": 1090519040,
+                  "logit": 8.0
+                }
+              ],
+              "peer_locality": 1,
+              "peer_pid": 30006,
+              "peer_host": "Bitas-MacBook-Air.local",
+              "own_locality": 2,
+              "own_pid": 30008,
+              "own_host": "Bitas-MacBook-Air.local",
+              "hpx_composition": {
+                "action_dispatched": true,
+                "future_ready": true,
+                "continuation_executed": true,
+                "result_delivered": true
+              }
+            },
+            "a_local": [
+              {
+                "token_id": 12,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ],
+            "b_local": [
+              {
+                "token_id": 148,
+                "logit_bits": 1090519040,
+                "logit": 8.0
+              }
+            ]
+          }
+        ],
+        "root_ready": {
+          "who": "root",
+          "pid": 30005,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092244254,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "locality_id": 0
+        },
+        "a_identity": {
+          "pid": 30006,
+          "os_getpid": 30006,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "a_start": {
+          "started": true,
+          "locality_id": 1,
+          "membership": 2,
+          "pid": 30006
+        },
+        "a_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 30006
+        },
+        "b_identity": {
+          "pid": 30008,
+          "os_getpid": 30008,
+          "hostname": "Bitas-MacBook-Air.local",
+          "hpx_version_info": {
+            "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+            "hpx_version_full": "2.0.0"
+          },
+          "gil_declaration": "gil_used_default",
+          "experiment": "exp68",
+          "ext_file": "/Users/unick/Desktop/Repos/RayX/experiments/68_vocab_sharded_topk/build/exp68_actor_ext.cpython-311-darwin.so",
+          "abi_match": true
+        },
+        "b_start": {
+          "started": true,
+          "locality_id": 2,
+          "membership": 3,
+          "pid": 30008
+        },
+        "b_child_report": {
+          "checked": true,
+          "hpx_children": [],
+          "worker_pid": 30008
+        },
+        "a_health": {
+          "ok": true,
+          "pid": 30006,
+          "membership": 3,
+          "locality_id": 1
+        },
+        "b_health": {
+          "ok": true,
+          "pid": 30008,
+          "membership": 3,
+          "locality_id": 2
+        },
+        "a_stop_rc": 0,
+        "a_stop_error": null,
+        "b_stop_rc": 0,
+        "b_stop_error": null,
+        "a_destroyed": true,
+        "b_destroyed": true,
+        "a_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 30022,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "b_recreate": {
+          "ext_importable": true,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "ok": true,
+          "pid": 30021,
+          "hostname": "Bitas-MacBook-Air.local"
+        },
+        "root_final": {
+          "who": "root",
+          "pid": 30005,
+          "hostname": "Bitas-MacBook-Air.local",
+          "wall_ms": 1784092248480,
+          "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+          "max_membership": 3,
+          "final_membership": 1,
+          "leave_observed": true
+        },
+        "root_exit_path": "finalized_clean",
+        "actor_pids_gone": true,
+        "orphans": []
+      }
+    }
+  ],
+  "saturation_diagnostic": [
+    {
+      "rep": 1,
+      "case": "cross_both",
+      "overlap_observed": true,
+      "progressed_under_dest_saturation": true,
+      "affects_verdict": false
+    },
+    {
+      "rep": 2,
+      "case": "cross_both",
+      "overlap_observed": true,
+      "progressed_under_dest_saturation": true,
+      "affects_verdict": false
+    },
+    {
+      "rep": 3,
+      "case": "cross_both",
+      "overlap_observed": true,
+      "progressed_under_dest_saturation": true,
+      "affects_verdict": false
+    }
+  ],
+  "safe_claim": "On the tested local environment (CPython 3.11 GIL build, Ray 2.55.1, HPX commit 20bc3d4bf3...), two Ray actor workers hosting HPX localities in one shared runtime executed a deterministic vocabulary-sharded top-k reduction in BOTH coordinator directions over HPX actions/futures, with exact token-ID and float32-bit agreement against an independent global oracle across a 7-case matrix, and clean lifecycle."
+}

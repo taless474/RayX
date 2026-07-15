@@ -1,0 +1,7 @@
+build/
+build*/
+_exp66_runs/
+__pycache__/
+*.so
+*.dylib
+*.o
