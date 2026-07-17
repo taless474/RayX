@@ -4,634 +4,305 @@
   <img src="docs/figures/logo.png" alt="RayX logo" width="280">
 </p>
 
-**RayX** is an experimental **Ray-hosted HPX-native runtime**. It asks a narrow
-question: can a long-lived Ray actor host a narrow HPX-native runtime while
-preserving useful HPX execution semantics — futures, async work, cooperative
-suspension, cancellation, admission/backpressure, and local native actor state —
-across the Python/Ray boundary?
+**RayX** explores a hybrid distributed-runtime architecture in which **Ray** manages node
+placement, actor lifecycle, supervision, and the island-level restart boundary, while **HPX** provides
+native C++ actions, futures, and cross-locality composition running **inside Ray-hosted
+worker processes**. Instead of running two distributed systems side by side, RayX moves the
+integration boundary into the Ray actor process itself: a Ray actor *is* an HPX locality.
 
-* **Ray** owns the outer distributed boundary: actor placement, process
-  lifecycle, and Python-ecosystem integration.
-* **RayX/HPX** owns the local native runtime *inside* one Ray actor: fixed
-  registered native operations, local native actors, HPX futures/continuations,
-  runtime lanes, cancellation, admission/backpressure, and shutdown.
-* The **benchmark/experiment harness** is synthetic evidence infrastructure used
-  to isolate and validate adapter/runtime mechanisms — not real model inference,
-  not Ray Serve, and not a Ray replacement.
+RayX is a **research prototype**. Its workloads are synthetic, its topologies are small,
+and every claim below is scoped to the experiment that produced it.
 
-**Naming:** **RayX** = this repo / project (the Ray-hosted HPX-native runtime
-exploration plus its synthetic evidence harness); **`rayx`** = the Python package
-(the thin `Engine` frontend over HPX service lanes, and the experimental
-`rayx.runtime` of fixed registered native operations and local native actors).
+**Naming:** **RayX** = this repository (the hybrid-runtime exploration plus its synthetic
+evidence harness); **`rayx`** = the Python package (a thin `Engine` frontend over HPX
+service lanes, and the experimental `rayx.runtime` of fixed registered native operations
+and local native actors).
 
-## What this project is
+## The problem
 
-* An experimental **Ray-hosted HPX-native runtime**: a long-lived Ray actor
-  hosts one in-process RayX/HPX runtime, Ray owns placement/lifecycle, and only
-  plain values/results cross the Ray boundary.
-* `rayx.runtime`, the experimental native runtime — fixed registered native
-  operations and local native actors over HPX-native FIFO `RuntimeLane`s, with
-  HPX futures, cooperative cancellation, bounded admission, and shutdown.
-* A **synthetic evidence harness** over a shared workload contract and v1 metrics
-  schema — the `rayx` `Engine` frontend, a Ray actor baseline (public Ray APIs),
-  and an HPX-native C++ baseline — used to isolate adapter/runtime mechanisms.
-* Exploratory, narrow side-seams: a local **`rayx.endpoint`** AF_UNIX seam and
-  experiment-only **HPX connect-mode / Ray-orchestrated HPX-island** probes. These
-  are standalone mechanism experiments — not shipped `rayx.runtime` API, not a
-  fabric, and not performance evidence.
+Ray is very good at cluster orchestration: scheduling, actor lifecycle, placement,
+fault-domain management, and Python-ecosystem integration. But when an application's inner
+loop is a fine-grained or deeply composed **native** distributed operation — many small
+cross-node calls, native fan-in/fan-out, continuation-composed reductions — each hop may
+pay Python-boundary, serialization, and orchestration costs that the operation itself does
+not need.
 
-## What this project is not
+HPX approaches the same space from the opposite side: a C++ runtime with lightweight
+threads, distributed actions, and future-based composition — but without Ray's
+actor-management, cluster-supervision, and Python-first operational model.
 
-* Not a Ray replacement, and not a fork of Ray.
-* Not modifying Ray Core internals; not Ray Serve / Ray Train / Ray object store.
-* The `Engine` / `SyntheticActor` harness runs synthetic C++ work only, and the
-  experimental `rayx.runtime` prototype runs only fixed registered native
-  operations and fixed registered native actor methods — neither runs arbitrary
-  Python functions remotely, and neither has an object store / `ObjectRef`, Ray
-  task semantics, or real model inference.
-* Not benchmarking real model inference.
+RayX investigates whether the two can be **combined rather than chosen between**: Ray keeps
+the responsibilities it is best at (placement, lifecycle, supervision, restart policy,
+Python-facing API), and selected Ray actors internally join a shared HPX runtime that
+carries the native distributed operation path. This is not a claim that Ray is deficient —
+the entire design depends on Ray doing its half well.
 
-## Architecture at a glance
+## Architecture
 
-Four distinct paths exist in this repo, and they should not be conflated:
+```text
+        Ray controller / driver (Python)
+                    │  placement, lifecycle, supervision
+        ┌───────────┴───────────┐
+   Ray actor A             Ray actor B
+   ── in-process ──        ── in-process ──
+   HPX locality A  ◄─────► HPX locality B
+              HPX actions / futures /
+              continuations (TCP parcelport)
 
-```
-Python caller ──┬─ rayx.Engine ───► HPX-backed FIFO service lanes   (synthetic harness)
-                └─ rayx.runtime ──► fixed native ops + local native  (experimental,
-                                    actors over HPX RuntimeLanes      one process)
-
-Ray actor (long-lived) ── hosts ──► one in-process RayX/HPX runtime (in-process
-                                    (Ray owns placement/lifecycle)   direction)
-
-experiments/ only ───────────────► standalone HPX root ⇄ connector  (evidence-only;
-                                    localities, connect-mode TCP;    NOT shipped
-                                    launched by Python/Slurm/Ray     rayx.runtime API)
+   Work-free, separately supervised HPX root locality
+   (island anchor; runs no application work)
 ```
 
-| Path | What it is | Where it runs |
-|---|---|---|
-| **`rayx.Engine`** (+ `SyntheticActor`) | Thin Python frontend over local HPX-backed service lanes; the synthetic workload harness | Local process |
-| **`rayx.runtime`** | Experimental fixed registered native operations and local native actors | One local process |
-| **Ray-hosted HPX runtime direction** | One long-lived Ray actor hosts one local HPX-native runtime; Ray owns placement and process lifecycle | Inside one Ray actor process |
-| **Distributed HPX-island experiments** | Standalone experiment-only HPX localities, sometimes launched or supervised by Ray/Slurm | Standalone processes under `experiments/` — **not** the shipped `rayx.runtime` API |
+**Ray owns:** node placement (hard `NodeAffinity` in the experiments), actor creation and
+destruction, process supervision and health, the intended whole-island restart policy, and the
+Python-facing API.
 
-## What exists today
+**HPX owns:** the in-process native runtime (started with `hpx::start` in connect mode on
+background threads of the actor worker — no child process), locality identity, TCP parcel
+transport, registered C++ actions, futures and continuations, and native distributed
+composition between actor-hosted localities.
 
-Implemented and runnable now:
+In the HPX-native topology demonstrated by exp67 and exp68, the actors hold **no Ray
+handles to each other**: the controller holds the Ray actor handles, while actor-to-actor
+application work travels through the HPX parcelport. Exp69 later introduced a deliberately
+matched Ray-mediated comparison arm alongside this HPX-mediated path.
 
-* **`rayx.Engine` / `SyntheticActor`** — the Python frontend over serialized FIFO
-  service lanes (`ServiceLane` default; opt-in `HpxLane` behind the same
-  contract), with `lane_stats()`, bounded admission (`QueueFullError`), queued and
-  chunk-boundary cancellation, `get` / `wait` / `as_completed`, and shutdown
-  drain. Synthetic workloads only.
-* **`rayx.runtime`** (*experimental*) — fixed registered native operations
-  (`square`, `add`, `busy_sum`, `fanout_sum`, `park_ms`, and the other registered
-  diagnostics) plus the local native `CounterActor`
-  (`Runtime.create_actor("counter", ...)` → `ActorHandle.call(...)`). Futures
-  with `get` / `wait` / `as_completed`, cooperative cancellation, bounded
-  admission, and clean shutdown where supported. Closed `int64`/`double` values
-  only — no object store, no arbitrary Python execution.
-* **Baselines** — a Ray actor baseline (public Ray APIs only) and an HPX-native
-  C++ baseline, both over the shared workload contract and v1 JSONL metrics
-  schema.
-* **Experiment-only distributed pieces** (*evidence-only*) — standalone HPX
-  connect-mode binaries and Python→HPX pybind bindings under `experiments/`.
-  These exist to produce evidence and are never shipped `rayx` API.
+The repository also contains a separate, earlier **local** direction: `rayx.Engine`
+(synthetic FIFO service-lane harness) and the experimental `rayx.runtime` (fixed registered
+native operations and local native actors over HPX runtime lanes in one process). These are
+narrow by design — no object store, no arbitrary remote Python execution, no Ray
+replacement semantics — and are documented in the reference/design docs below.
 
-The `Engine` harness and baselines are synthetic evidence infrastructure;
-`rayx.runtime` is experimental; everything distributed is evidence-only.
+## What is implemented
 
-## Maturity at a glance
+The distributed evidence arc, one experiment per gate. Each row links to a durable report
+containing the full methodology, gates, accepted job IDs, and artifact hashes.
 
-| Area | Implemented? | Validated? | Scope |
+| Exp | Question | Accepted conclusion | Report |
 |---|---|---|---|
-| Local `rayx.Engine` service lanes | Yes | Yes — synthetic benchmark arc (benchmarks 01–10, experiments 01–23) | Local process; synthetic workloads only |
-| Local `rayx.runtime` fixed native ops | Yes (experimental) | Yes — contract smokes, unit/integration tests (exp24–26, 39–44) | One process; closed `int64`/`double`; no object store |
-| Local native actors (`CounterActor`) | Yes (experimental) | Yes — contract coverage (exp24–26, 30) | Local, fixed registered methods only |
-| HPX runtime hosted inside one Ray actor | Yes (composition) | Yes — exp27–38 in-process arc | One Ray actor, single node; no cross-actor HPX |
-| Ray-orchestrated HPX child-process island | Experiment-only | Bootstrap/supervision validated (exp52, 57) | Standalone child processes, not Ray actor workers |
-| **Networking HPX connect-mode locality inside one Ray actor worker** | Experiment-only | Yes — exp66 local (3/3) + Rostam cross-node (3/3) | One actor; in-process by exact PID identity, no HPX child; exp67 extends this to two actors |
-| **Two Ray actors sharing one HPX runtime (actor-to-actor HPX)** | Experiment-only | Yes — exp67 local (3/3) + Rostam three-node (3/3) | Two distinct actors on distinct nodes; bidirectional actor-to-actor HPX actions; work-free root; the [across-Ray-actors gate](docs/design/rayx_hpx_to_hpx_across_ray_actors_gate.md) is now closed |
-| **Deterministic LLM-shaped distributed workload (vocab-sharded top-k)** | Experiment-only | Yes — exp68 local (3/3) + Rostam three-node (3/3) | Exact token-ID + float32-bit agreement vs an independent oracle; both coordinator directions; synthetic, **not** real inference |
-| Distributed same-axis experiment path | Experiment-only | Completed evidence (exp61–64 on Rostam; exp65 on macOS loopback and reproduced across two Rostam nodes) | Per-arm measurements and mechanism probes only |
-| Real model inference / serving | No | — | Out of scope |
+| 61 | Can Ray and Python→HPX calls be measured at one identical Python caller boundary? | Yes — matched R=5 cross-node and same-node QD1 bands, per-arm only | [exp61](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) |
+| 62 | Does the same-axis method extend to distributed fanout/fan-in? | Yes — matched R=5 three-node N=8 all-remote band, per-arm only | [exp62](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) |
+| 63 | Is HPX-native cross-node composition viable? | Yes — the earlier stall was a connector-lifetime race, not an HPX progress defect; native waits validated after hardening | [exp63](experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md) |
+| 64 | How does response-payload size behave per runtime, and can a native passive wait serve it? | Matched R=5 payload ladder band (within-arm distributions); an HPX timed-wait wakeup bug isolated, upstream-confirmed, and verified fixed | [exp64](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md) |
+| 65 | Can an HPX island admit a locality on demand rather than assembling up front? | Yes — demand-ordered admission, loopback and two-node, count-free discovery, clean lifecycle | [exp65](experiments/65_demand_admission/demand_triggered_admission.md) |
+| 66 | Can one Ray actor worker host a networking HPX locality **in-process**? | Yes — exact PID identity, zero HPX child processes, clean lifecycle, locally and cross-node | [exp66](experiments/66_hpx_runtime_inside_ray_actor/hpx_runtime_inside_ray_actor.md) |
+| 67 | Can two Ray actors join one shared HPX runtime and act on each other? | Yes — bidirectional actor-to-actor HPX actions across three nodes, work-free root, clean lifecycle | [exp67](experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx.md) |
+| 68 | Can that topology run a useful, exactly checkable distributed operation? | Yes — deterministic vocabulary-sharded top-k, bit-exact against an independent oracle in both directions | [exp68](experiments/68_vocab_sharded_topk/vocab_sharded_topk.md) |
+| 69 | How do Ray-mediated and HPX-mediated orchestration of the identical workload compare under matched, verified conditions? | Completed (Slices 0–3): QD1 latency, bounded-concurrency goodput, and a causal resource decomposition resolving the one observed reversal | [exp69](experiments/69_same_axis_topk_perf/same_axis_topk_perf.md) |
+| 70 | Locality supervision: what happens on dispatch to a departed locality, and how should lifetime be supervised? | **In progress** — a minimal upstream reproducer for the connector-lifetime gap is built; not accepted evidence | [exp70 reproducer](experiments/70_hpx_locality_supervision/upstream_reproducer/README.md) |
 
-The short version: local `rayx` and local Ray-hosting have real, validated code
-paths; the standalone distributed experiments have completed evidence; and the
-Ray-hosted HPX arc has now closed three gates in sequence — **a networking HPX
-connect-mode locality runs in-process inside a Ray actor worker (exp66); two Ray
-actors share one HPX runtime with verified bidirectional actor-to-actor HPX actions
-(exp67); and a deterministic LLM-shaped vocabulary-sharded top-k runs across two
-actors with exact token-ID and float32-bit agreement against an independent oracle
-(exp68) — each demonstrated locally and across three Rostam nodes**. exp69, a strict
-same-axis Ray-mediated vs HPX-mediated performance comparison, is **planned, not yet
-evidence**.
+Everything distributed above is **experiment-only** evidence code under `experiments/` —
+none of it is shipped `rayx` API, and the local `rayx.runtime` prototype has gained no
+distributed actions.
+
+## Key findings
+
+1. **HPX can run networking-capable localities directly inside Ray actor worker
+   processes.** Proven by exact PID identity (an HPX action executed on the actor locality
+   returns the actor worker's own PID) and empty child-process scans — no child or sidecar
+   process model is needed (exp66).
+2. **Multiple Ray actors can participate in one shared HPX runtime across nodes**, with
+   membership, identity, and lifecycle verified per repetition (exp67).
+3. **Ray can retain placement, lifecycle, and supervision while actor-to-actor distributed
+   work runs entirely through HPX actions** — by construction, the actors hold no mutual
+   Ray handle on the application path (exp67, exp68).
+4. **Exact deterministic distributed computation has been demonstrated with independent
+   bit-level verification**: token IDs, ordering, and float32 bit patterns of a
+   vocabulary-sharded top-k match an independent oracle exactly, in both coordinator
+   directions, across nodes (exp68).
+5. **Same-boundary measurements show the performance outcome depends on workload and
+   resource regime — there is no universal winner.** Payload size, concurrency level, and
+   execution-thread supply each changed which arm looked better or whether they converged
+   (exp61–64, exp69).
+6. **An apparent orchestration-path reversal was actually a resource artifact.** exp69's
+   C=4 reversal reproduced under the original two-worker HPX configuration and disappeared
+   when HPX worker supply was matched to the concurrency level — classified as a
+   thread-supply resource asymmetry with no implementation defect (exp69 Slice 3).
+7. **Working with this stack surfaced and verified an upstream HPX fix.** exp64 isolated a
+   suspended timed-wait wakeup defect (`future::wait_for` resuming only at its timeout);
+   upstream confirmed it as a bug fixed by HPX PR #7367, and the identical discriminator
+   verified `waiter_resumed_on_ready` on the fixed commit — the build now used by
+   exp66–69.
+8. **Lifecycle contracts are load-bearing.** A connector serve-window race masqueraded as
+   a native-composition progress failure until an explicit heartbeat/completion lifetime
+   protocol was introduced (exp63); demand-ordered late admission works on the tested clean
+   path, while graceful disconnect under load, non-root failure eviction, and root-loss
+   recovery remain open limitations (exp65, exp70 direction).
+
+## Selected performance evidence
+
+Three scoped examples from exp69 — the only experiment licensed to compare the two
+orchestration paths, and only for its exact workload, topology, and gates. Both arms run
+inside the **same** Ray-hosted, HPX-resident actor topology (this is not standalone Ray vs
+standalone HPX); every timed sample is verified bit-exactly after the timing boundary.
+Full context: [exp69 report](experiments/69_same_axis_topk_perf/same_axis_topk_perf.md).
+
+**QD1 latency, payload-oriented case (per-arm distributions).** For the P2 case
+(V=200,000, split 100,000, k=10,000 — the larger peer payload), single-in-flight
+caller-observed latency over 500 timed samples per rep, R=3, all samples exact: Ray-mediated
+arm p50 ≈ 57.5 ms; HPX-mediated arm p50 ≈ 34.9 ms (medians across reps). These are per-arm
+distributions; the accepted QD1 aggregates report the arms separately, and P1
+(local-compute-dominated) showed the arms nearly indistinguishable — the gap is
+case-dependent, not universal.
+
+**Bounded-concurrency P2/C=2 (licensed scoped ratios).** For the identical P2 workload,
+A-coordinator, three-node topology, C=2 in-flight requests, `num_cpus=2`, `hpx_threads=2`,
+N=1000 verified completions per batch, R=3, caller-observed boundary: HPX-mediated /
+Ray-mediated **verified-completion goodput ≈ 1.28** (repetition range 1.27–1.29), and
+Ray-mediated / HPX-mediated **p50 latency-under-load ≈ 1.25** (range 1.25–1.26). These are
+scoped ratios from exp69's gated review — they license no general speedup claim and no
+statement outside this exact workload and configuration.
+
+**Matched-resource causal result (no ratio).** At C=4 with the two-worker HPX
+configuration (`cpu2/ht2`), the HPX arm was worker-constrained: its peer-action concurrency
+pinned at 2 and its composite dispatch-to-continuation interval rose, and its goodput
+distribution sat below the Ray arm's. Raising the band to `cpu4/ht4` raised observed peer
+concurrency, dropped the composite interval to at or below the C=2 baseline, and the two
+per-arm goodput distributions **converged to the same approximate region**. No ratio or
+winner is computed for this slice; the finding is causal (thread supply), not comparative.
+
+## Why this may matter
+
+Design potential, explicitly not proven product outcomes:
+
+- **Keep Ray's ecosystem and operational model while adding native distributed
+  composition in selected actors** — applications would not have to leave Ray to get
+  native cross-node operation paths.
+- **Reduce unnecessary Python/object-boundary crossings** for operations that are natively
+  composable (fan-in, reductions, peer exchanges), where the experiments show the boundary
+  and orchestration costs are measurable.
+- **Explicit fault domains:** Ray supervises an HPX "island" as a unit — placement,
+  health, teardown, and whole-island restart — rather than distributed state being
+  implicit.
+- **A path for C++ framework and runtime developers** to expose native distributed
+  operations through Ray actors without adopting a child-process or sidecar model.
+- **Runtime interoperability as a research direction** — combining orchestration-first and
+  execution-first runtimes rather than forcing an exclusive choice.
+
+## Current limitations
+
+- **Research prototype.** No production packaging, security model, multi-tenancy, or
+  autoscaling integration.
+- **Synthetic CPU workloads only.** The top-k workload is LLM-*shaped*, not real
+  inference: no model weights, no tokenizer, no GPU path.
+- **Small fixed topologies.** At most three nodes and two actor-hosted localities plus a
+  root; no scale evidence.
+- **Clean-path lifecycle.** No transparent fine-grained failure recovery inside an HPX
+  island; whole-island restart is the failure policy; HPX root failure is not tolerated
+  (exp50/51 established that a poisoned root requires external island restart).
+- **Late admission exists, but elasticity does not.** One demand-ordered join on the clean
+  path is proven; graceful disconnect under in-flight work, non-root failure eviction, and
+  membership churn are open (exp70 is working this area, including an upstream
+  reproducer for dispatch-to-departed-locality behavior).
+- **Performance findings are workload- and resource-specific.** The licensed ratios cover
+  one workload case at one concurrency on one cluster; other cases showed parity,
+  case-dependent gaps, or resource-supply artifacts.
+- **Free-threaded Python and Python 3.14 are untested** (explicitly deferred slices).
+
+## Roadmap
+
+1. **Locality supervision (exp70, active):** heartbeat/failure detection for actor-hosted
+   localities, characterization of dispatch to departed localities, and upstream
+   engagement on connector-lifetime behavior.
+2. **Root isolation and supervised whole-island restart** as an explicit, tested policy
+   rather than an assumption.
+3. **Matched-resource comparison discipline** carried into any future band (the exp69
+   guard: for C ≥ 4, match worker supply or label the band oversubscribed).
+4. **Production-shaped native workloads** beyond closed-value probes, with the same
+   exact-verification discipline.
+5. **Model-serving integration exploration** (e.g., how an island would sit behind a
+   serving layer) — exploratory only.
+6. **GPU-aware or accelerator-local native operations** — currently absent.
+7. **Packaging and repeatable deployment** of the island bootstrap.
+8. **Upstream HPX improvements where generally useful** (the waiter-fix verification and
+   the exp70 reproducer are the model).
+
+## Collaboration
+
+RayX welcomes collaboration with industry and research groups working on distributed
+runtimes, actor systems, native execution, model serving, and fault-tolerant
+orchestration. Useful forms of collaboration include technical review, production-shaped
+workload design, engineering mentorship, compute support, internships, and sponsored
+student research.
+
+The most valuable next step would be to identify a real Ray or Ray Serve workload whose
+distributed native C++ subgraph could execute as an HPX island under Ray supervision, then
+evaluate it with the same correctness, lifecycle, and matched-resource discipline used in
+the experiments above.
+
+If any of the evidence above is relevant to your work — or looks wrong — issues and
+critique are welcome; every accepted claim links to a durable report with its gates,
+job IDs, and artifact hashes.
 
 ## Quickstart
 
-All commands assume the repo root as the working directory. Each benchmark driver
-writes a per-request JSONL file; `bench/analyze_jsonl.py` rolls it up into an
-aggregate summary under `results/`.
-
-### Easiest path: Ray-only baseline (no HPX toolchain needed)
+The local harness runs without any cluster. Each benchmark driver writes per-request
+JSONL; `bench/analyze_jsonl.py` rolls it up.
 
 ```bash
+# Ray-only baseline (no HPX toolchain needed)
 pip install -r requirements.txt   # ray
 python bench/run_ray_baseline.py --service-ms 0 --concurrency 1 \
     --requests 1000 --out results/ray_noop_c1.jsonl
 python bench/analyze_jsonl.py results/ray_noop_c1.jsonl
 ```
 
-### Local HPX / `rayx` path
-
-*Not* a one-line setup. The `rayx` frontend and the HPX-native baseline require
-HPX v1.11.0 built/installed from source, then the local pybind11 `_rayx`
-extension built against that prefix. See
-[docs/hpx_build_notes.md](docs/hpx_build_notes.md) for the full build. Once HPX is
-installed:
+The `rayx` frontend and HPX-native baseline require HPX built from source, then the local
+pybind11 `_rayx` extension built against that prefix — see
+[docs/hpx_build_notes.md](docs/hpx_build_notes.md). Once built:
 
 ```bash
-pip install -r requirements-python.txt   # pybind11
-
-cmake -S python -B python/build -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DPYBIND11_FINDPYTHON=ON \
-    -DCMAKE_PREFIX_PATH="/path/to/hpx-install;$(python -m pybind11 --cmakedir)"
-cmake --build python/build
-
-python bench/run_hpx_python_baseline.py --service-ms 0 --concurrency 1 \
-    --requests 1000 --num-lanes 1 --hpx-threads 4 \
-    --out results/rayx_noop_c1.jsonl
-python bench/analyze_jsonl.py results/rayx_noop_c1.jsonl
+python examples/rayx_runtime_basic.py     # smallest native-runtime tour
+python bench/smoke_local.py               # local smoke/golden gates (skips unavailable tiers)
 ```
 
-### `rayx.runtime` example
-
-With `_rayx` built (previous step), the smallest native-runtime tour is:
-
-```bash
-python examples/rayx_runtime_basic.py
-```
-
-Other runnable API tours live under [examples/](examples/) (`rayx_basic.py`,
-`rayx_actor_pool.py`, `rayx_lane_impl.py`, `rayx_bounded_admission.py`,
-`rayx_runtime_basic.py`). To run the local smoke/golden gates in one step, use the
-stdlib-only aggregator `python bench/smoke_local.py` (it skips any unavailable
-tier — no built `_rayx`, no native binary, no Ray). The full `rayx` API and the
-`rayx.runtime` surface are documented in the reference docs (see the
-documentation map).
-
-### Distributed experiments are not part of the quickstart
-
-The distributed probes (exp57–66) need Rostam/Slurm-specific setup (multi-node
-exclusive allocations, pinned subnets, experiment-local binaries) or
-experiment-local standalone builds. They are evidence experiments under
-`experiments/`, not part of the normal quickstart and never part of the shipped
-`rayx` API.
-
-## Current status
-
-Ray actor baseline, HPX-native synthetic baseline, and the `rayx` Python frontend
-all exist and run. The stable comparison anchor across the whole arc is the
-actor-like, single-`std::thread` `ServiceLane` (one serialized FIFO lane), shared
-by the HPX-native baseline and `rayx`; the public `rayx` API and the v1 benchmark
-JSONL schema (still `1`) are unchanged across the additions below.
-
-Evidence spans the synthetic serving-control benchmarks, the `rayx.runtime` native
-operations and local native actors, Ray-hosting composition, in-process HPX
-composition, an HPX-island lifecycle policy (now including exp65 demand-triggered
-connect-mode admission, demonstrated on loopback and across two Rostam nodes), and
-a distributed same-axis / payload-ladder evidence arc
-(experiments 61–64, with the exp64 Phase A→A4 native-readiness diagnostic and its
-waiter-fix verification complete). The full chronological **“what we learned”**
-index lives in
-[docs/evidence_index.md](docs/evidence_index.md); the headline summary is below.
-
-exp64 (through its Phase A→A4 readiness diagnostic and the follow-up waiter-fix
-verification) and exp65 (both its loopback and Rostam cross-node slices) are
-completed evidence. Exp64 isolated a suspended timed-wait wakeup defect on HPX
-1.11; the upstream discussion confirmed it as an HPX bug fixed by PR #7367, and
-the identical discriminator rerun against HPX master commit `20bc3d4b`
-(`20bc3d4bf3068383edcb63be13f22e9ff95842fa`) resumed on readiness across four
-runs and two thread configurations. Version policy: new distributed experiments
-use that verified fixed build unless a historical-control run explicitly requires
-HPX 1.11; older evidence remains scoped to the HPX versions originally recorded;
-the repository-wide HPX 1.11 pin is unchanged. The HPX serialization
-runtime-path blocker remains open, so the stronger payload-ladder grade is still
-not earned.
-
-exp66 is completed evidence for the pivotal in-worker hosting question: **a
-networking HPX connect-mode locality can run in-process inside a Ray actor worker,
-proven by exact PID identity and the absence of HPX child processes, locally and
-across two Rostam nodes.** Ray handled actor placement and lifecycle; HPX actions
-carried the distributed operation and its result; a separately supervised,
-work-free root locality remained on its own node; and actor health, graceful
-teardown, and actor recreation all passed. Both slices ran against the verified
-fixed HPX build `20bc3d4b` — the local slice on CPython 3.11.15 (3/3), the Rostam
-cross-node slice (Slurm job 170524, medusa00 root/prober, medusa01 Ray actor, TCP
-parcelport over `10.42.5.x`) on CPython 3.12.3 (3/3). exp66 is the prerequisite for
-exp67, which delivered it (below). exp66's own scope was **one actor only**; **not**
-Python 3.14 and **not** free-threaded Python (both deferred); no elasticity and no
-individual-locality failure recovery; and no performance claim (the actor-thread
-saturation case is a non-gating diagnostic that progressed in every rep, not a
-performance or GIL verdict).
-
-exp67 closed the two-actor shared-runtime gate. **Two distinct Ray actor worker
-processes each hosted a networking HPX connect-mode locality in-process (exact PID
-identity for both, zero HPX child processes) and joined one shared HPX runtime under
-a separately supervised, work-free root; the load-bearing proof is bidirectional
-actor-to-actor HPX — A→B proved B's PID, locality, and hostname plus the closed
-oracle, and B→A proved A's.** Neither actor holds a Ray handle to the other, so the
-operation path is HPX, not Ray (proven by construction, not by direct wire
-instrumentation). Both slices ran against fixed HPX `20bc3d4b`: the local slice on
-CPython 3.11.15 (3/3), and the Rostam three-node slice (accepted job 170744; smoke
-job 170743) on CPython 3.12.3 (3/3) — root/controller on medusa00, actor A
-hard-placed (`NodeAffinitySchedulingStrategy(soft=False)`) on medusa01, actor B on
-medusa11 — three roles on three distinct nodes, endpoints pinned to `10.42.5.x`, both
-directions crossing nodes, work-free root, clean lifecycle, actor recreation, and
-orphan-clean sweeps on all three nodes. Kept explicit: **not** Python 3.14 or
-free-threaded; no elasticity, churn, or individual-locality recovery; **no
-performance claim**; operation-over-HPX-not-Ray proven by construction; not a
-production API.
-
-**Architecture, stated safely:** *Ray provides placement, lifecycle, and supervision,
-while Ray-hosted HPX localities in one shared runtime execute distributed actions,
-futures, and composition directly between actors.*
-
-exp68 closed the first deterministic LLM-shaped distributed-workload gate on top of
-exp67's two-actor runtime. The workload is a **synthetic** vocabulary-sharded top-k
-(next-token candidate-selection shape, **not** real inference): deterministic,
-exactly-representable float32 logits on a 1/8 grid; two disjoint, complete contiguous
-vocabulary shards; one total order (higher logit first, then lower global token id on
-ties). Each actor computes its shard's local top-k; a coordinator fetches the peer's
-candidates over an HPX action and merges through an HPX future/continuation; the
-global top-k is checked bit-exactly against an independent controller oracle, in both
-coordinator directions, across a seven-case matrix. **Two Ray actors on distinct
-nodes executed the deterministic vocabulary-sharded top-k operation through HPX
-actions/futures in both coordinator directions, with exact token-ID, ordering, and
-float32-bit agreement against an independent oracle.** Local (CPython 3.11.15, 3/3)
-and Rostam three-node (accepted job 170746; smoke job 170745; CPython 3.12.3, 3/3;
-same medusa00/01/11 topology). The cross-node run adds the serialization
-discriminator: **204 peer-transferred candidate bit patterns checked (68 per
-repetition), zero mismatches** — bit-exact candidate values survived the cross-node
-HPX action path (no direct internal serialization instrumentation claimed). Kept
-explicit: **not** real LLM inference; no model weights, tokenizer, GPU, or framework;
-**not** Python 3.14 or free-threaded; no elasticity, churn, or failure recovery; **no
-latency, throughput, ratio, speedup, or winner claim**; not a production API.
-
-exp69 is the next planned step: a **strict same-axis Ray-mediated vs HPX-mediated
-performance comparison** of this exact workload — same actors, same placement, same
-Python caller boundary, correctness verified before any timing sample counts. It is
-**planned only: no results and no ratio/speedup/winner claim exist**, and any future
-comparison must stay exact-case, exact-boundary, exact-placement, and version scoped.
-
-## Current evidence snapshot (experiments 61–68)
-
-**Evidence in one paragraph.** The distributed evidence progressed in eight steps:
-**exp61** timed one scalar remote call with both arms at the same Python caller
-boundary; **exp62** extended that same-axis method to a distributed N=8
-fanout/fanin; **exp63** traced an HPX native-composition failure to connector
-lifetime and validated native composition once lifetime was hardened; **exp64**
-added the response-payload-size axis (within-arm distributions only) plus a
-suspended timed-wait readiness diagnostic whose defect was later verified fixed
-on an exact HPX master commit; **exp65** showed connect-mode
-admission can be demand-ordered rather than assembled up front, on loopback and
-across two real nodes; **exp66** moved HPX itself *inside* a Ray actor worker —
-a networking connect-mode locality running in-process (proven by exact PID
-identity, no HPX child); **exp67** then had two Ray actors share one HPX runtime
-with verified bidirectional actor-to-actor HPX actions; and **exp68** ran a
-deterministic LLM-shaped vocabulary-sharded top-k across those two actors with exact
-token-ID and float32-bit agreement against an independent oracle — exp66–68 each
-demonstrated locally and across three Rostam nodes. Together these
-inform the future distributed design direction — they are **not** a shipped
-distributed RayX API, and none of them licenses a Ray-vs-HPX ratio, speedup, or
-winner.
-
-Experiments 61, 62, and 64 use a single Python caller boundary on Rostam
-(medusa nodes, subnet `10.42.5.`), while exp63 is the HPX-native
-composition/progress diagnostic that explains and hardens the HPX side. exp65 is
-a separate connect-mode **admission** mechanism probe with two slices — macOS
-loopback and a Rostam two-node cross-node reproduction (medusa00/medusa01, Slurm
-job 170014) — lifecycle evidence, not a same-axis timing arm.
-Every result reports the two arms **separately**: **no ratio, no speedup, no cross-arm difference, no
-winner**. Throughout, the HPX side is an **experiment-only Python→HPX action path** (a pybind binding),
-**not** the shipped `rayx.runtime` API and **not** distributed RayX; the closed-`int64` oracle / payload
-digest is the only cross-arm correctness anchor. For the measured exp62 and exp64 HPX arms, the HPX composition is
-`root_flat_gather_poll`, a proven interim gather baseline, not a final
-HPX-native collective.
-
-| Experiment | Question | Setup | Status | Safe to claim | Not claimed |
-|---|---|---|---|---|---|
-| **exp61** | Scalar remote-call RTT at one Python boundary | Ray actor RPC vs experiment-only Python→HPX scalar action; medusa00→01; R=5; closed-`int64` | **Same-axis**; all gates passed | Per-arm RTT bands for this QD1 closed-`int64` call at the same boundary | Any ratio/speedup/winner; production API; broad benchmark |
-| **exp62** | Distributed fanout/fanin RTT at one Python boundary | N=8 **all-remote**, 4/4 hard-pinned; medusa00→01/02; R=5; K=1000/W=100 | **Same-axis**; strongest distributed scalar evidence | Per-arm RTT bands for this closed-`int64` N=8 fanout/fanin | Ratio/speedup/winner; production distributed API; final HPX collective |
-| **exp63** | Is HPX-native cross-node composition viable? | Native `when_all`/`dataflow` reduce + depth-2 star-of-partials; connector-lifetime hardening | **Mechanism validated** (20/20 per mode) | Native composition works once connector lifetime is correct; root-of-partials works cross-node | No Ray comparison; no performance numbers; no `hpx::collectives` |
-| **exp64** | How does response-payload size behave, per runtime? | Payload ladder `[0..256 KB]`; HPX poll-gather vs Ray coordinator; R=5 band, measured=30 | **`matched_band_r5`**; within-arm only; **Phase A→A4 diagnostic + waiter-fix verification complete** | Each arm's own within-arm p50/p90 payload-size curve; structural repeatability; scoped `waiter_resume_at_timeout` signature on HPX 1.11, verified fixed (`waiter_resumed_on_ready`) on master `20bc3d4b` with PR #7367 | Cross-arm comparison; ratio/speedup/winner; p99; `distributional_payload_ladder`; general HPX claim (fix scoped to the exact tested commit) |
-| **exp65** | Can connect-mode admission be demand-ordered? | Root alone → local HPX work → external demand event → one connector; two slices: macOS loopback (HPX 1.11, plain-Python controller) and Rostam cross-node (medusa00→medusa01, TCP `10.42.5.x`, job 170014) | **Mechanism pass**, 3/3 both arms in both slices | Demand-ordered admission on loopback and across two real nodes, within a boot-time `--hpx:expect-connecting-localities` willingness: count-free discovery, verified remote action, graceful leave, clean finalize | HPX inside Ray actors; elasticity during in-flight work; concurrent churn; failure recovery; lazy TCP connection establishment; anything beyond two nodes; performance |
-| **exp66** | Can a networking HPX locality run in-process inside a Ray actor worker? | One work-free root + one Ray actor hosting a connect-mode HPX locality in-process (`hpx::start`, no child); local slice (CPython 3.11.15, 3/3) and Rostam cross-node (job 170524, medusa00 root/prober → medusa01 actor, TCP `10.42.5.x`, CPython 3.12.3, 3/3); fixed HPX `20bc3d4b` | **In-worker hosting pass**, 3/3 each; prerequisite for exp67 | In-process hosting by exact PID identity (no HPX child), hard actor placement on the actor node, verified cross-node HPX action + oracle on the actor locality, idle progress, clean graceful lifecycle, actor recreation, no orphans | One actor (exp67 extends to two); Python 3.14; free-threaded Python; elasticity or individual-locality recovery; any performance/GIL verdict (saturation is a non-gating diagnostic) |
-| **exp67** | Can two Ray actors share one HPX runtime with actor-to-actor HPX actions? | Work-free root + two Ray actors each hosting a connect-mode HPX locality in-process; bidirectional A↔B HPX actions; local slice (CPython 3.11.15, 3/3) and Rostam **three-node** (root medusa00, actor A medusa01, actor B medusa11; hard `NodeAffinity(soft=False)`; TCP `10.42.5.x`; smoke job 170743, accepted job 170744; CPython 3.12.3, 3/3); fixed HPX `20bc3d4b` | **Two-actor shared-runtime pass**, 3/3 each; across-Ray-actors gate closed | PID identity for both actors (no HPX child), both hard-placed on distinct nodes, A→B proves B's PID/locality/hostname + oracle and B→A proves A's, both directions cross nodes, work-free root, clean lifecycle/recreation/orphan sweeps | Python 3.14; free-threaded Python; elasticity/churn/individual-locality recovery; any performance claim; production API (operation-over-HPX-not-Ray proven by construction, not wire instrumentation) |
-| **exp68** | Can two Ray-hosted HPX actors run a deterministic LLM-shaped distributed workload exactly? | Synthetic vocab-sharded top-k (deterministic float32 logits, disjoint shards, exact tie-break); local top-k + A- and B-coordinated HPX-future/continuation merge vs an independent oracle; 7-case matrix; local (CPython 3.11.15, 3/3) and Rostam three-node (medusa00/01/11; smoke job 170745, accepted job 170746; CPython 3.12.3, 3/3); fixed HPX `20bc3d4b` | **Exact-workload pass**, 3/3 each; both coordinator directions | Exact token-ID, ordering, and float32-bit agreement vs the oracle in both directions; **204 cross-node peer-transferred candidate bit patterns (68/rep), zero mismatches**; coordinator symmetry; clean lifecycle | Real LLM inference; model/tokenizer/GPU/framework; Python 3.14 / free-threaded; elasticity/churn/recovery; **latency/throughput/ratio/speedup/winner**; direct serialization instrumentation; production API |
-
-### exp61 — scalar same-boundary remote call
-
-The first **same-axis** comparison of a QD1 closed-`int64` micro-call: both arms timed with the same
-monotonic clock around one blocking Python call, in an **R=5** matched band on **medusa00 → medusa01**
-(subnet `10.42.5.`, K=1000 / W=100). All Slice-4 gates passed (`same_axis_comparison=true`); the two
-arms are reported **separately** with `speedup_computed=false`, `ratio_reported=false`,
-`arms_differenced=false`.
-
-Cross-node, R=5 (per-arm bands, µs):
-
-| arm (same Python boundary) | p50 | p90 | p99 | mean |
-|---|---|---|---|---|
-| Ray actor path | ~518.3 | ~850.7 | ~1125.7 | ~584.7 |
-| experiment-only Python→HPX action path | ~184.8 | ~257.5 | ~322.6 | ~188.7 |
-
-A **same-node placement control** (single node medusa00, R=5, all gates passed) is a control, not a
-ranking: Ray p50 ~519.1 µs, experiment-only Python→HPX p50 ~93.0 µs. This is one closed-`int64`
-micro-call on one node pair — **not** a broad benchmark and **not** a production-runtime claim. Detail:
-[experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md).
-
-### exp62 — distributed fanout/fanin (strongest same-axis distributed evidence)
-
-One outer blocking Python call `fanout_fanin(x, N) -> int64` dispatches **N=8** leaf actions
-**all-remote**, hard-pinned, and reduces them — both arms at the same Python boundary. The HPX arm uses
-`root_flat_gather_poll`; the Ray arm's coordinator (`num_cpus=0`) runs zero leaves and hard-pins leaves
-across the remotes. All gates passed; arms reported separately (`speedup_computed=false`,
-`ratio_reported=false`, `arms_differenced=false`, `placement_bands_differenced=false`).
-
-Slice 3 — one-remote matched cross-node, R=5 (medusa00→01, N=8, K=1000, W=100, prewarm=1; per-arm µs):
-
-| arm (same Python boundary) | p50 | p90 | p99 | mean |
-|---|---|---|---|---|
-| Ray coordinator path | ~3640.9 | ~3895.6 | ~6407.0 | ~3718.6 |
-| experiment-only Python→HPX `root_flat_gather_poll` | ~345.4 | ~401.7 | ~466.2 | ~359.0 |
-
-Slice 4b — matched ≥2-remote, R=5 (medusa00 root/head/coordinator, medusa01/02 remotes, N=8, K=1000,
-W=100, prewarm=1; per-arm µs) — the **headline** same-axis distributed scalar evidence:
-
-| arm (same Python boundary) | p50 | p90 | p99 | mean |
-|---|---|---|---|---|
-| Ray coordinator, hard-pinned leaves | ~3717.4 | ~3874.4 | ~7012.5 | ~3805.4 |
-| experiment-only Python→HPX `root_flat_gather_poll` | ~249.5 | ~270.7 | ~320.2 | ~251.5 |
-
-Closed-`int64` correctness, all leaves remote, placement hard-gated. Still an **experiment-only** HPX
-path, **not** production RayX runtime, and `root_flat_gather_poll` is an interim composition, not a final
-collective. Detail:
-[experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md).
-
-### exp63 — native HPX composition / progress diagnosis (mechanism evidence, not a Ray comparison)
-
-exp63 resolved the earlier native-composition concern. It is **mechanism evidence only** — no Ray
-comparison, no performance numbers, no HPX collectives claim.
-
-- The earlier native-composition failure traced to **connector lifetime**, not an intrinsic HPX
-  native-progress failure. The connector-side fault was `HPX(invalid_status): thread pool is not
-  running` during parcel scheduling.
-- Serve-timeout sweep:
-
-  | serve-timeout | outcome |
-  |---|---|
-  | 90 s | fault at call 7 |
-  | 150 s | fault at call 14 |
-  | 300 s | pass |
-  | 600 s | pass |
-
-- A hardened **heartbeat / root-completion lifetime** fixed it.
-- **Slice 2a** validated native cross-node composition: `when_all_then_reduce` **pass, 20/20**;
-  `dataflow_reduce` **pass, 20/20**; `root_flat_gather_poll` is a mechanics control only, **not**
-  native-validated.
-- **Slice 2b** validated depth-2 star / root-of-partials: `dataflow_reduce` **20/20**,
-  `when_all_then_reduce` **20/20**; topology `depth2_star_of_partials_contiguous_blocks`, partials
-  `[4, 4]` across the two remote localities.
-
-In plain terms: the HPX-native path is viable once connector lifetime is correct, and root-of-partials
-composition works cross-node. This claims **no** Ray performance and **no** HPX `collectives`. Detail:
-[experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md](experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md).
-
-### exp64 — payload fanin size sweep (within-arm payload evidence)
-
-exp64 measures **response-payload size** at the same Python boundary, in four slices: **Slice 1** HPX
-payload smoke, **Slice 2** Ray matched smoke, **Slice 3** structural R=1 matched ladder, **Slice 4** an
-R=5 matched band. Each leaf returns `S` opaque payload bytes plus its closed scalar; Python folds and
-checks the payload digest **after** timing, outside the RTT window, identically for both arms.
-
-The **Slice 4 band** (`band20260702_174335`; jobs 159385/159386/159388/159389/159390; R=5 **fresh
-exclusive** allocations — the scheduler reused medusa11/12/13 for all islands, so this shows
-repeatability under **low placement diversity**, not broad cluster-wide variance) ran the full ladder
-`[0,64,1024,16384,262144]` (N=8, prewarm=5, measured=30, HPX phase then Ray phase). All per-island
-manifests passed and the band aggregate passed:
-
-- `overall_band_pass=True`, `evidence_grade=matched_band_r5`
-- `same_axis_comparison=True` — **structural flag only**
-- `distributional_evidence=True` — **within-arm only**; `percentiles_evidence_ready=True` — **p50/p90
-  only**; `p99_evidence_ready=False`
-- `distributional_payload_ladder_ready=False`, blocked by
-  `hpx_serialization_runtime_path_not_observed` and `hpx_poll_gather_baseline`
-- `no_cross_arm_timing_computed=True`; no ratios, no speedups, no winner
-
-The per-arm tables below are **within-arm observations only** (across-island median of the per-island
-p50/p90). **Do not compare the two tables**, do not compute ratios, and do not read a winner — the arms
-take intentionally different runtime paths and the only cross-arm anchor is the closed digest.
-
-HPX (`root_flat_gather_poll` poll-gather payload baseline):
-
-| S (bytes) | p50 (ms) | p90 (ms) |
-|---|---|---|
-| 0 | 0.299 | 0.335 |
-| 64 | 0.290 | 0.317 |
-| 1024 | 0.326 | 0.388 |
-| 16384 | 1.453 | 1.516 |
-| 262144 | 19.518 | 20.552 |
-
-Ray (coordinator + Ray object transport):
-
-| S (bytes) | p50 (ms) | p90 (ms) |
-|---|---|---|
-| 0 | 4.225 | 4.821 |
-| 64 | 4.191 | 4.580 |
-| 1024 | 4.392 | 4.667 |
-| 16384 | 6.850 | 7.153 |
-| 262144 | 55.378 | 57.370 |
-
-HPX here remains the `root_flat_gather_poll` poll-gather baseline — **not** the exp63 native-composition
-payload path yet. The HPX serialization **runtime** path is **not observed** (config-level flags are, the
-per-call zero-copy path taken is not), which is exactly what blocks a stronger distributional
-payload-ladder grade; the Ray object/plasma return path is **not observed** either.
-
-**Native readiness diagnosis (Phase A→A4 — complete).** An HPX-only diagnostic arc asked whether native
-readiness composition could replace the poll baseline for the payload path. Result: native
-`when_all`/`dataflow` continuations entered and completed promptly, but the suspended timed waiter resumed
-only at the dispatch timeout (`waiter_resume_at_timeout`). The signature was unchanged by
-root/background-thread tuning, disabled idle backoff, and TCP parcel-pool sizes 2 (observed default), 4,
-and 8, while the polling/yield controls stayed prompt throughout. Consequence at the time: the polling
-baseline was **not retired** on HPX 1.11, the native payload-size ladder was **not started**, and
-`distributional_payload_ladder` stays blocked. This is a scoped HPX 1.11 / TCP-parcelport / Rostam
-progress diagnostic — the timeout-bound values are diagnostic signatures, not latency measurements — not
-a performance result and not a general HPX claim.
-
-**Waiter-fix verification (complete).** Exp64 isolated a suspended timed-wait wakeup defect on HPX 1.11.
-The upstream discussion confirmed it as an HPX bug, fixed upstream by PR #7367. The identical
-discriminator was rerun against HPX master commit `20bc3d4b`
-(`20bc3d4bf3068383edcb63be13f22e9ff95842fa`, PR #7367 ancestry proven), and the suspended waiter resumed
-on readiness across four runs and two thread configurations (`waiter_resumed_on_ready`), after the HPX
-1.11 control first reproduced `waiter_resume_at_timeout`; a separate exp65 loopback re-check corroborates
-independently. On that exact fixed build the polling workaround is no longer required for readiness;
-polling remains the historical HPX 1.11 evidence path and a diagnostic control. New distributed
-experiments use the verified fixed build unless a historical-control run explicitly requires HPX 1.11;
-older evidence stays scoped to the versions originally recorded. The HPX serialization **runtime** path
-is still not observed, so `distributional_payload_ladder` remains blocked and no native payload ladder
-has been run. Curated aggregate:
-`experiments/64_payload_fanin_size_sweep/waiter_fix_verification_aggregate.json`. Detail:
-[experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md).
-
-### exp65 — demand-triggered connect-mode admission (mechanism evidence, complete)
-
-exp65 is complete in two slices, passing **3/3 on both arms in each**. In the demand arm the connect-mode
-root starts **alone**, performs local HPX work before any connector exists, admits one connector only
-**after** an external demand event, discovers it by membership set-difference **without a predetermined
-connector count**, executes a verified remote action, observes the connector's graceful leave, continues
-local work, and finalizes cleanly; the no-demand control root finalizes cleanly with zero connectors ever
-joining.
-
-- **Loopback slice** — single-node macOS loopback, HPX 1.11, plain-Python controller: 3/3 demand and
-  3/3 no-demand.
-- **Rostam cross-node slice** (Slurm job 170014) — root and controller on medusa00; the connector is
-  created only after the demand event, on medusa01; TCP parcelport over `10.42.5.x`; no predetermined
-  connector count; set-difference discovery; verified remote action on locality 1; graceful leave; root
-  continued and finalized: 3/3 demand and 3/3 no-demand, all structural/placement gates passed.
-
-The safe claim: demand-ordered connect-mode admission is demonstrated on loopback and across two real
-nodes, within a boot-time `--hpx:expect-connecting-localities` willingness. Still open: HPX inside Ray
-actors, elasticity during in-flight work, concurrent churn, failure recovery, lazy TCP parcelport
-connection establishment, anything beyond two nodes, and all performance claims. Detail:
-[experiments/65_demand_admission/demand_triggered_admission.md](experiments/65_demand_admission/demand_triggered_admission.md).
-
-### exp66 — HPX networking runtime inside one Ray actor worker (in-worker hosting, complete)
-
-exp66 answers the pivotal question the prior distributed arc could not: can a **networking HPX
-connect-mode locality run in-process inside a Ray actor worker** — not a child process it launches? One
-Ray actor imports an experiment-only pybind extension and calls `hpx::start` in `runtime_mode::connect`
-on background threads of its **own** process; a separately supervised, work-free HPX root runs elsewhere,
-and an external HPX prober dispatches the closed-`int64` `pid`/`probe` actions at the actor locality. The
-decisive proof is by value: the HPX `pid` action executed **on the actor locality** returns exactly the
-Ray actor worker's own PID, and the actor owns **zero** HPX child processes — so the runtime is genuinely
-in-process, not a spawned child. Ray carries only bootstrap/lifecycle metadata; the operation and its
-result travel the HPX action path.
-
-Interpreter-aware slices: **A** (in-process hosting + full lifecycle) and **B** (HPX progress while the
-actor's Python thread is idle) are gating; **C** (actor-thread CPU/GIL saturation) is a non-gating
-diagnostic; **D** (Python 3.14 / free-threaded rerun) is deferred and cleanly skipped.
-
-- **Local slice** — CPython 3.11.15 (GIL build), Ray 2.55.1, HPX `20bc3d4b`, macOS loopback: **3/3**. PID
-  identity, no HPX child, verified remote action + oracle on the actor locality, idle progress, graceful
-  in-process shutdown, actor destruction and recreation, no orphans. Slice C `progressed_under_actor_saturation` ×3.
-- **Rostam cross-node slice** (Slurm job **170524**) — CPython 3.12.3 (GIL build), Ray 2.55.1, same fixed
-  HPX build, TCP parcelport over `10.42.5.x`: **3/3**. The Ray actor was hard-placed
-  (`NodeAffinity(soft=False)`) on **medusa01** while the work-free root and prober stayed on **medusa00**;
-  every rep showed the HPX `pid` action returning the actor worker PID across nodes, oracle-correct
-  execution on the actor locality, idle progress, graceful leave, root completion, actor recreation on the
-  actor node, and clean orphan checks on both nodes. Slice C progressed ×3.
-
-Safe claim: a networking HPX connect-mode locality can run in-process inside a Ray actor worker, proven by
-exact PID identity and the absence of HPX child processes, locally and across two Rostam nodes; Ray owned
-placement and lifecycle while HPX actions carried the distributed work, with a separately supervised
-work-free root. **Not claimed:** two actors sharing one runtime (that is exp67), Python 3.14,
-free-threaded Python, elasticity or individual-locality failure recovery, and any performance or GIL
-verdict; and the HPX serialization/runtime data path is **not directly observed** — execution is proven by
-the closed-`int64` value oracle, not by instrumenting the wire/serialization path. exp66 closes the
-one-actor in-process-hosting gate and is the prerequisite for exp67. Detail: the experiment package
-[experiments/66_hpx_runtime_inside_ray_actor/](experiments/66_hpx_runtime_inside_ray_actor/) with curated
-[hpx_inside_ray_actor_aggregate.json](experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_aggregate.json)
-and [hpx_inside_ray_actor_crossnode_aggregate.json](experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_crossnode_aggregate.json).
-
-### exp67 — two Ray actors sharing one HPX runtime (two-actor gate, complete)
-
-exp67 is the load-bearing step exp66 set up: **two distinct Ray actor worker processes, each hosting a
-networking HPX connect-mode locality in-process, join one shared HPX runtime under a separately supervised,
-work-free root and exchange verified HPX actions in both directions.** For each actor the HPX `pid` action
-executed on that actor's locality returns exactly the actor's Ray worker PID, and neither actor owns any HPX
-child process. The proof is **bidirectional and actor-to-actor**: A→B proves B's PID, locality, and hostname
-plus a closed-`int64` oracle, and B→A proves A's — and because neither actor holds a Ray handle to the other,
-the operation path is HPX, not Ray (by construction, not by wire instrumentation).
-
-- **Local slice** — CPython 3.11.15, Ray 2.55.1, HPX `20bc3d4b`, macOS loopback: **3/3**. Distinct PIDs and
-  distinct nonzero localities, both childless; bidirectional A↔B actions with exact PID/locality/hostname +
-  oracle; work-free root; graceful leave, root finalization, actor recreation, no orphans.
-- **Rostam three-node slice** — smoke job **170743** (pass) and accepted job **170744** (**3/3**); CPython
-  3.12.3; root/controller on **medusa00**, actor A hard-placed (`NodeAffinitySchedulingStrategy(soft=False)`)
-  on **medusa01**, actor B on **medusa11**; **three roles on three distinct nodes**; endpoints pinned to
-  `10.42.5.x`; both directions cross nodes; clean lifecycle, actor recreation on the intended nodes, and
-  orphan-clean sweeps on all three nodes.
-
-Safe claim: two distinct Ray actor workers, each hosting an HPX connect-mode locality in-process, joined one
-shared HPX runtime under a separately supervised work-free root and executed verified HPX actions from one
-actor-locality to the other in both directions — locally and across three Rostam nodes. **Not claimed:**
-Python 3.14; free-threaded Python; elasticity, churn, or individual-locality recovery; any performance claim;
-production API. Curated
-[two_ray_actors_shared_hpx_aggregate.json](experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_aggregate.json)
-and [two_ray_actors_shared_hpx_crossnode_aggregate.json](experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_crossnode_aggregate.json).
-
-### exp68 — deterministic vocabulary-sharded top-k (first LLM-shaped workload, complete)
-
-exp68 runs a **synthetic, exactly-checkable, LLM-shaped** distributed workload on top of exp67's two-actor
-runtime — vocabulary-sharded next-token candidate selection, **not** real inference. Deterministic,
-exactly-representable float32 logits (integer grid ÷ 8); two disjoint, complete contiguous vocabulary shards;
-one total order (higher logit first, then lower global token id on ties). Each actor computes its shard's
-local top-k; a coordinator fetches the peer's candidates over an HPX action and merges through an HPX
-future/continuation; the global top-k is checked bit-exactly against an **independent controller oracle**, in
-both coordinator directions, over a **seven-case matrix**.
-
-- **Local slice** — CPython 3.11.15, Ray 2.55.1, HPX `20bc3d4b`: **3/3**. Exact local top-k per shard;
-  A-coordinated and B-coordinated merges both equal the oracle (token IDs, ordering, and float32 bits);
-  HPX action/future/continuation path evidenced; clean lifecycle and actor recreation.
-- **Rostam three-node slice** — smoke job **170745** (pass) and accepted job **170746** (**3/3**); CPython
-  3.12.3; same medusa00/01/11 topology and hard placement; full seven-case matrix in both directions crossing
-  nodes; the serialization discriminator: **204 peer-transferred candidate bit patterns checked (68 per
-  repetition), zero mismatches** — bit-exact candidate values survived the cross-node HPX action path.
-
-Safe claim: **two Ray actors on distinct nodes executed a deterministic vocabulary-sharded top-k operation
-through HPX actions/futures in both coordinator directions, with exact token-ID, ordering, and float32-bit
-agreement against an independent oracle.** **Not claimed:** real LLM inference; model weights, tokenizer, GPU,
-or framework integration; Python 3.14 or free-threaded; elasticity, churn, or failure recovery; any latency,
-throughput, ratio, speedup, or winner claim; direct internal serialization instrumentation; production API.
-Curated
-[vocab_sharded_topk_aggregate.json](experiments/68_vocab_sharded_topk/vocab_sharded_topk_aggregate.json)
-and [vocab_sharded_topk_crossnode_aggregate.json](experiments/68_vocab_sharded_topk/vocab_sharded_topk_crossnode_aggregate.json).
-exp69 (a strict same-axis Ray-mediated vs HPX-mediated **performance** comparison of this exact workload) is
-**planned, not yet evidence** — no results and no ratio/speedup/winner claim exist.
-
-## Separate in-process direction (HPX inside one Ray actor)
-
-Distinct from the distributed same-axis / payload arc above, the **in-process**
-direction (HPX running inside one long-lived Ray actor) has **three validated,
-bounded properties**, all observation-only and machine-specific:
-
-1. **Control-plane dispatch floor** — in the synthetic no-op benchmark, `rayx`
-   stays near the HPX-native control-plane floor rather than collapsing toward
-   Ray's actor-process boundary (benchmark 06).
-2. **Ray-hosted native scaling inside one actor** — inside one long-lived Ray
-   actor, native HPX-backed Async CPU work scales cleanly through **W=16** on
-   homogeneous Linux while a pure-Python in-process CPU loop stays flat (exp32 on
-   Rostam).
-3. **Adapter design preserves (or hides) HPX cooperative behavior** — a *blocking*
-   per-lane retirement can hide HPX cooperative suspension under a synthetic
-   parked+compute mix, while a *non-blocking* op-lane with sufficient in-flight
-   admission restores it; the exp35→exp38 arc localized this to per-lane
-   head-of-line and an undersized in-flight cap, not a retirement-path failure.
-
-Together these validate an **intra-process runtime mechanism** and show that
-**adapter design matters** inside the Ray boundary. They are **not** Ray cluster
-scaling, **not** “RayX makes Ray faster”, **not** “HPX beats Ray”, and **not**
-sizing/capacity guidance. Per-experiment detail and numbers:
-[docs/evidence_index.md](docs/evidence_index.md).
+Other runnable API tours live under [examples/](examples/). The distributed experiments
+are **not** part of the quickstart: they need multi-node Slurm allocations, pinned
+subnets, and experiment-local builds, and they are evidence code, not API.
+
+## Reproducibility
+
+- Every experiment's durable report (linked in the table above) records its accepted
+  Slurm job IDs, node topology, software commits, curated-aggregate filenames and hashes,
+  and raw-artifact inventory.
+- [docs/evidence_index.md](docs/evidence_index.md) is the chronological "what we learned"
+  index across every benchmark and experiment arc, with operational identifiers.
+- Curated aggregates are tracked JSON beside each report; raw runs, logs, and build
+  outputs stay gitignored under experiment-local `_exp*_runs/` directories.
+- Build instructions: [docs/hpx_build_notes.md](docs/hpx_build_notes.md) (HPX),
+  `python/` (the `_rayx` extension), and per-experiment `CMakeLists.txt` files.
+- Software stack for the accepted distributed arc: Ray 2.55.1; HPX at the verified
+  waiter-fix commit `20bc3d4b…` (exp66–69) or HPX 1.11 where historically recorded;
+  CPython 3.11/3.12 GIL builds.
+
+## Status
+
+- **Complete (accepted evidence):** the local benchmark/frontend arc (benchmarks 01–10,
+  experiments 01–44 where applicable), the island lifecycle arc (exp49–52, 57–60), and the
+  distributed arc exp61–68, plus **exp69 Slices 0–3** (QD1 latency, bounded-concurrency
+  goodput, causal resource decomposition).
+- **Active:** exp70 — locality supervision and departed-locality behavior, including a
+  self-contained upstream reproducer; not yet accepted evidence.
+- **Proposed:** the roadmap items above beyond exp70.
+- **Maturity:** research prototype throughout. Local `rayx` / `rayx.runtime` code paths
+  are real and tested; everything distributed is experiment-only evidence code with
+  explicit claim fences.
+
+## What this project is not
+
+- Not a Ray replacement and not a fork of Ray; no Ray internals are modified.
+- Not Ray Serve, Ray Train, or a Ray object-store project; no `ObjectRef`, no arbitrary
+  remote Python execution.
+- Not real model inference — every workload is synthetic and deterministic.
+- Not a general claim that HPX outperforms Ray or vice versa; every comparison is scoped,
+  gated, and fenced in its experiment report.
 
 ## Documentation map
 
-Framing/reference docs live under `docs/` (`docs/reference/` for API notes); result
-notes live under `benchmarks/` and `experiments/<name>/`. The three code/evidence
-trees are distinct: `bench/` holds runnable harness code (drivers, smokes,
-analyzers), `benchmarks/` holds formal benchmark write-ups, and `experiments/`
-holds investigative write-ups / curated evidence packages.
+Framing/reference docs live under `docs/` (`docs/reference/` for API notes); result notes
+live under `benchmarks/` and `experiments/<name>/`. `bench/` holds runnable harness code;
+`benchmarks/` holds formal benchmark write-ups; `experiments/` holds investigative
+write-ups and curated evidence packages.
 
 ### Start here
 
@@ -652,15 +323,8 @@ holds investigative write-ups / curated evidence packages.
 
 ### Evidence
 
-* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **“what we learned”** index for every benchmark and experiment arc: main benchmark arc (01–10), frontend/serving-control + `HpxLane` (01–23), `rayx.runtime` / local actors (24–26) and the endpoint seam (42–43), Ray-hosting composition (27–30), runtime/adapter (31–38), in-process HPX composition (39–44), HPX-island lifecycle / Ray-orchestrated bootstrap (49–52), the two-node precursors (58–60), the distributed same-axis / payload-ladder arc (61 scalar, 62 distributed fanout/fanin, 63 native HPX composition, 64 payload ladder), demand-triggered connect-mode admission (65), HPX-in-one-Ray-actor-worker hosting (66), two-Ray-actors-sharing-one-HPX-runtime (67), and the deterministic vocab-sharded top-k workload (68).
-* [experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md](experiments/61_python_boundary_same_axis_ray_vs_rayx/python_boundary_same_axis_ray_vs_rayx.md) — exp61: the scalar same-axis Python-boundary write-up (experiment-only).
-* [experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md](experiments/62_distributed_fanout_same_axis/distributed_fanout_same_axis.md) — exp62: the same-axis Python-boundary **distributed fanout/fanin** write-up (experiment-only; not shipped `rayx.runtime` API).
-* [experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md](experiments/63_hpx_native_collective_reduction/hpx_native_collective_reduction.md) — exp63: HPX-native composition / progress diagnosis (mechanism evidence only; no Ray comparison, no `hpx::collectives`).
-* [experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md](experiments/64_payload_fanin_size_sweep/hpx_payload_fanin.md) — exp64: payload fanin size sweep through the Slice 4 `matched_band_r5` within-arm band, the Slice 5 Phase A→A4 native-readiness diagnostic (`waiter_resume_at_timeout` on HPX 1.11), and the Slice 5V waiter-fix verification — the identical discriminator on HPX master `20bc3d4b` (PR #7367) resumed on readiness across four runs and two thread configurations, so polling is no longer the required readiness workaround on that exact build (experiment-only).
-* [experiments/65_demand_admission/demand_triggered_admission.md](experiments/65_demand_admission/demand_triggered_admission.md) — exp65: demand-triggered connect-mode admission — root starts alone, admits one connector only on an external demand event, count-free discovery, graceful leave, clean finalize; demonstrated on macOS loopback and reproduced across two Rostam nodes (medusa00/medusa01, TCP `10.42.5.x`, job 170014) (mechanism evidence; experiment-only).
-* [experiments/66_hpx_runtime_inside_ray_actor/](experiments/66_hpx_runtime_inside_ray_actor/) — exp66: a networking HPX connect-mode locality running **in-process inside one Ray actor worker**, proven by exact PID identity (no HPX child); local slice (CPython 3.11.15, 3/3) and Rostam cross-node slice (job 170524, medusa00 root/prober → medusa01 actor, TCP `10.42.5.x`, CPython 3.12.3, 3/3); fixed HPX `20bc3d4b`; the prerequisite for exp67 (in-worker hosting evidence; experiment-only). Curated [hpx_inside_ray_actor_aggregate.json](experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_aggregate.json) and [hpx_inside_ray_actor_crossnode_aggregate.json](experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_crossnode_aggregate.json).
-* [experiments/67_two_ray_actors_shared_hpx/](experiments/67_two_ray_actors_shared_hpx/) — exp67: two Ray actors sharing **one shared HPX runtime**, with verified **bidirectional actor-to-actor** HPX actions (A→B proves B's PID/locality/hostname + oracle, B→A proves A's); local (CPython 3.11.15, 3/3) and Rostam **three-node** slice (root medusa00, actor A medusa01, actor B medusa11; smoke job 170743, accepted job 170744; CPython 3.12.3, 3/3); fixed HPX `20bc3d4b` (two-actor shared-runtime evidence; experiment-only). Curated [two_ray_actors_shared_hpx_aggregate.json](experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_aggregate.json) and [two_ray_actors_shared_hpx_crossnode_aggregate.json](experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_crossnode_aggregate.json).
-* [experiments/68_vocab_sharded_topk/](experiments/68_vocab_sharded_topk/) — exp68: a deterministic **LLM-shaped** vocabulary-sharded top-k (synthetic, not inference) across the two actors, with exact token-ID, ordering, and **float32-bit** agreement vs an independent oracle in both coordinator directions; local (CPython 3.11.15, 3/3) and Rostam three-node slice (medusa00/01/11; smoke job 170745, accepted job 170746; CPython 3.12.3, 3/3), **204 cross-node candidate bit patterns, zero mismatches**; fixed HPX `20bc3d4b` (experiment-only). Curated [vocab_sharded_topk_aggregate.json](experiments/68_vocab_sharded_topk/vocab_sharded_topk_aggregate.json) and [vocab_sharded_topk_crossnode_aggregate.json](experiments/68_vocab_sharded_topk/vocab_sharded_topk_crossnode_aggregate.json).
+* [docs/evidence_index.md](docs/evidence_index.md) — the chronological **"what we learned"** index for every benchmark and experiment arc, including the distributed arc (exp61–69) and its accepted job IDs.
+* The durable experiment reports linked in the [What is implemented](#what-is-implemented) table above.
 * Source write-ups live beside the code under [benchmarks/](benchmarks/) and [experiments/](experiments/).
 
 ### Project rules

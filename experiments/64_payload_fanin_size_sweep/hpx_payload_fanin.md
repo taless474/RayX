@@ -1,13 +1,42 @@
 # exp64 -- payload-carrying fanin size sweep (poll-mode gather baseline)
 
-**Status:** Slice 4 complete — matched payload ladder **band**, R=5 / measured=30. Five clean
-fresh-allocation islands were aggregated into a gated band that earns `evidence_grade="matched_band_r5"`
-with **within-arm** p50/p90 payload-size distributions per arm. `same_axis_comparison=True` is a
-**structural-correlation flag only**, `distributional_evidence=True` is **within-arm only**, and the
-stronger `distributional_payload_ladder` grade stays **blocked** (HPX serialization runtime path not
-observed). Still **no cross-arm timing arithmetic**, no ratio/speedup/difference/winner; every fence
-locked False. HPX remains the `root_flat_gather_poll` poll-gather baseline (not exp63 native
-composition). (Slice 3 established the structural R=1 manifest; see the sections below.)
+Durable experiment-local account of exp64: the payload-size axis of the same-axis
+direction, and the diagnostic arc that isolated — and saw upstream-fixed — an HPX
+timed-wait readiness bug.
+
+## Executive summary
+
+**Problem.** exp61/62 measured scalar closed-`int64` calls only; nothing in the same-axis
+evidence covered **response payload size** — the axis where serialization and transport
+regimes start to matter. Separately, the HPX arm still rode the interim polled fan-in, and
+the question of whether an HPX-native *passive* wait could serve a payload path was open.
+
+**Answer, part 1 (payload band).** A matched payload ladder `[0, 64, 1024, 16384, 262144]`
+bytes ran clean on both arms across **R=5 fresh allocations** (30 calls per size per arm
+per island), earning `evidence_grade="matched_band_r5"` with **within-arm** p50/p90
+payload-size distributions per arm and an exact closed-digest anchor at every size. No
+cross-arm timing arithmetic exists anywhere in the artifacts: `same_axis_comparison=True`
+is a structural-correlation flag only, and every ratio/speedup/difference/winner fence is
+locked false. The stronger `distributional_payload_ladder` grade stays **blocked** (the HPX
+serialization runtime path was not observed; the HPX arm remained the
+`root_flat_gather_poll` poll-gather baseline).
+
+**Answer, part 2 (timed-wait diagnosis).** A five-phase HPX-only discriminator showed that
+on the pinned HPX 1.11 build, native passive waits (`when_all_then_reduce`,
+`dataflow_reduce`) complete their continuations promptly but the **suspended waiter resumes
+only at the dispatch timeout** (`waiter_resume_at_timeout`), insensitive to thread,
+idle-backoff, and parcel-pool levers. Upstream confirmed this as an HPX bug (PR #7367);
+re-running the identical discriminator against HPX `master` @ `20bc3d4bf3…` verified
+`waiter_resumed_on_ready` across all runs, with the 1.11 control reproducing the fault
+exactly. This finding is what selected the fixed HPX build used by exp66–69.
+
+**Limitations.** Synthetic closed-digest payloads (not model output); the HPX payload arm
+is the polled gather baseline, not native composition; within-arm distributions only
+(p50/p90; no p99 at measured=30); the five fresh allocations landed on the same three
+physical nodes (repeatability, not placement diversity); no Ray-vs-HPX comparison of any
+kind is licensed.
+
+A consolidated job/artifact index is at the end ([Evidence and reproducibility](#evidence-and-reproducibility)).
 
 ## What this experiment is
 
@@ -654,6 +683,29 @@ corroborating evidence, not proof of one shared root cause.
 - **Next recommended step:** decide whether exp64's HPX arm adopts a fixed-HPX build (master pin or a
   release containing PR #7367) for the payload ladder, then re-run the native-smoke promptness gate on
   that build before touching the ladder grade.
+
+## Evidence and reproducibility
+
+Consolidated job index (all Rostam medusa nodes, subnet `10.42.5.`; details in the slice
+sections above):
+
+| stage | job(s) | role |
+|---|---|---|
+| Slice 2 Ray matched smoke | 159228 | Ray payload arm mechanism smoke (see [`ray_matched_smoke.md`](ray_matched_smoke.md)) |
+| Slice 3 structural ladder (R=1) | 159384 | matched ladder manifest, 26/26 gates |
+| Slice 4 matched band (R=5) | 159385 / 159386 / 159388 / 159389 / 159390 (band `band20260702_174335`) | **accepted band**, `matched_band_r5` |
+| Slice 5 native readiness diagnosis | 159418, 159419, 159854, 159855, 169815, 169816 | `waiter_resume_at_timeout` characterization on HPX 1.11 |
+| Slice 5V waiter-fix verification | 170136 (control), 170138 / 170140 / 170141 / 170142 (master), 170143 (exp65 re-check; 170137 superseded probe v1) | fix verified on master `20bc3d4bf3…` |
+
+**Tracked curated evidence:** `waiter_fix_verification_aggregate.json` (Slice 5V verdict,
+gates, per-run cells, build identities). The Slice 3/4 manifests and band aggregate live in
+the gitignored copyback directories listed in their sections; this write-up and the
+evidence index carry their accepted results.
+
+**Gitignored raw evidence** under `_exp64_runs/`: `payload_ladder_copyback_159384/`,
+`payload_band_copyback_band20260702_174335/`, `native_phase_a*_copyback_*/`, and the
+Slice 5V copybacks — per-size/per-mode artifacts, connector bootstrap dirs, and phase logs.
+Build outputs are ignored.
 
 ## Files
 

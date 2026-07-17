@@ -1,0 +1,2723 @@
+{
+  "experiment": "69_same_axis_topk_perf",
+  "kind": "slice1_same_axis_qd1_latency_local",
+  "phase": "accepted",
+  "single_node": true,
+  "transport_hpx_arm": "HPX TCP parcelport (loopback)",
+  "transport_ray_arm": "Ray actor call path (local)",
+  "measured_contrast": "Ray-mediated peer-candidate transport and Python boundary handling versus HPX-mediated peer-candidate transport and native future/continuation composition, with identical local top-k and merge algorithms",
+  "shared_runtime_caveat": "Ray-mediated and HPX-mediated paths inside the same Ray-hosted, HPX-resident actor topology; the Ray arm is NOT a pure standalone-Ray deployment",
+  "timed_boundary": "controller-side time.perf_counter_ns immediately around ONE ray.get(coordinator.<arm>_coordinate.remote(...)); verification strictly after t1; no cross-node/cross-process timestamp arithmetic",
+  "hpx_arm_wait_strategy": "hpx::post + action -> future -> .then continuation merge, UNTIMED merged.get() on the HPX thread; caller bound via std::future::wait_for on the calling OS thread (GIL released). Sustained-volume hardening: exp68's hpx timed wait (future::wait_for on a run_as_hpx_thread trampoline) crashes this build/platform after a few hundred sequential calls (Ray-free diagnostic coordinate_diag isolates it; untimed variants stable at 2000/5000 iterations).",
+  "arm_order_policy": "paired alternating: even pair Ray->HPX, odd pair HPX->Ray",
+  "queue_depth": "QD1 (one request in flight; latency only; throughput deferred)",
+  "generation_rule": {
+    "name": "int_grid_over_8",
+    "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+    "grid_range": [
+      -65,
+      65
+    ],
+    "denominator": 8,
+    "float32_exact": true,
+    "total_order": "higher logit; tie -> lower global token id",
+    "value_range": [
+      -8.125,
+      8.125
+    ]
+  },
+  "total_order": "higher logit wins; on equal logit, lower global token id wins",
+  "correctness_matrix": [
+    {
+      "name": "tiny_k1",
+      "V": 8,
+      "split": 4,
+      "k": 1,
+      "seed": 7,
+      "tags": [
+        "small",
+        "k1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "tiny_k3",
+      "V": 8,
+      "split": 4,
+      "k": 3,
+      "seed": 7,
+      "tags": [
+        "small",
+        "kgt1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "cross_both",
+      "V": 64,
+      "split": 32,
+      "k": 6,
+      "seed": 1,
+      "tags": [
+        "both_shards",
+        "kgt1"
+      ]
+    },
+    {
+      "name": "tie_cutoff",
+      "V": 200,
+      "split": 100,
+      "k": 5,
+      "seed": 1,
+      "tags": [
+        "tie_at_cutoff"
+      ]
+    },
+    {
+      "name": "shardA_dom",
+      "V": 128,
+      "split": 64,
+      "k": 8,
+      "seed": 1,
+      "tags": [
+        "one_shard_dominant"
+      ]
+    },
+    {
+      "name": "both_contrib",
+      "V": 100,
+      "split": 50,
+      "k": 10,
+      "seed": 1,
+      "tags": [
+        "both_shards"
+      ]
+    },
+    {
+      "name": "k1_large",
+      "V": 256,
+      "split": 128,
+      "k": 1,
+      "seed": 13,
+      "tags": [
+        "k1"
+      ]
+    }
+  ],
+  "timed_matrix": [
+    {
+      "name": "P0",
+      "V": 64,
+      "split": 32,
+      "k": 1,
+      "seed": 1,
+      "purpose": "fixed_overhead_control"
+    },
+    {
+      "name": "P1",
+      "V": 2000000,
+      "split": 1000000,
+      "k": 10,
+      "seed": 1,
+      "purpose": "local_compute_dominated"
+    },
+    {
+      "name": "P2",
+      "V": 200000,
+      "split": 100000,
+      "k": 10000,
+      "seed": 1,
+      "purpose": "larger_peer_payload"
+    },
+    {
+      "name": "P3a",
+      "V": 100000,
+      "split": 50000,
+      "k": 10,
+      "seed": 1,
+      "purpose": "balanced_small_list"
+    },
+    {
+      "name": "P3b",
+      "V": 100000,
+      "split": 50000,
+      "k": 100,
+      "seed": 1,
+      "purpose": "balanced_medium_list"
+    },
+    {
+      "name": "P3c",
+      "V": 100000,
+      "split": 50000,
+      "k": 1000,
+      "seed": 1,
+      "purpose": "balanced_larger_list"
+    }
+  ],
+  "b_control_cases": [
+    "P0",
+    "P2",
+    "P3b"
+  ],
+  "sampling": {
+    "A": {
+      "W": 50,
+      "K": 500
+    },
+    "B": {
+      "W": 20,
+      "K": 200
+    },
+    "reps": 3
+  },
+  "timer_overhead_rule": "flag case if per-rep p50 < 1000x median adjacent-read overhead",
+  "ratio_fences": {
+    "speedup_computed": false,
+    "ratio_reported": false,
+    "arms_differenced": false,
+    "placement_bands_differenced": false
+  },
+  "claim_fences": {
+    "not_real_llm_inference": true,
+    "no_model_weights_tokenizer_gpu": true,
+    "not_cross_node": true,
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "no_elasticity_churn_or_recovery": true,
+    "not_production_api": true,
+    "no_ratio_speedup_winner_claim": true,
+    "per_arm_distributions_only": true,
+    "qd1_latency_only_no_throughput": true,
+    "timing_not_correctness_oracle": true,
+    "ray_arm_not_pure_standalone_ray": true,
+    "b_control_reported_separately_never_pooled": true
+  },
+  "failure_classes": [
+    "hpx_identity_mismatch",
+    "actor_placement_invalid",
+    "resource_mismatch_between_arms",
+    "same_axis_boundary_mismatch",
+    "outer_ray_trigger_mismatch",
+    "native_compute_mismatch",
+    "native_merge_mismatch",
+    "payload_contract_mismatch",
+    "warmup_incomplete",
+    "timer_overhead_too_high",
+    "clock_nonmonotonic",
+    "cross_node_clock_subtraction_detected",
+    "arm_order_violation",
+    "ray_peer_witness_missing",
+    "ray_peer_used_by_hpx_arm",
+    "hpx_action_witness_missing",
+    "hpx_action_used_by_ray_arm",
+    "membership_changed_during_measurement",
+    "actor_recreated_during_measurement",
+    "locality_changed_during_measurement",
+    "oracle_mismatch_in_timed_sample",
+    "float32_bit_mismatch",
+    "insufficient_valid_samples",
+    "insufficient_samples_for_p99",
+    "timeout",
+    "lifecycle_failed",
+    "actor_recreation_failed",
+    "orphan_detected",
+    "phase_mixing",
+    "invalid_instrumentation",
+    "pass"
+  ],
+  "provenance": {
+    "python_version_full": "3.11.15 (main, Mar  3 2026, 00:52:57) [Clang 17.0.0 (clang-1700.6.3.2)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-311-darwin.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "processor_count": 10,
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp69_actor_ext.cpython-311-darwin.so",
+    "actor_ext_abi_match": true,
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.90.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 17:07:05\n  Platform: Mac OS\n  Compiler: Clang version 17.0.0 (clang-1700.4.4.1)\n  Standard Library: libc++ version 200100\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "reps": [
+    {
+      "rep": 1,
+      "boot_rel": "_exp69_runs/accepted_20260715T113303Z/rep_1",
+      "samples_file_rel": "_exp69_runs/accepted_20260715T113303Z/rep_1/samples.jsonl",
+      "gates": {
+        "fixed_hpx_commit": true,
+        "actors_started_distinct_nonzero_localities": true,
+        "two_distinct_ray_processes": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "resources_identical_between_arms": true,
+        "actor_placement_valid": true,
+        "timer_calibration_ok": true,
+        "pregate_seven_cases_pass": true,
+        "timed_blocks_complete": true,
+        "all_timed_samples_valid": true,
+        "full_sample_counts": true,
+        "arm_order_ok": true,
+        "witness_exclusivity_ok": true,
+        "timer_overhead_acceptable": true,
+        "no_stability_change_during_timing": true,
+        "single_controller_clock_only": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_destroyed": true,
+        "actors_recreated": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ratio_fences_false": true,
+        "evidence_complete": true
+      },
+      "gates_failed": [],
+      "flags": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "timer": {
+        "clock": "time.perf_counter_ns",
+        "n_reads": 10000,
+        "reported_resolution_s": 4.166666666666667e-08,
+        "clock_monotonic_declared": true,
+        "median_overhead_ns": 83.0,
+        "p90_overhead_ns": 84.0,
+        "max_overhead_ns_diagnostic": 12166,
+        "nonnegative_deltas": true
+      },
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "timed_A": [
+        {
+          "case": "P0",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 7781312.5,
+              "p90_ns": 11055929.5,
+              "p99_ns": 15953347.90999999,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 3721771.25,
+              "mad_ns": 1908667.0,
+              "min_ns_diagnostic": 4143208,
+              "max_ns_diagnostic": 30571834,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 5090937.5,
+              "p90_ns": 8070175.300000001,
+              "p99_ns": 20056504.409999896,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2242927.0,
+              "mad_ns": 1057875.5,
+              "min_ns_diagnostic": 2716875,
+              "max_ns_diagnostic": 152988458,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P1",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 168159416.5,
+              "p90_ns": 171803029.2,
+              "p99_ns": 174718050.0,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 5762499.75,
+              "mad_ns": 1730479.5,
+              "min_ns_diagnostic": 133806875,
+              "max_ns_diagnostic": 189385125,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 159984750.0,
+              "p90_ns": 164367129.20000002,
+              "p99_ns": 167978367.91999996,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 11376385.0,
+              "mad_ns": 3188770.5,
+              "min_ns_diagnostic": 132202708,
+              "max_ns_diagnostic": 392530959,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 50766375.0,
+              "p90_ns": 52343941.599999994,
+              "p99_ns": 57392052.49999999,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1718509.75,
+              "mad_ns": 859312.5,
+              "min_ns_diagnostic": 42574917,
+              "max_ns_diagnostic": 70906333,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 33197146.0,
+              "p90_ns": 34690325.6,
+              "p99_ns": 36571617.92,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1681499.75,
+              "mad_ns": 837417.0,
+              "min_ns_diagnostic": 27842125,
+              "max_ns_diagnostic": 40080750,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3a",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 13083708.0,
+              "p90_ns": 14121241.600000001,
+              "p99_ns": 17180134.579999994,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1405250.5,
+              "mad_ns": 481625.0,
+              "min_ns_diagnostic": 9791333,
+              "max_ns_diagnostic": 20779084,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 10682250.0,
+              "p90_ns": 11926904.2,
+              "p99_ns": 14519000.169999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1107239.5,
+              "mad_ns": 534416.5,
+              "min_ns_diagnostic": 8678375,
+              "max_ns_diagnostic": 43378958,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 13518417.0,
+              "p90_ns": 14819853.799999999,
+              "p99_ns": 16975609.589999996,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1433791.75,
+              "mad_ns": 700730.0,
+              "min_ns_diagnostic": 9974041,
+              "max_ns_diagnostic": 20069042,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 11070542.0,
+              "p90_ns": 12349742.299999999,
+              "p99_ns": 13867772.589999996,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1255061.75,
+              "mad_ns": 628479.0,
+              "min_ns_diagnostic": 8878875,
+              "max_ns_diagnostic": 15152916,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3c",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 16853937.5,
+              "p90_ns": 17977745.5,
+              "p99_ns": 19864070.749999996,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1418760.5,
+              "mad_ns": 698021.0,
+              "min_ns_diagnostic": 12598708,
+              "max_ns_diagnostic": 22371333,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 12759938.0,
+              "p90_ns": 13915445.8,
+              "p99_ns": 14751865.409999995,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1315510.5,
+              "mad_ns": 654230.0,
+              "min_ns_diagnostic": 9682667,
+              "max_ns_diagnostic": 16035500,
+              "phase": "accepted"
+            }
+          }
+        }
+      ],
+      "timed_B": [
+        {
+          "case": "P0",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 7781146.0,
+              "p90_ns": 9311749.399999999,
+              "p99_ns": 11337954.249999998,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2509521.0,
+              "mad_ns": 1325521.0,
+              "min_ns_diagnostic": 5001417,
+              "max_ns_diagnostic": 14783167,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 4956687.5,
+              "p90_ns": 6142258.299999999,
+              "p99_ns": 9960523.989999987,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1827739.5,
+              "mad_ns": 937312.0,
+              "min_ns_diagnostic": 3189958,
+              "max_ns_diagnostic": 11618875,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 54910791.5,
+              "p90_ns": 57541837.2,
+              "p99_ns": 59325327.33,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2544157.0,
+              "mad_ns": 1280354.5,
+              "min_ns_diagnostic": 48103166,
+              "max_ns_diagnostic": 59978292,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 35217083.0,
+              "p90_ns": 37156637.5,
+              "p99_ns": 39384702.17,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1690208.25,
+              "mad_ns": 838166.0,
+              "min_ns_diagnostic": 30743833,
+              "max_ns_diagnostic": 43841417,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 14449562.0,
+              "p90_ns": 15239062.5,
+              "p99_ns": 16335406.91,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1231853.75,
+              "mad_ns": 522437.5,
+              "min_ns_diagnostic": 10275500,
+              "max_ns_diagnostic": 16641542,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 11528812.5,
+              "p90_ns": 12823312.200000001,
+              "p99_ns": 15253363.749999996,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1107448.25,
+              "mad_ns": 569396.0,
+              "min_ns_diagnostic": 9489333,
+              "max_ns_diagnostic": 17723541,
+              "phase": "accepted"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "rep": 2,
+      "boot_rel": "_exp69_runs/accepted_20260715T113303Z/rep_2",
+      "samples_file_rel": "_exp69_runs/accepted_20260715T113303Z/rep_2/samples.jsonl",
+      "gates": {
+        "fixed_hpx_commit": true,
+        "actors_started_distinct_nonzero_localities": true,
+        "two_distinct_ray_processes": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "resources_identical_between_arms": true,
+        "actor_placement_valid": true,
+        "timer_calibration_ok": true,
+        "pregate_seven_cases_pass": true,
+        "timed_blocks_complete": true,
+        "all_timed_samples_valid": true,
+        "full_sample_counts": true,
+        "arm_order_ok": true,
+        "witness_exclusivity_ok": true,
+        "timer_overhead_acceptable": true,
+        "no_stability_change_during_timing": true,
+        "single_controller_clock_only": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_destroyed": true,
+        "actors_recreated": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ratio_fences_false": true,
+        "evidence_complete": true
+      },
+      "gates_failed": [],
+      "flags": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "timer": {
+        "clock": "time.perf_counter_ns",
+        "n_reads": 10000,
+        "reported_resolution_s": 4.166666666666667e-08,
+        "clock_monotonic_declared": true,
+        "median_overhead_ns": 83.0,
+        "p90_overhead_ns": 125.0,
+        "max_overhead_ns_diagnostic": 48792,
+        "nonnegative_deltas": true
+      },
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "timed_A": [
+        {
+          "case": "P0",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 8005354.5,
+              "p90_ns": 9241725.3,
+              "p99_ns": 10581431.749999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2420562.5,
+              "mad_ns": 1100291.5,
+              "min_ns_diagnostic": 4752667,
+              "max_ns_diagnostic": 13584041,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 5094812.5,
+              "p90_ns": 6304903.800000001,
+              "p99_ns": 10145775.92,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1762624.5,
+              "mad_ns": 911291.5,
+              "min_ns_diagnostic": 3400750,
+              "max_ns_diagnostic": 23363292,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P1",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 173341604.0,
+              "p90_ns": 180947379.1,
+              "p99_ns": 197448256.48999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 5560844.0,
+              "mad_ns": 2678854.0,
+              "min_ns_diagnostic": 167310542,
+              "max_ns_diagnostic": 210898583,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 164568312.5,
+              "p90_ns": 170565237.5,
+              "p99_ns": 183151365.32999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 4297145.75,
+              "mad_ns": 2007374.5,
+              "min_ns_diagnostic": 158198791,
+              "max_ns_diagnostic": 215669625,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 53045666.5,
+              "p90_ns": 54651766.699999996,
+              "p99_ns": 60057698.839999996,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1982813.25,
+              "mad_ns": 977895.5,
+              "min_ns_diagnostic": 45825500,
+              "max_ns_diagnostic": 69104459,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 34560416.5,
+              "p90_ns": 36247616.4,
+              "p99_ns": 38737488.83,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1836427.5,
+              "mad_ns": 924520.5,
+              "min_ns_diagnostic": 29010291,
+              "max_ns_diagnostic": 46532000,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3a",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 14085895.5,
+              "p90_ns": 15035145.799999999,
+              "p99_ns": 18289580.419999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1764854.0,
+              "mad_ns": 676479.0,
+              "min_ns_diagnostic": 10354833,
+              "max_ns_diagnostic": 20680666,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 11427271.0,
+              "p90_ns": 12645912.2,
+              "p99_ns": 15454560.589999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1183177.5,
+              "mad_ns": 592313.0,
+              "min_ns_diagnostic": 8953375,
+              "max_ns_diagnostic": 18759667,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 14609208.5,
+              "p90_ns": 15618395.799999999,
+              "p99_ns": 19125812.579999983,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2088437.75,
+              "mad_ns": 608562.5,
+              "min_ns_diagnostic": 11038916,
+              "max_ns_diagnostic": 21671208,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 11684958.0,
+              "p90_ns": 12951162.8,
+              "p99_ns": 14905394.5,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1320406.0,
+              "mad_ns": 659146.0,
+              "min_ns_diagnostic": 9290042,
+              "max_ns_diagnostic": 44309250,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3c",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 17935416.5,
+              "p90_ns": 18731345.8,
+              "p99_ns": 22329244.08,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 911739.25,
+              "mad_ns": 440979.0,
+              "min_ns_diagnostic": 14511167,
+              "max_ns_diagnostic": 23433000,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 13387396.0,
+              "p90_ns": 14504683.600000001,
+              "p99_ns": 15860860.51,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1375186.75,
+              "mad_ns": 663875.0,
+              "min_ns_diagnostic": 10234125,
+              "max_ns_diagnostic": 20233750,
+              "phase": "accepted"
+            }
+          }
+        }
+      ],
+      "timed_B": [
+        {
+          "case": "P0",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 8343354.5,
+              "p90_ns": 9856599.7,
+              "p99_ns": 11579765.419999998,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2547270.75,
+              "mad_ns": 1132979.0,
+              "min_ns_diagnostic": 5743500,
+              "max_ns_diagnostic": 17348292,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 5188833.5,
+              "p90_ns": 6564537.8,
+              "p99_ns": 9056729.749999965,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1550437.25,
+              "mad_ns": 767354.0,
+              "min_ns_diagnostic": 3460625,
+              "max_ns_diagnostic": 16571750,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 57917729.5,
+              "p90_ns": 60294782.699999996,
+              "p99_ns": 62298818.009999976,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2973000.0,
+              "mad_ns": 1490750.5,
+              "min_ns_diagnostic": 51692500,
+              "max_ns_diagnostic": 80349458,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 37000646.0,
+              "p90_ns": 39615495.6,
+              "p99_ns": 40942447.92,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2514511.25,
+              "mad_ns": 1283250.0,
+              "min_ns_diagnostic": 31628041,
+              "max_ns_diagnostic": 45495833,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 14696687.5,
+              "p90_ns": 15922291.1,
+              "p99_ns": 18978491.009999976,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2408958.25,
+              "mad_ns": 1035374.5,
+              "min_ns_diagnostic": 11597459,
+              "max_ns_diagnostic": 24744584,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 12035646.0,
+              "p90_ns": 13223808.1,
+              "p99_ns": 15130264.259999998,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1255947.5,
+              "mad_ns": 631291.5,
+              "min_ns_diagnostic": 9943541,
+              "max_ns_diagnostic": 16070458,
+              "phase": "accepted"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "rep": 3,
+      "boot_rel": "_exp69_runs/accepted_20260715T113303Z/rep_3",
+      "samples_file_rel": "_exp69_runs/accepted_20260715T113303Z/rep_3/samples.jsonl",
+      "gates": {
+        "fixed_hpx_commit": true,
+        "actors_started_distinct_nonzero_localities": true,
+        "two_distinct_ray_processes": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "no_static_locality_count": true,
+        "root_isolated_workfree": true,
+        "resources_identical_between_arms": true,
+        "actor_placement_valid": true,
+        "timer_calibration_ok": true,
+        "pregate_seven_cases_pass": true,
+        "timed_blocks_complete": true,
+        "all_timed_samples_valid": true,
+        "full_sample_counts": true,
+        "arm_order_ok": true,
+        "witness_exclusivity_ok": true,
+        "timer_overhead_acceptable": true,
+        "no_stability_change_during_timing": true,
+        "single_controller_clock_only": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_destroyed": true,
+        "actors_recreated": true,
+        "no_orphans": true,
+        "all_waits_bounded": true,
+        "ratio_fences_false": true,
+        "evidence_complete": true
+      },
+      "gates_failed": [],
+      "flags": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "timer": {
+        "clock": "time.perf_counter_ns",
+        "n_reads": 10000,
+        "reported_resolution_s": 4.166666666666667e-08,
+        "clock_monotonic_declared": true,
+        "median_overhead_ns": 83.0,
+        "p90_overhead_ns": 166.0,
+        "max_overhead_ns_diagnostic": 65333,
+        "nonnegative_deltas": true
+      },
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "timed_A": [
+        {
+          "case": "P0",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 8422354.5,
+              "p90_ns": 10028054.5,
+              "p99_ns": 12471495.329999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2657427.0,
+              "mad_ns": 1338854.5,
+              "min_ns_diagnostic": 5235625,
+              "max_ns_diagnostic": 21899708,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 5280667.0,
+              "p90_ns": 6674349.7,
+              "p99_ns": 9351929.82,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1832947.75,
+              "mad_ns": 918728.5,
+              "min_ns_diagnostic": 3404750,
+              "max_ns_diagnostic": 33395292,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P1",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 177768937.0,
+              "p90_ns": 184619292.0,
+              "p99_ns": 204396749.07999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 5199822.75,
+              "mad_ns": 2631500.5,
+              "min_ns_diagnostic": 169043375,
+              "max_ns_diagnostic": 226681042,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 166821021.0,
+              "p90_ns": 172127879.5,
+              "p99_ns": 185936357.08,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 3769603.75,
+              "mad_ns": 1807250.0,
+              "min_ns_diagnostic": 156972417,
+              "max_ns_diagnostic": 221388208,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 54666833.5,
+              "p90_ns": 56920537.2,
+              "p99_ns": 61095118.419999994,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2387937.5,
+              "mad_ns": 1273291.5,
+              "min_ns_diagnostic": 47421417,
+              "max_ns_diagnostic": 74933459,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 35287917.0,
+              "p90_ns": 37179712.199999996,
+              "p99_ns": 39618759.41,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1865197.75,
+              "mad_ns": 931583.0,
+              "min_ns_diagnostic": 29986792,
+              "max_ns_diagnostic": 52183542,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3a",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 14341750.5,
+              "p90_ns": 15315325.3,
+              "p99_ns": 18728213.419999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 2232895.5,
+              "mad_ns": 652250.0,
+              "min_ns_diagnostic": 11131042,
+              "max_ns_diagnostic": 23481208,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 11604604.0,
+              "p90_ns": 12872912.5,
+              "p99_ns": 14678873.669999998,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1289843.25,
+              "mad_ns": 626937.5,
+              "min_ns_diagnostic": 9106917,
+              "max_ns_diagnostic": 15802583,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 14771750.5,
+              "p90_ns": 15697446.100000001,
+              "p99_ns": 17865153.09,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1084344.25,
+              "mad_ns": 523145.5,
+              "min_ns_diagnostic": 11624375,
+              "max_ns_diagnostic": 21331500,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 11917333.5,
+              "p90_ns": 13244237.200000001,
+              "p99_ns": 14533582.0,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1300395.5,
+              "mad_ns": 654333.0,
+              "min_ns_diagnostic": 9571292,
+              "max_ns_diagnostic": 16211541,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3c",
+          "direction": "A",
+          "W": 50,
+          "K": 500,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 500,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 18050625.0,
+              "p90_ns": 19097033.000000004,
+              "p99_ns": 22308803.0,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1312114.0,
+              "mad_ns": 597583.0,
+              "min_ns_diagnostic": 14515625,
+              "max_ns_diagnostic": 39058917,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 500,
+              "requested_k": 500,
+              "p50_ns": 13532604.5,
+              "p90_ns": 14617878.9,
+              "p99_ns": 15729648.33,
+              "p99_scope": "n=500",
+              "p99_reliable": true,
+              "iqr_ns": 1323426.5,
+              "mad_ns": 665750.0,
+              "min_ns_diagnostic": 10914541,
+              "max_ns_diagnostic": 22049500,
+              "phase": "accepted"
+            }
+          }
+        }
+      ],
+      "timed_B": [
+        {
+          "case": "P0",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 9003291.5,
+              "p90_ns": 10551874.4,
+              "p99_ns": 13156037.499999985,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 3164979.0,
+              "mad_ns": 1528417.0,
+              "min_ns_diagnostic": 5705042,
+              "max_ns_diagnostic": 18782208,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 5704541.5,
+              "p90_ns": 7245608.3,
+              "p99_ns": 11125059.999999955,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2052520.75,
+              "mad_ns": 1116291.5,
+              "min_ns_diagnostic": 3470792,
+              "max_ns_diagnostic": 26468541,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P2",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 59677041.0,
+              "p90_ns": 61056163.099999994,
+              "p99_ns": 65363894.339999974,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2305104.25,
+              "mad_ns": 1094083.0,
+              "min_ns_diagnostic": 50867250,
+              "max_ns_diagnostic": 77473875,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 37866042.0,
+              "p90_ns": 39833975.300000004,
+              "p99_ns": 42832142.499999955,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 2458093.25,
+              "mad_ns": 1233625.5,
+              "min_ns_diagnostic": 32228333,
+              "max_ns_diagnostic": 51483166,
+              "phase": "accepted"
+            }
+          }
+        },
+        {
+          "case": "P3b",
+          "direction": "B",
+          "W": 20,
+          "K": 200,
+          "phase": "accepted",
+          "flags": [],
+          "witness_pairs_checked": 200,
+          "arm_order_ok": true,
+          "invalid": {
+            "ray": 0,
+            "hpx": 0
+          },
+          "timeouts": 0,
+          "block_delta_ok": true,
+          "stats": {
+            "ray": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 15163041.5,
+              "p90_ns": 16243775.0,
+              "p99_ns": 19782283.659999996,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1341791.5,
+              "mad_ns": 655583.5,
+              "min_ns_diagnostic": 11723833,
+              "max_ns_diagnostic": 22235416,
+              "phase": "accepted"
+            },
+            "hpx": {
+              "n": 200,
+              "requested_k": 200,
+              "p50_ns": 12361958.0,
+              "p90_ns": 13662550.0,
+              "p99_ns": 15201806.749999987,
+              "p99_scope": "n=200",
+              "p99_reliable": true,
+              "iqr_ns": 1353457.75,
+              "mad_ns": 710458.0,
+              "min_ns_diagnostic": 10130417,
+              "max_ns_diagnostic": 18570334,
+              "phase": "accepted"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "across_reps_A_coordinated": {
+    "P0": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 7781312.5,
+            "p90_ns": 11055929.5,
+            "p99_ns": 15953347.90999999,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 3721771.25,
+            "mad_ns": 1908667.0,
+            "min_ns_diagnostic": 4143208,
+            "max_ns_diagnostic": 30571834,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 8005354.5,
+            "p90_ns": 9241725.3,
+            "p99_ns": 10581431.749999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2420562.5,
+            "mad_ns": 1100291.5,
+            "min_ns_diagnostic": 4752667,
+            "max_ns_diagnostic": 13584041,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 8422354.5,
+            "p90_ns": 10028054.5,
+            "p99_ns": 12471495.329999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2657427.0,
+            "mad_ns": 1338854.5,
+            "min_ns_diagnostic": 5235625,
+            "max_ns_diagnostic": 21899708,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 8005354.5,
+        "p50_spread_ns": 641042.0,
+        "p50_min_ns": 7781312.5,
+        "p50_max_ns": 8422354.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 5090937.5,
+            "p90_ns": 8070175.300000001,
+            "p99_ns": 20056504.409999896,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2242927.0,
+            "mad_ns": 1057875.5,
+            "min_ns_diagnostic": 2716875,
+            "max_ns_diagnostic": 152988458,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 5094812.5,
+            "p90_ns": 6304903.800000001,
+            "p99_ns": 10145775.92,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1762624.5,
+            "mad_ns": 911291.5,
+            "min_ns_diagnostic": 3400750,
+            "max_ns_diagnostic": 23363292,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 5280667.0,
+            "p90_ns": 6674349.7,
+            "p99_ns": 9351929.82,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1832947.75,
+            "mad_ns": 918728.5,
+            "min_ns_diagnostic": 3404750,
+            "max_ns_diagnostic": 33395292,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 5094812.5,
+        "p50_spread_ns": 189729.5,
+        "p50_min_ns": 5090937.5,
+        "p50_max_ns": 5280667.0
+      }
+    },
+    "P1": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 168159416.5,
+            "p90_ns": 171803029.2,
+            "p99_ns": 174718050.0,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 5762499.75,
+            "mad_ns": 1730479.5,
+            "min_ns_diagnostic": 133806875,
+            "max_ns_diagnostic": 189385125,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 173341604.0,
+            "p90_ns": 180947379.1,
+            "p99_ns": 197448256.48999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 5560844.0,
+            "mad_ns": 2678854.0,
+            "min_ns_diagnostic": 167310542,
+            "max_ns_diagnostic": 210898583,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 177768937.0,
+            "p90_ns": 184619292.0,
+            "p99_ns": 204396749.07999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 5199822.75,
+            "mad_ns": 2631500.5,
+            "min_ns_diagnostic": 169043375,
+            "max_ns_diagnostic": 226681042,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 173341604.0,
+        "p50_spread_ns": 9609520.5,
+        "p50_min_ns": 168159416.5,
+        "p50_max_ns": 177768937.0
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 159984750.0,
+            "p90_ns": 164367129.20000002,
+            "p99_ns": 167978367.91999996,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 11376385.0,
+            "mad_ns": 3188770.5,
+            "min_ns_diagnostic": 132202708,
+            "max_ns_diagnostic": 392530959,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 164568312.5,
+            "p90_ns": 170565237.5,
+            "p99_ns": 183151365.32999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 4297145.75,
+            "mad_ns": 2007374.5,
+            "min_ns_diagnostic": 158198791,
+            "max_ns_diagnostic": 215669625,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 166821021.0,
+            "p90_ns": 172127879.5,
+            "p99_ns": 185936357.08,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 3769603.75,
+            "mad_ns": 1807250.0,
+            "min_ns_diagnostic": 156972417,
+            "max_ns_diagnostic": 221388208,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 164568312.5,
+        "p50_spread_ns": 6836271.0,
+        "p50_min_ns": 159984750.0,
+        "p50_max_ns": 166821021.0
+      }
+    },
+    "P2": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 50766375.0,
+            "p90_ns": 52343941.599999994,
+            "p99_ns": 57392052.49999999,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1718509.75,
+            "mad_ns": 859312.5,
+            "min_ns_diagnostic": 42574917,
+            "max_ns_diagnostic": 70906333,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 53045666.5,
+            "p90_ns": 54651766.699999996,
+            "p99_ns": 60057698.839999996,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1982813.25,
+            "mad_ns": 977895.5,
+            "min_ns_diagnostic": 45825500,
+            "max_ns_diagnostic": 69104459,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 54666833.5,
+            "p90_ns": 56920537.2,
+            "p99_ns": 61095118.419999994,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2387937.5,
+            "mad_ns": 1273291.5,
+            "min_ns_diagnostic": 47421417,
+            "max_ns_diagnostic": 74933459,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 53045666.5,
+        "p50_spread_ns": 3900458.5,
+        "p50_min_ns": 50766375.0,
+        "p50_max_ns": 54666833.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 33197146.0,
+            "p90_ns": 34690325.6,
+            "p99_ns": 36571617.92,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1681499.75,
+            "mad_ns": 837417.0,
+            "min_ns_diagnostic": 27842125,
+            "max_ns_diagnostic": 40080750,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 34560416.5,
+            "p90_ns": 36247616.4,
+            "p99_ns": 38737488.83,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1836427.5,
+            "mad_ns": 924520.5,
+            "min_ns_diagnostic": 29010291,
+            "max_ns_diagnostic": 46532000,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 35287917.0,
+            "p90_ns": 37179712.199999996,
+            "p99_ns": 39618759.41,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1865197.75,
+            "mad_ns": 931583.0,
+            "min_ns_diagnostic": 29986792,
+            "max_ns_diagnostic": 52183542,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 34560416.5,
+        "p50_spread_ns": 2090771.0,
+        "p50_min_ns": 33197146.0,
+        "p50_max_ns": 35287917.0
+      }
+    },
+    "P3a": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 13083708.0,
+            "p90_ns": 14121241.600000001,
+            "p99_ns": 17180134.579999994,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1405250.5,
+            "mad_ns": 481625.0,
+            "min_ns_diagnostic": 9791333,
+            "max_ns_diagnostic": 20779084,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 14085895.5,
+            "p90_ns": 15035145.799999999,
+            "p99_ns": 18289580.419999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1764854.0,
+            "mad_ns": 676479.0,
+            "min_ns_diagnostic": 10354833,
+            "max_ns_diagnostic": 20680666,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 14341750.5,
+            "p90_ns": 15315325.3,
+            "p99_ns": 18728213.419999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2232895.5,
+            "mad_ns": 652250.0,
+            "min_ns_diagnostic": 11131042,
+            "max_ns_diagnostic": 23481208,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 14085895.5,
+        "p50_spread_ns": 1258042.5,
+        "p50_min_ns": 13083708.0,
+        "p50_max_ns": 14341750.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 10682250.0,
+            "p90_ns": 11926904.2,
+            "p99_ns": 14519000.169999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1107239.5,
+            "mad_ns": 534416.5,
+            "min_ns_diagnostic": 8678375,
+            "max_ns_diagnostic": 43378958,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 11427271.0,
+            "p90_ns": 12645912.2,
+            "p99_ns": 15454560.589999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1183177.5,
+            "mad_ns": 592313.0,
+            "min_ns_diagnostic": 8953375,
+            "max_ns_diagnostic": 18759667,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 11604604.0,
+            "p90_ns": 12872912.5,
+            "p99_ns": 14678873.669999998,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1289843.25,
+            "mad_ns": 626937.5,
+            "min_ns_diagnostic": 9106917,
+            "max_ns_diagnostic": 15802583,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 11427271.0,
+        "p50_spread_ns": 922354.0,
+        "p50_min_ns": 10682250.0,
+        "p50_max_ns": 11604604.0
+      }
+    },
+    "P3b": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 13518417.0,
+            "p90_ns": 14819853.799999999,
+            "p99_ns": 16975609.589999996,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1433791.75,
+            "mad_ns": 700730.0,
+            "min_ns_diagnostic": 9974041,
+            "max_ns_diagnostic": 20069042,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 14609208.5,
+            "p90_ns": 15618395.799999999,
+            "p99_ns": 19125812.579999983,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 2088437.75,
+            "mad_ns": 608562.5,
+            "min_ns_diagnostic": 11038916,
+            "max_ns_diagnostic": 21671208,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 14771750.5,
+            "p90_ns": 15697446.100000001,
+            "p99_ns": 17865153.09,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1084344.25,
+            "mad_ns": 523145.5,
+            "min_ns_diagnostic": 11624375,
+            "max_ns_diagnostic": 21331500,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 14609208.5,
+        "p50_spread_ns": 1253333.5,
+        "p50_min_ns": 13518417.0,
+        "p50_max_ns": 14771750.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 11070542.0,
+            "p90_ns": 12349742.299999999,
+            "p99_ns": 13867772.589999996,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1255061.75,
+            "mad_ns": 628479.0,
+            "min_ns_diagnostic": 8878875,
+            "max_ns_diagnostic": 15152916,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 11684958.0,
+            "p90_ns": 12951162.8,
+            "p99_ns": 14905394.5,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1320406.0,
+            "mad_ns": 659146.0,
+            "min_ns_diagnostic": 9290042,
+            "max_ns_diagnostic": 44309250,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 11917333.5,
+            "p90_ns": 13244237.200000001,
+            "p99_ns": 14533582.0,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1300395.5,
+            "mad_ns": 654333.0,
+            "min_ns_diagnostic": 9571292,
+            "max_ns_diagnostic": 16211541,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 11684958.0,
+        "p50_spread_ns": 846791.5,
+        "p50_min_ns": 11070542.0,
+        "p50_max_ns": 11917333.5
+      }
+    },
+    "P3c": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 16853937.5,
+            "p90_ns": 17977745.5,
+            "p99_ns": 19864070.749999996,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1418760.5,
+            "mad_ns": 698021.0,
+            "min_ns_diagnostic": 12598708,
+            "max_ns_diagnostic": 22371333,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 17935416.5,
+            "p90_ns": 18731345.8,
+            "p99_ns": 22329244.08,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 911739.25,
+            "mad_ns": 440979.0,
+            "min_ns_diagnostic": 14511167,
+            "max_ns_diagnostic": 23433000,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 18050625.0,
+            "p90_ns": 19097033.000000004,
+            "p99_ns": 22308803.0,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1312114.0,
+            "mad_ns": 597583.0,
+            "min_ns_diagnostic": 14515625,
+            "max_ns_diagnostic": 39058917,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 17935416.5,
+        "p50_spread_ns": 1196687.5,
+        "p50_min_ns": 16853937.5,
+        "p50_max_ns": 18050625.0
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 12759938.0,
+            "p90_ns": 13915445.8,
+            "p99_ns": 14751865.409999995,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1315510.5,
+            "mad_ns": 654230.0,
+            "min_ns_diagnostic": 9682667,
+            "max_ns_diagnostic": 16035500,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 13387396.0,
+            "p90_ns": 14504683.600000001,
+            "p99_ns": 15860860.51,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1375186.75,
+            "mad_ns": 663875.0,
+            "min_ns_diagnostic": 10234125,
+            "max_ns_diagnostic": 20233750,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 500,
+            "requested_k": 500,
+            "p50_ns": 13532604.5,
+            "p90_ns": 14617878.9,
+            "p99_ns": 15729648.33,
+            "p99_scope": "n=500",
+            "p99_reliable": true,
+            "iqr_ns": 1323426.5,
+            "mad_ns": 665750.0,
+            "min_ns_diagnostic": 10914541,
+            "max_ns_diagnostic": 22049500,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 13387396.0,
+        "p50_spread_ns": 772666.5,
+        "p50_min_ns": 12759938.0,
+        "p50_max_ns": 13532604.5
+      }
+    }
+  },
+  "across_reps_B_control_separate_never_pooled": {
+    "P0": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 7781146.0,
+            "p90_ns": 9311749.399999999,
+            "p99_ns": 11337954.249999998,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2509521.0,
+            "mad_ns": 1325521.0,
+            "min_ns_diagnostic": 5001417,
+            "max_ns_diagnostic": 14783167,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 8343354.5,
+            "p90_ns": 9856599.7,
+            "p99_ns": 11579765.419999998,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2547270.75,
+            "mad_ns": 1132979.0,
+            "min_ns_diagnostic": 5743500,
+            "max_ns_diagnostic": 17348292,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 9003291.5,
+            "p90_ns": 10551874.4,
+            "p99_ns": 13156037.499999985,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 3164979.0,
+            "mad_ns": 1528417.0,
+            "min_ns_diagnostic": 5705042,
+            "max_ns_diagnostic": 18782208,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 8343354.5,
+        "p50_spread_ns": 1222145.5,
+        "p50_min_ns": 7781146.0,
+        "p50_max_ns": 9003291.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 4956687.5,
+            "p90_ns": 6142258.299999999,
+            "p99_ns": 9960523.989999987,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1827739.5,
+            "mad_ns": 937312.0,
+            "min_ns_diagnostic": 3189958,
+            "max_ns_diagnostic": 11618875,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 5188833.5,
+            "p90_ns": 6564537.8,
+            "p99_ns": 9056729.749999965,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1550437.25,
+            "mad_ns": 767354.0,
+            "min_ns_diagnostic": 3460625,
+            "max_ns_diagnostic": 16571750,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 5704541.5,
+            "p90_ns": 7245608.3,
+            "p99_ns": 11125059.999999955,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2052520.75,
+            "mad_ns": 1116291.5,
+            "min_ns_diagnostic": 3470792,
+            "max_ns_diagnostic": 26468541,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 5188833.5,
+        "p50_spread_ns": 747854.0,
+        "p50_min_ns": 4956687.5,
+        "p50_max_ns": 5704541.5
+      }
+    },
+    "P2": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 54910791.5,
+            "p90_ns": 57541837.2,
+            "p99_ns": 59325327.33,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2544157.0,
+            "mad_ns": 1280354.5,
+            "min_ns_diagnostic": 48103166,
+            "max_ns_diagnostic": 59978292,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 57917729.5,
+            "p90_ns": 60294782.699999996,
+            "p99_ns": 62298818.009999976,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2973000.0,
+            "mad_ns": 1490750.5,
+            "min_ns_diagnostic": 51692500,
+            "max_ns_diagnostic": 80349458,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 59677041.0,
+            "p90_ns": 61056163.099999994,
+            "p99_ns": 65363894.339999974,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2305104.25,
+            "mad_ns": 1094083.0,
+            "min_ns_diagnostic": 50867250,
+            "max_ns_diagnostic": 77473875,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 57917729.5,
+        "p50_spread_ns": 4766249.5,
+        "p50_min_ns": 54910791.5,
+        "p50_max_ns": 59677041.0
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 35217083.0,
+            "p90_ns": 37156637.5,
+            "p99_ns": 39384702.17,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1690208.25,
+            "mad_ns": 838166.0,
+            "min_ns_diagnostic": 30743833,
+            "max_ns_diagnostic": 43841417,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 37000646.0,
+            "p90_ns": 39615495.6,
+            "p99_ns": 40942447.92,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2514511.25,
+            "mad_ns": 1283250.0,
+            "min_ns_diagnostic": 31628041,
+            "max_ns_diagnostic": 45495833,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 37866042.0,
+            "p90_ns": 39833975.300000004,
+            "p99_ns": 42832142.499999955,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2458093.25,
+            "mad_ns": 1233625.5,
+            "min_ns_diagnostic": 32228333,
+            "max_ns_diagnostic": 51483166,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 37000646.0,
+        "p50_spread_ns": 2648959.0,
+        "p50_min_ns": 35217083.0,
+        "p50_max_ns": 37866042.0
+      }
+    },
+    "P3b": {
+      "ray": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 14449562.0,
+            "p90_ns": 15239062.5,
+            "p99_ns": 16335406.91,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1231853.75,
+            "mad_ns": 522437.5,
+            "min_ns_diagnostic": 10275500,
+            "max_ns_diagnostic": 16641542,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 14696687.5,
+            "p90_ns": 15922291.1,
+            "p99_ns": 18978491.009999976,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 2408958.25,
+            "mad_ns": 1035374.5,
+            "min_ns_diagnostic": 11597459,
+            "max_ns_diagnostic": 24744584,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 15163041.5,
+            "p90_ns": 16243775.0,
+            "p99_ns": 19782283.659999996,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1341791.5,
+            "mad_ns": 655583.5,
+            "min_ns_diagnostic": 11723833,
+            "max_ns_diagnostic": 22235416,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 14696687.5,
+        "p50_spread_ns": 713479.5,
+        "p50_min_ns": 14449562.0,
+        "p50_max_ns": 15163041.5
+      },
+      "hpx": {
+        "per_rep": [
+          {
+            "rep": 1,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 11528812.5,
+            "p90_ns": 12823312.200000001,
+            "p99_ns": 15253363.749999996,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1107448.25,
+            "mad_ns": 569396.0,
+            "min_ns_diagnostic": 9489333,
+            "max_ns_diagnostic": 17723541,
+            "phase": "accepted"
+          },
+          {
+            "rep": 2,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 12035646.0,
+            "p90_ns": 13223808.1,
+            "p99_ns": 15130264.259999998,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1255947.5,
+            "mad_ns": 631291.5,
+            "min_ns_diagnostic": 9943541,
+            "max_ns_diagnostic": 16070458,
+            "phase": "accepted"
+          },
+          {
+            "rep": 3,
+            "n": 200,
+            "requested_k": 200,
+            "p50_ns": 12361958.0,
+            "p90_ns": 13662550.0,
+            "p99_ns": 15201806.749999987,
+            "p99_scope": "n=200",
+            "p99_reliable": true,
+            "iqr_ns": 1353457.75,
+            "mad_ns": 710458.0,
+            "min_ns_diagnostic": 10130417,
+            "max_ns_diagnostic": 18570334,
+            "phase": "accepted"
+          }
+        ],
+        "median_of_per_rep_p50_ns": 12035646.0,
+        "p50_spread_ns": 833145.5,
+        "p50_min_ns": 11528812.5,
+        "p50_max_ns": 12361958.0
+      }
+    }
+  },
+  "overall": "pass",
+  "safe_claim": "On the tested local single-node environment (see provenance), the identical deterministic exp68 vocabulary-sharded top-k request was measured at the same Python caller boundary through a Ray-mediated and an HPX-mediated peer-candidate path inside the same Ray-hosted, HPX-resident actor topology; per-arm QD1 latency distributions were collected with every timed sample verified bit-exactly after t1. Per-arm distributions only; NO ratio, speedup, difference, or winner is computed or implied."
+}

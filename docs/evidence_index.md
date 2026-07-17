@@ -9,7 +9,7 @@ arms timed at the same Python caller boundary) still report the two arms as
 **separate per-arm bands** and never difference, ratio, or rank them. Magnitudes
 are observation-only and machine-specific unless a write-up says otherwise.
 
-**Current headlines (experiments 61–68):** **exp62 Slice 4b** is the headline
+**Current headlines (experiments 61–69):** **exp62 Slice 4b** is the headline
 same-axis distributed closed-`int64` fanout/fanin evidence; **exp64 Slice 4** is the
 headline payload-size evidence (**within-arm only**, `matched_band_r5`); **exp64
 Slice 5** is the completed native-readiness diagnostic (`waiter_resume_at_timeout`
@@ -33,9 +33,16 @@ LLM-shaped distributed-workload** gate — a synthetic vocabulary-sharded top-k 
 across the two actors with exact token-ID and float32-bit agreement against an
 independent oracle in both coordinator directions, locally and across three Rostam
 nodes (accepted job 170746, 204 cross-node candidate bit patterns with zero
-mismatches). **exp69** — a strict same-axis Ray-mediated vs HPX-mediated
-**performance** comparison of the exp68 workload — is **proposed, not yet evidence**.
-No ratios, speedups, differences, or winners anywhere.
+mismatches). **exp69** — the strict same-axis Ray-mediated vs HPX-mediated
+**performance** comparison of the exp68 workload — is **completed accepted evidence
+through Slice 3**: QD1 caller-observed latency (accepted job 171408, 21,600 exact
+timed samples, 0 invalid), bounded-concurrency verified-completion goodput (accepted
+job 171561, 36,000 verified completions, 0 invalid), and a causal resource-band
+decomposition (final curated job 172125, 18,000 exact completions) that resolved the
+one observed direction reversal as a thread-supply resource asymmetry with no
+implementation defect. No ratios, speedups, differences, or winners anywhere in this
+index; the only licensed cross-arm ratios are the scoped, gated exp69 review results
+recorded in the exp69 report, and the accepted aggregates' ratio fences remain false.
 
 Top-level reading guides that complement this index:
 
@@ -432,6 +439,11 @@ Slice A and Slice B gates pass in every rep; Slice C never changes the verdict.
 no performance, speedup, ratio, or HPX-vs-Ray winner claim; Slice C is a diagnostic, not an
 architectural verdict; timing is never the correctness oracle.
 
+**Durable report:**
+[hpx_runtime_inside_ray_actor.md](../experiments/66_hpx_runtime_inside_ray_actor/hpx_runtime_inside_ray_actor.md)
+— the standing experiment-local account (process model, gates, same-process proof,
+lifecycle, artifacts, hashes).
+
 * [experiments/66_hpx_runtime_inside_ray_actor/](../experiments/66_hpx_runtime_inside_ray_actor/) — **exp66 local slice** (CPython **3.11.15** GIL build, Ray **2.55.1**, HPX **`20bc3d4bf3068383edcb63be13f22e9ff95842fa`**, macOS loopback): **3/3**. A separately supervised work-free root (locality 0) and an external HPX prober run as standalone processes; one Ray actor hosts a connect-mode HPX locality in-process. The HPX `pid` action executed **on the actor locality** returned exactly the Ray actor worker's own PID, and the actor owned **zero** HPX children — in-process hosting proven by value, not a child. Verified remote `probe` action + closed-`int64` oracle on the actor locality; HPX progress while the actor's Python thread was idle; graceful `post(disconnect)+stop` leave (`root_completion_signal`); clean in-process HPX stop; actor destruction and recreation (fresh PID); no orphans. Slice C `progressed_under_actor_saturation` ×3 (HPX executed the action while the actor's Python thread held the GIL — a diagnostic, since the C++ actions never touch the GIL). Curated [hpx_inside_ray_actor_aggregate.json](../experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_aggregate.json); raw `_exp66_runs/` gitignored.
 * **exp66 Rostam cross-node slice** (Slurm job **170524**; CPython **3.12.3** GIL build, Ray **2.55.1**, same fixed HPX build, TCP parcelport over `10.42.5.x`): **3/3**. Ray head on **medusa00** (`10.42.5.30`), worker on **medusa01** (`10.42.5.31`); the work-free root and prober ran on medusa00 while the Ray actor was **hard-placed** (`NodeAffinitySchedulingStrategy(soft=False)`, resolved Ray node-id + FQDN-normalized hostname) on **medusa01**. Every rep: the HPX `pid` action executed on the actor locality returned the actor worker PID **across nodes** (e.g. `1342471==1342471`), no HPX child; verified `probe` action + oracle executed on the actor locality (locality 1) over the real TCP parcelport; idle progress passed; graceful leave with `root_completion_signal`; root finalized; actor recreated on medusa01 with a fresh PID; and orphan checks were clean on both nodes. Slice C progressed ×3. Curated [hpx_inside_ray_actor_crossnode_aggregate.json](../experiments/66_hpx_runtime_inside_ray_actor/hpx_inside_ray_actor_crossnode_aggregate.json); raw `_exp66_runs/` gitignored. (A first submission, job 170520, had all reps pass but was invalidated by an orphan-check self-match — the check's own `srun … pgrep -f <pattern>` matched its launcher argv on the controller's node; the checker was fixed to filter its own machinery and the full 3-rep set was rerun as 170524.)
 
@@ -464,6 +476,11 @@ direct wire instrumentation.
 distributed HPX runtime as connect-mode localities and execute a verified HPX action from
 one actor-locality to the other, in both directions, while a separately supervised
 root/AGAS process stays isolated and work-free — locally and across distinct nodes?
+
+**Durable report:**
+[two_ray_actors_shared_hpx.md](../experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx.md)
+— the standing experiment-local account (shared-runtime architecture, bidirectional
+mechanism, gates, accepted evidence, artifacts, hashes).
 
 * **Local slice** (CPython **3.11.15** GIL build, Ray **2.55.1**, HPX **`20bc3d4bf3068383edcb63be13f22e9ff95842fa`**, macOS loopback): **3/3**. Two distinct Ray worker PIDs on distinct nonzero HPX localities (1 and 2), both **childless** (no HPX child process); A→B returns B's worker PID, executes on B's locality, and passes the closed oracle, and B→A returns A's worker PID on A's locality; the work-free root is locality 0 (`max_membership=3`, `final_membership=1`, `leave_observed`); graceful `post(disconnect)+stop` leave for both, root finalized clean, both actors destroyed and recreated with fresh PIDs, no orphans. Curated [two_ray_actors_shared_hpx_aggregate.json](../experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_aggregate.json); raw `_exp67_runs/` gitignored.
 * **Rostam three-node slice** — smoke job **170743** (pass) and accepted full job **170744** (**3/3**); CPython **3.12.3**, Ray **2.55.1**, same fixed HPX build, TCP parcelport over `10.42.5.x`. **Root/controller on medusa00** (`10.42.5.30`), **actor A on medusa01** (`10.42.5.31`), **actor B on medusa11** (`10.42.5.41`) — **three roles on three distinct nodes** with distinct Ray node-ids; both actors **hard-placed** (`NodeAffinitySchedulingStrategy(soft=False)`, resolved Ray node-id + FQDN-normalized hostname). Every rep: distinct worker PIDs on distinct localities, both childless; A→B (`pid_result==B.pid`, executes on B's locality, hostname medusa11, oracle) and B→A (`pid_result==A.pid`, locality A, hostname medusa01, oracle) — **both directions cross nodes**; root stayed work-free on medusa00 (no application action on locality 0); graceful leave, root finalize, actor recreation on the intended nodes, and orphan-clean sweeps on **all three nodes**. Curated [two_ray_actors_shared_hpx_crossnode_aggregate.json](../experiments/67_two_ray_actors_shared_hpx/two_ray_actors_shared_hpx_crossnode_aggregate.json); raw `_exp67_runs/crossnode_*` gitignored. (Actor B ran on medusa11 rather than medusa02, which was occupied; a distinct third node is equivalent for this mechanism proof and the actual node is recorded.)
@@ -501,6 +518,11 @@ cutoff, one-shard-dominant, both-shards-contributing).
 * **Local slice** (CPython **3.11.15** GIL build, Ray **2.55.1**, HPX **`20bc3d4bf3068383edcb63be13f22e9ff95842fa`**): **3/3**. For every case: exact local top-k per shard (token IDs + float32 bits + order) vs an oracle restricted to that shard; **A-coordinated and B-coordinated** merges both equal the full global oracle exactly; HPX action → future → continuation composition evidenced; distinct childless actors on localities 1/2; work-free root; clean lifecycle and actor recreation; no orphans. Curated [vocab_sharded_topk_aggregate.json](../experiments/68_vocab_sharded_topk/vocab_sharded_topk_aggregate.json); raw `_exp68_runs/` gitignored.
 * **Rostam three-node slice** — smoke job **170745** (pass) and accepted full job **170746** (**3/3**); CPython **3.12.3**, Ray **2.55.1**, same fixed HPX build, TCP parcelport over `10.42.5.x`; root/controller **medusa00**, actor A **medusa01**, actor B **medusa11**, both hard-placed on distinct nodes. Every rep ran the **full seven-case matrix** in both directions crossing nodes with exact token-ID, ordering, and float32-bit agreement vs the independent oracle; **coordinator symmetry** held (A-coordinated result == B-coordinated result == oracle, ids+bits+order). The cross-node **serialization discriminator**: for every returned candidate — merged results **and** the peer-transferred candidate lists that crossed the parcelport — raw `uint32` bit patterns matched the oracle exactly: **204 peer-transferred candidate bit patterns checked (68 per repetition), zero mismatches**. Root stayed work-free; clean lifecycle, actor recreation on the intended nodes, orphan-clean on all three nodes. Curated [vocab_sharded_topk_crossnode_aggregate.json](../experiments/68_vocab_sharded_topk/vocab_sharded_topk_crossnode_aggregate.json); raw `_exp68_runs/crossnode_*` gitignored. (Actor B ran on medusa11 rather than medusa02, which was occupied; the actual node is recorded.)
 
+**Durable report:**
+[vocab_sharded_topk.md](../experiments/68_vocab_sharded_topk/vocab_sharded_topk.md) — the
+standing experiment-local account (workload contract, oracle, gates, accepted evidence,
+artifacts, hashes).
+
 **Safe claim:** *two Ray actors on distinct nodes executed a deterministic vocabulary-sharded
 top-k operation through HPX actions/futures in both coordinator directions, with exact
 token-ID, ordering, and float32-bit agreement against an independent oracle — locally and
@@ -511,8 +533,73 @@ or free-threaded; no elasticity, churn, or failure recovery; **no latency, throu
 speedup, or winner claim**; no direct internal serialization instrumentation (only that
 bit-exact candidate *values* survived the HPX action path); not a production API.
 
-**Roadmap:** **exp69** — a strict **same-axis Ray-mediated vs HPX-mediated performance
-comparison** of this exact exp68 workload (same actors, same placement, same Python caller
-boundary, correctness verified before any timing sample counts) — is **proposed, not yet
-evidence**. No results and no ratio/speedup/winner claim exist; any future comparison must stay
-exact-case, exact-boundary, exact-placement, and version scoped.
+exp69 (below) is the completed same-axis performance characterization of this exact workload.
+
+---
+
+## Same-axis top-k orchestration performance (experiment 69)
+
+exp69 is the first experiment explicitly permitted to compare Ray-mediated and HPX-mediated
+execution-path performance — for the identical exp68 workload, actor topology, placement,
+resources, and Python caller boundary, under strict correctness, placement, resource,
+sampling, and same-axis gates. Both arms run inside the **same** Ray-hosted, HPX-resident
+actor topology (this is not standalone Ray vs standalone HPX); every timed sample is
+verified bit-exactly against the independent exp68 oracle strictly after the timing
+boundary, and invalid results never contribute timing samples.
+
+**Durable report:**
+[same_axis_topk_perf.md](../experiments/69_same_axis_topk_perf/same_axis_topk_perf.md) —
+methodology, call paths, per-slice results, causal interpretation, and claim boundaries.
+
+* **Slice 1 — QD1 caller-observed latency** (accepted cross-node job **171408**; root
+  medusa00, actor A medusa01, actor B medusa11; local control aggregate also curated):
+  six payload cases (P0/P1/P2/P3a/P3b/P3c), direction A at W=50/K=500/R=3 plus a separate
+  never-pooled direction-B control — **21,600 timed samples, 0 invalid, 0 timeout**, all
+  gates passed. Per-arm latency distributions only in the aggregate; a completed read-only
+  review conditionally licensed scoped per-case QD1 discussion (P1 per-arm-only), with the
+  repetition-level range as the primary uncertainty. Curated
+  [same_axis_topk_qd1_local_aggregate.json](../experiments/69_same_axis_topk_perf/same_axis_topk_qd1_local_aggregate.json)
+  and [same_axis_topk_qd1_crossnode_aggregate.json](../experiments/69_same_axis_topk_perf/same_axis_topk_qd1_crossnode_aggregate.json).
+* **Slice 2 — bounded-concurrency goodput and latency under load** (smoke job 171560;
+  accepted job **171561**, same three-node topology): cases P0/P2/P3b at C∈{2,4},
+  `num_cpus=2` / `hpx_threads=2`, N=1000 verified completions per batch, R=3, fixed-count
+  closed-loop with a bounded out-of-interval verifier — **36,000 verified completions, 0
+  invalid**, no verifier backpressure, all gates passed. A completed read-only review
+  licensed **scoped ratios**: P2/C=2 HPX/Ray goodput ≈ **1.28** (rep range 1.27–1.29) and
+  Ray/HPX p50 latency-under-load ≈ **1.25** (1.25–1.26); P0/C=2 ≈ 1.69/1.72 with a
+  mandatory fixed-overhead caveat; P3b/C=2 direction-unstable (not licensed); all original
+  C=4 ratios **not licensed** (resource-sensitive). The accepted aggregate's ratio fences
+  remain false; the licensed ratios live in the report as review results. Curated
+  [same_axis_topk_throughput_crossnode_aggregate.json](../experiments/69_same_axis_topk_perf/same_axis_topk_throughput_crossnode_aggregate.json).
+* **Slice 3 — causal resource decomposition** (smoke 172121; accepted reproduction 172122;
+  **final curated accepted job 172125** on medusa01/medusa11/medusa12): P3b-only
+  three-band matrix (`C2/cpu2/ht2`, `C4/cpu2/ht2`, `C4/cpu4/ht4`), both arms inside the
+  same band — **18,000 exact completions, 0 invalid, 0 timeout**, all island gates passed,
+  no orphans. The Slice 2 P3b/C=4 reversal **reproduced** at the oversubscribed control
+  band and **disappeared** at the matched band: raising HPX workers to four raised observed
+  peer concurrency (2 → 3–4), dropped the composite dispatch-to-continuation interval
+  (3.47 → 2.45 ms) and total native coordinate (6.93 → 5.47 ms), and the two per-arm
+  goodput distributions converged to the same approximate region. Classification:
+  `thread_supply_resource_asymmetry_supported`, `no_implementation_defect_observed`. **No
+  cross-arm ratio is computed for Slice 3.** (Job 172122 passed every measurement gate but
+  inherited two wrong claim-fence metadata values from the QD1-shaped aggregate builder;
+  the fences were corrected and 172125 re-ran the identical matrix — both jobs
+  independently reproduce the same result.) Curated
+  [same_axis_topk_slice3_crossnode_aggregate.json](../experiments/69_same_axis_topk_perf/same_axis_topk_slice3_crossnode_aggregate.json).
+
+**Safe claim:** *exp69 establishes exact, matched-boundary QD1 latency and
+bounded-concurrency performance distributions for the two peer-orchestration paths inside
+the same Ray-hosted, HPX-resident topology, with every measured sample verified
+bit-exactly; its scoped, gated review ratios cover exactly the licensed cases above; and
+its causal slice resolves the one observed reversal as a thread-supply resource asymmetry,
+not an implementation defect.* **Non-claims:** not real inference; no standalone
+Ray-vs-HPX conclusion; no universal winner or broad speedup; no pooled or Slice 3 ratios;
+no claim that `num_cpus` physically caps Ray OS threads; the dispatch-to-continuation
+interval is a composite, not pure transport. A comparison-validity guard stands for future
+bands: for C ≥ 4, match `num_cpus == hpx_threads == C` or label the band oversubscribed.
+
+**exp70 (status note):** locality supervision — heartbeat/failure detection and
+departed-locality dispatch behavior — is **active work, not accepted evidence**. A
+self-contained upstream reproducer for the connector-lifetime gap is committed under
+[experiments/70_hpx_locality_supervision/upstream_reproducer/](../experiments/70_hpx_locality_supervision/upstream_reproducer/README.md);
+its raw run and build directories are untracked.

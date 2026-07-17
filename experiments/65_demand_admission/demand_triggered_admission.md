@@ -1,10 +1,27 @@
 # exp65 — demand-triggered connect-mode admission (loopback + cross-node slices)
 
-**Status:** characterized, `overall = pass` (3×/3× both arms) on the original
-**single-node loopback slice** (this machine: AppleClang, HPX 1.11 networking build), and
-reproduced `overall = pass` (3×/3× both arms) on the Rostam **cross-node slice**
-(medusa00 root, medusa01 connector, TCP `10.42.5.x`, Slurm job 170014; see the cross-node
-section below). Structural mechanism evidence only. Ray-free. Not a performance result.
+## Executive summary
+
+**Problem.** Every prior distributed experiment (exp49–64) used connect-mode late
+admission in an orchestrated assemble-then-measure pattern: connectors were launched at
+orchestration start and roots waited for them before doing anything. For a Ray-supervised
+island design, the interesting ordering is the opposite: a root that is already alive and
+doing verified work, admitting a locality only **when demand arises**.
+
+**Answer.** Demand-ordered admission works on this build: the root starts alone, completes
+verified local HPX work with zero connectors in existence, admits one connector only after
+an external demand event, discovers it by membership set-difference (no predetermined
+count), serves one bounded oracle-verified remote action, observes a graceful leave, keeps
+working, and finalizes cleanly. A no-demand control proves the same root finalizes cleanly
+having never seen a connector. Both arms passed **3/3 repetitions** on the single-node
+loopback slice (macOS, AppleClang, HPX 1.11 networking build) and **3/3** on the Rostam
+two-node cross-node slice (medusa00 root → medusa01 connector, TCP `10.42.5.x`).
+
+**Limitations.** Structural mechanism evidence only; Ray-free; one connector and one
+demand event; no membership change while remote work is in flight; graceful leave only; the
+root still pre-declares willingness via `--hpx:expect-connecting-localities`; all recorded
+durations are observational and never gate inputs. Job IDs and artifacts are listed in the
+cross-node section below.
 
 ## Question
 

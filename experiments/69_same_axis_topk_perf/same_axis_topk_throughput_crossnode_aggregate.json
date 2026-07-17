@@ -1,0 +1,4921 @@
+{
+  "experiment": "69_same_axis_topk_perf",
+  "kind": "slice2_crossnode_closed_loop_throughput",
+  "phase": "rostam-cross-node-throughput",
+  "sampling_mode": "accepted",
+  "single_node": false,
+  "cross_node": true,
+  "load_model": "Closed-loop bounded-concurrency goodput and latency under load at concurrency C",
+  "goodput_definition": "Verified-completion goodput: timing covers request submission through caller-observed completion (t1 after ray.get), and correctness is established by a bounded verifier OUTSIDE the measured request intervals before the batch is accepted.",
+  "coordinator": "A",
+  "concurrency": [
+    2,
+    4
+  ],
+  "cases": [
+    "P0",
+    "P2",
+    "P3b"
+  ],
+  "sampling": {
+    "warmup_n": 100,
+    "N": 1000,
+    "reps": 3,
+    "mode": "accepted"
+  },
+  "resources": {
+    "num_cpus_per_actor": 2,
+    "hpx_threads_per_locality": 2,
+    "max_concurrency": "C (per band)"
+  },
+  "verifier": {
+    "queue_capacity": 256,
+    "note": "one dedicated worker thread; high_water<capacity and enqueue_block==0 gated"
+  },
+  "measured_contrast": "Ray-mediated peer-candidate transport and Python boundary handling versus HPX-mediated peer-candidate transport and native future/continuation composition, with identical local top-k and merge algorithms",
+  "generation_rule": {
+    "name": "int_grid_over_8",
+    "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+    "grid_range": [
+      -65,
+      65
+    ],
+    "denominator": 8,
+    "float32_exact": true,
+    "total_order": "higher logit; tie -> lower global token id",
+    "value_range": [
+      -8.125,
+      8.125
+    ]
+  },
+  "total_order": "higher logit wins; on equal logit, lower global token id wins",
+  "correctness_matrix": [
+    {
+      "name": "tiny_k1",
+      "V": 8,
+      "split": 4,
+      "k": 1,
+      "seed": 7,
+      "tags": [
+        "small",
+        "k1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "tiny_k3",
+      "V": 8,
+      "split": 4,
+      "k": 3,
+      "seed": 7,
+      "tags": [
+        "small",
+        "kgt1",
+        "k_lt_shard"
+      ]
+    },
+    {
+      "name": "cross_both",
+      "V": 64,
+      "split": 32,
+      "k": 6,
+      "seed": 1,
+      "tags": [
+        "both_shards",
+        "kgt1"
+      ]
+    },
+    {
+      "name": "tie_cutoff",
+      "V": 200,
+      "split": 100,
+      "k": 5,
+      "seed": 1,
+      "tags": [
+        "tie_at_cutoff"
+      ]
+    },
+    {
+      "name": "shardA_dom",
+      "V": 128,
+      "split": 64,
+      "k": 8,
+      "seed": 1,
+      "tags": [
+        "one_shard_dominant"
+      ]
+    },
+    {
+      "name": "both_contrib",
+      "V": 100,
+      "split": 50,
+      "k": 10,
+      "seed": 1,
+      "tags": [
+        "both_shards"
+      ]
+    },
+    {
+      "name": "k1_large",
+      "V": 256,
+      "split": 128,
+      "k": 1,
+      "seed": 13,
+      "tags": [
+        "k1"
+      ]
+    }
+  ],
+  "ratio_fences": {
+    "speedup_computed": false,
+    "ratio_reported": false,
+    "arms_differenced": false,
+    "placement_bands_differenced": false
+  },
+  "claim_fences": {
+    "not_real_llm_inference": true,
+    "no_model_weights_tokenizer_gpu": true,
+    "not_cross_node": false,
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "no_elasticity_churn_or_recovery": true,
+    "not_production_api": true,
+    "no_ratio_speedup_winner_claim": true,
+    "per_arm_distributions_only": true,
+    "qd1_latency_only_no_throughput": false,
+    "timing_not_correctness_oracle": true,
+    "ray_arm_not_pure_standalone_ray": true,
+    "b_control_reported_separately_never_pooled": true
+  },
+  "failure_classes": [
+    "concurrency_soak_failed",
+    "reentrancy_unsafe",
+    "coordinator_service_serialized",
+    "ray_peer_concurrency_capability_not_proven",
+    "hpx_peer_concurrency_capability_not_proven",
+    "peer_concurrency_capability_not_available",
+    "active_call_counter_underflow",
+    "active_call_counter_leak",
+    "witness_counter_race_detected",
+    "achieved_concurrency_below_target",
+    "verifier_backpressure_contaminated_batch",
+    "verifier_exception",
+    "throughput_batch_invalidated_by_invalid_result",
+    "hpx_thread_starvation_under_load",
+    "latency_under_load_mixed_with_qd1",
+    "oversubscription_gate_failed",
+    "peer_config_mutated_during_measurement",
+    "ray_peer_used_by_hpx_arm",
+    "hpx_action_used_by_ray_arm",
+    "hpx_identity_mismatch",
+    "actor_placement_invalid",
+    "three_node_allocation_unavailable",
+    "subnet_mismatch",
+    "ray_cluster_failed",
+    "shared_island_join_failed",
+    "timeout",
+    "lifecycle_failed",
+    "actor_recreation_failed",
+    "orphan_detected",
+    "invalid_instrumentation",
+    "pass"
+  ],
+  "ray_cluster": {
+    "root_node": "medusa00",
+    "actor_a_node": "medusa01",
+    "actor_b_node": "medusa11",
+    "root_ip": "10.42.5.30",
+    "actor_a_ip": "10.42.5.31",
+    "actor_b_ip": "10.42.5.41",
+    "nodeR_ray_node_id": "e4d649ed5b8943c495e3da546f728cb64ab789fdd7a04c49a6b877d9",
+    "nodeA_ray_node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+    "nodeB_ray_node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+    "driver_node_id": "e4d649ed5b8943c495e3da546f728cb64ab789fdd7a04c49a6b877d9",
+    "driver_on_nodeR": true
+  },
+  "preflight": {
+    "slurm_job_id": "171561",
+    "slurm_nodelist": "medusa[00-01,11]",
+    "allocation_nodes": [
+      "medusa00",
+      "medusa01",
+      "medusa11"
+    ],
+    "controller_host": "medusa00",
+    "nodeR": "medusa00",
+    "nodeA": "medusa01",
+    "nodeB": "medusa11",
+    "nodeR_ip": "10.42.5.30",
+    "nodeA_ip": "10.42.5.31",
+    "nodeB_ip": "10.42.5.41",
+    "subnet_prefix": "10.42.5."
+  },
+  "provenance": {
+    "python_version_full": "3.12.3 (main, May 22 2024, 15:27:39) [GCC 11.4.1 20231218 (Red Hat 11.4.1-3)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-312-x86_64-linux-gnu.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "Linux-5.14.0-570.37.1.el9_6.x86_64-x86_64-with-glibc2.34",
+    "machine": "x86_64",
+    "processor_count": 40,
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp69_actor_ext.cpython-312-x86_64-linux-gnu.so",
+    "actor_ext_abi_match": true,
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "reps": [
+    {
+      "C": 2,
+      "rep": 1,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_1",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_1/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 2,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": false,
+          "capability_proven": null
+        },
+        {
+          "arm": "hpx",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 1,
+          "peer_overlap_observed": false,
+          "capability_regime": false,
+          "capability_proven": null
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 876.5616289470131,
+          "elapsed_s": 1.140821098,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 2225993.5,
+            "p90_ns": 2893004.5,
+            "p99_ns": 3682077.7899999996,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 641579.0,
+            "mad_ns": 325286.5,
+            "min_ns_diagnostic": 1638685,
+            "max_ns_diagnostic": 4769853,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 26277
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1404.6852179791224,
+          "elapsed_s": 0.71190327,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1389825.0,
+            "p90_ns": 1608027.4000000001,
+            "p99_ns": 2267577.4099999988,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 205951.0,
+            "mad_ns": 103674.0,
+            "min_ns_diagnostic": 1138990,
+            "max_ns_diagnostic": 3999249,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 8167
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 29.49103965110253,
+          "elapsed_s": 33.908604506,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 67557779.5,
+            "p90_ns": 68140909.3,
+            "p99_ns": 73560213.55,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 569546.0,
+            "mad_ns": 286415.0,
+            "min_ns_diagnostic": 60361140,
+            "max_ns_diagnostic": 111103719,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 44270752
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 37.90594481904044,
+          "elapsed_s": 26.381086259,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 53646905.5,
+            "p90_ns": 55084254.3,
+            "p99_ns": 65546547.169999994,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 4034437.5,
+            "mad_ns": 1522349.5,
+            "min_ns_diagnostic": 36881979,
+            "max_ns_diagnostic": 95436610,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 22420582
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 256.4564555282843,
+          "elapsed_s": 3.899297438,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7825280.5,
+            "p90_ns": 8316059.800000001,
+            "p99_ns": 8746079.49,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 529258.25,
+            "mad_ns": 263440.5,
+            "min_ns_diagnostic": 6658748,
+            "max_ns_diagnostic": 9857375,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 34852
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 275.88963106268153,
+          "elapsed_s": 3.624637853,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7411030.5,
+            "p90_ns": 8091291.8,
+            "p99_ns": 10160047.94,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1408678.5,
+            "mad_ns": 662911.0,
+            "min_ns_diagnostic": 5848666,
+            "max_ns_diagnostic": 11942622,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 56905
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1443271,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4013820,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_1_C4_P3b_soak"
+      }
+    },
+    {
+      "C": 2,
+      "rep": 2,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_2",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_2/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 2,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": false,
+          "capability_proven": null
+        },
+        {
+          "arm": "hpx",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 2,
+          "peer_overlap_observed": true,
+          "capability_regime": false,
+          "capability_proven": null
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 824.8234612818319,
+          "elapsed_s": 1.212380645,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 2282581.0,
+            "p90_ns": 3138825.4,
+            "p99_ns": 3595388.389999999,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 844813.25,
+            "mad_ns": 359416.5,
+            "min_ns_diagnostic": 1642837,
+            "max_ns_diagnostic": 5274561,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 1,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 26628
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1459.6146250150919,
+          "elapsed_s": 0.685112346,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1324733.5,
+            "p90_ns": 1561958.7,
+            "p99_ns": 2265741.89,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 207736.5,
+            "mad_ns": 99205.0,
+            "min_ns_diagnostic": 1129037,
+            "max_ns_diagnostic": 3416831,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 7724
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 29.92826488622763,
+          "elapsed_s": 33.413230062,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 66621866.5,
+            "p90_ns": 67193488.5,
+            "p99_ns": 72226100.27999999,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 497414.75,
+            "mad_ns": 249140.0,
+            "min_ns_diagnostic": 60948663,
+            "max_ns_diagnostic": 101588727,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 26640333
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 38.28447350633904,
+          "elapsed_s": 26.120249501,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 53114292.0,
+            "p90_ns": 55209598.3,
+            "p99_ns": 65219863.39,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 3947063.25,
+            "mad_ns": 2035239.5,
+            "min_ns_diagnostic": 36854591,
+            "max_ns_diagnostic": 97322774,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 23030894
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 263.1238858361115,
+          "elapsed_s": 3.800491152,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7625148.0,
+            "p90_ns": 8102431.3,
+            "p99_ns": 8515679.78,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 549380.75,
+            "mad_ns": 267953.0,
+            "min_ns_diagnostic": 6608230,
+            "max_ns_diagnostic": 9558105,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 33957
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 280.0406100666656,
+          "elapsed_s": 3.570910661,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7236348.0,
+            "p90_ns": 7774771.399999999,
+            "p99_ns": 9819308.430000002,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1110595.5,
+            "mad_ns": 364474.5,
+            "min_ns_diagnostic": 5889540,
+            "max_ns_diagnostic": 11590861,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 35379
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1443535,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4014091,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_2_C4_P3b_soak"
+      }
+    },
+    {
+      "C": 2,
+      "rep": 3,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_3",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C2_rep_3/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 2,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": false,
+          "capability_proven": null
+        },
+        {
+          "arm": "hpx",
+          "C": 2,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 2,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 1,
+          "peer_overlap_observed": false,
+          "capability_regime": false,
+          "capability_proven": null
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 838.8934499106315,
+          "elapsed_s": 1.192046499,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 2445996.0,
+            "p90_ns": 2840704.8000000003,
+            "p99_ns": 3218447.9499999993,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 497003.25,
+            "mad_ns": 248114.5,
+            "min_ns_diagnostic": 1520207,
+            "max_ns_diagnostic": 5244476,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 12634
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1417.4416504085048,
+          "elapsed_s": 0.705496413,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1301712.5,
+            "p90_ns": 1545039.2000000002,
+            "p99_ns": 1957809.7999999998,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 201988.25,
+            "mad_ns": 94385.5,
+            "min_ns_diagnostic": 1081323,
+            "max_ns_diagnostic": 36840199,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 9085
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 29.97094783884072,
+          "elapsed_s": 33.365644803,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 66544860.0,
+            "p90_ns": 67094520.6,
+            "p99_ns": 69903135.14999999,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 481619.0,
+            "mad_ns": 241772.0,
+            "min_ns_diagnostic": 56659927,
+            "max_ns_diagnostic": 100909160,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 23814204
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 38.16319843279656,
+          "elapsed_s": 26.203254472,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 53059615.5,
+            "p90_ns": 54444217.099999994,
+            "p99_ns": 66657228.63999999,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 3936383.75,
+            "mad_ns": 939240.5,
+            "min_ns_diagnostic": 35328551,
+            "max_ns_diagnostic": 87150874,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 23863696
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 266.7142340478903,
+          "elapsed_s": 3.749331203,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7491837.5,
+            "p90_ns": 8180665.5,
+            "p99_ns": 8682679.87,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 802848.0,
+            "mad_ns": 400896.0,
+            "min_ns_diagnostic": 6616227,
+            "max_ns_diagnostic": 9656869,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 103041
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 2,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 252.43403370228708,
+          "elapsed_s": 3.961430974,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7640533.5,
+            "p90_ns": 8191326.8,
+            "p99_ns": 31189723.189999986,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1220659.0,
+            "mad_ns": 346666.5,
+            "min_ns_diagnostic": 5957456,
+            "max_ns_diagnostic": 39127597,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 68062
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 2,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 1.999,
+            "max": 2,
+            "fraction_at_C": 0.999,
+            "target_C": 2
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1443787,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4014344,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_3_C4_P3b_soak"
+      }
+    },
+    {
+      "C": 4,
+      "rep": 1,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_1",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_1/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 4,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        },
+        {
+          "arm": "hpx",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 2,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1385.894651944241,
+          "elapsed_s": 0.721555566,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 2875565.5,
+            "p90_ns": 3839659.7,
+            "p99_ns": 4453253.93,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1186519.25,
+            "mad_ns": 593816.5,
+            "min_ns_diagnostic": 1587219,
+            "max_ns_diagnostic": 4816684,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 7066
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 2505.7927727067868,
+          "elapsed_s": 0.399075299,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1446307.0,
+            "p90_ns": 2056297.9000000001,
+            "p99_ns": 3436899.44,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 405147.75,
+            "mad_ns": 154491.5,
+            "min_ns_diagnostic": 1043410,
+            "max_ns_diagnostic": 4335676,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 8527
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 33.14253397693986,
+          "elapsed_s": 30.172707998,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 123164587.5,
+            "p90_ns": 155634428.10000002,
+            "p99_ns": 187052779.82999998,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 41805040.5,
+            "mad_ns": 20302637.5,
+            "min_ns_diagnostic": 58515494,
+            "max_ns_diagnostic": 1125543653,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 22163664
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 52.262843488869734,
+          "elapsed_s": 19.13405267,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 75433601.5,
+            "p90_ns": 95095364.0,
+            "p99_ns": 115915057.72,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 19442652.5,
+            "mad_ns": 9317678.5,
+            "min_ns_diagnostic": 37813196,
+            "max_ns_diagnostic": 139577165,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 25570145
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 512.1362895454902,
+          "elapsed_s": 1.952605235,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7583140.0,
+            "p90_ns": 8926344.799999999,
+            "p99_ns": 9892907.75,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1136485.75,
+            "mad_ns": 504879.5,
+            "min_ns_diagnostic": 6626784,
+            "max_ns_diagnostic": 11023624,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 1,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 80840
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 1,
+          "n_completed": 1000,
+          "completion_rate_per_s": 460.1906896670642,
+          "elapsed_s": 2.173012237,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 8446321.0,
+            "p90_ns": 10852807.100000001,
+            "p99_ns": 13082728.92,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 2426683.5,
+            "mad_ns": 1181890.0,
+            "min_ns_diagnostic": 5904194,
+            "max_ns_diagnostic": 15302210,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 119427
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_1_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1444044,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4014611,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_1_C4_P3b_soak"
+      }
+    },
+    {
+      "C": 4,
+      "rep": 2,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_2",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_2/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 4,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        },
+        {
+          "arm": "hpx",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 2,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1240.9634207107053,
+          "elapsed_s": 0.805825525,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 3146442.5,
+            "p90_ns": 4224722.3,
+            "p99_ns": 5033871.46,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1229687.0,
+            "mad_ns": 597792.0,
+            "min_ns_diagnostic": 1577600,
+            "max_ns_diagnostic": 6052108,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 15477
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 2,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1954.4582917466955,
+          "elapsed_s": 0.511650724,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1955684.0,
+            "p90_ns": 2543951.3,
+            "p99_ns": 3846994.7099999995,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 558701.75,
+            "mad_ns": 271699.0,
+            "min_ns_diagnostic": 1059861,
+            "max_ns_diagnostic": 11253322,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 7914
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 31.98441979037177,
+          "elapsed_s": 31.26522246,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 131178582.5,
+            "p90_ns": 160622864.7,
+            "p99_ns": 183122768.25,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 39253927.75,
+            "mad_ns": 18203280.5,
+            "min_ns_diagnostic": 58896037,
+            "max_ns_diagnostic": 192958253,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 22465075
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 54.71877236492339,
+          "elapsed_s": 18.275263804,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 70498744.0,
+            "p90_ns": 95588822.00000001,
+            "p99_ns": 113285649.69,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 19282742.5,
+            "mad_ns": 10054241.5,
+            "min_ns_diagnostic": 38373389,
+            "max_ns_diagnostic": 130972011,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 21575342
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 509.58642284922655,
+          "elapsed_s": 1.962375674,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7605558.5,
+            "p90_ns": 9066969.3,
+            "p99_ns": 10125816.969999999,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1228937.75,
+            "mad_ns": 543928.0,
+            "min_ns_diagnostic": 6605997,
+            "max_ns_diagnostic": 10703403,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 116657
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 2,
+          "n_completed": 1000,
+          "completion_rate_per_s": 454.4457163112645,
+          "elapsed_s": 2.200482839,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 8591415.5,
+            "p90_ns": 11085952.100000001,
+            "p99_ns": 13017212.059999997,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 2467891.5,
+            "mad_ns": 1215883.0,
+            "min_ns_diagnostic": 6002444,
+            "max_ns_diagnostic": 14961628,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 65461
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_2_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1444297,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4014859,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_2_C4_P3b_soak"
+      }
+    },
+    {
+      "C": 4,
+      "rep": 3,
+      "boot_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_3",
+      "samples_file_rel": "_exp69_runs/throughput_accepted_171561_20260716T003226Z/C4_rep_3/samples.jsonl",
+      "island_gates": {
+        "fixed_hpx_commit": true,
+        "actors_distinct_nonzero_localities": true,
+        "both_in_process_no_hpx_child": true,
+        "membership_reached_three": true,
+        "root_isolated_workfree": true,
+        "root_on_root_node": true,
+        "actor_a_hard_placed": true,
+        "actor_b_hard_placed": true,
+        "actor_nodes_distinct": true,
+        "endpoints_pinned_subnet": true,
+        "peer_frozen_both": true,
+        "pregate_seven_cases_pass": true,
+        "resources_parity": true,
+        "graceful_leave_clean_stop": true,
+        "root_finalized_clean": true,
+        "actors_recreated_on_node": true,
+        "no_orphans": true,
+        "remote_orphan_check_ran": true,
+        "ratio_fences_false": true,
+        "soaks_passed": true,
+        "all_batches_passed": true,
+        "peer_capability_available": true
+      },
+      "island_gates_failed": [],
+      "rep_pass": true,
+      "failure_class": "pass",
+      "soaks": [
+        {
+          "arm": "ray",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 4,
+          "hpx_action_active_max": 0,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        },
+        {
+          "arm": "hpx",
+          "C": 4,
+          "case": "P3b",
+          "n_soak": 20,
+          "completed": 20,
+          "bad": [],
+          "pass": true,
+          "failure_class": "pass",
+          "coordinate_active_max": 4,
+          "ray_peer_active_max": 0,
+          "hpx_action_active_max": 2,
+          "peer_overlap_observed": true,
+          "capability_regime": true,
+          "capability_proven": true
+        }
+      ],
+      "batches": [
+        {
+          "arm": "ray",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 1316.743374561455,
+          "elapsed_s": 0.759449426,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 3008058.0,
+            "p90_ns": 3976074.9,
+            "p99_ns": 4916606.65,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 1119990.75,
+            "mad_ns": 563181.0,
+            "min_ns_diagnostic": 1638655,
+            "max_ns_diagnostic": 6138182,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 7003
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 3,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P0",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 2098.629130541267,
+          "elapsed_s": 0.476501534,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 1791849.5,
+            "p90_ns": 2344539.1,
+            "p99_ns": 3243341.43,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 503643.0,
+            "mad_ns": 245616.5,
+            "min_ns_diagnostic": 1071485,
+            "max_ns_diagnostic": 18108396,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 7490
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 1,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": false,
+          "annotations": [
+            "peer_overlap_not_observed_short_service_window"
+          ],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 34.11581336833202,
+          "elapsed_s": 29.311920229,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 124636140.5,
+            "p90_ns": 155224293.2,
+            "p99_ns": 179682178.73999998,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 37322583.75,
+            "mad_ns": 18126050.0,
+            "min_ns_diagnostic": 58141931,
+            "max_ns_diagnostic": 195900683,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 23476049
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P2",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 53.73884427338076,
+          "elapsed_s": 18.60851333,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 71950373.0,
+            "p90_ns": 93028105.7,
+            "p99_ns": 113135057.86,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 19178284.0,
+            "mad_ns": 9676574.0,
+            "min_ns_diagnostic": 38701499,
+            "max_ns_diagnostic": 128451413,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 19938623
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "ray",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 528.7581347079442,
+          "elapsed_s": 1.891223859,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 7391755.5,
+            "p90_ns": 8523446.3,
+            "p99_ns": 9755624.07,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 834815.5,
+            "mad_ns": 373323.0,
+            "min_ns_diagnostic": 6563930,
+            "max_ns_diagnostic": 10794703,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 89057
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 1000,
+            "peer_serving_ray_fetch": 1000,
+            "peer_hpx_actions_served": 0,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 4,
+            "hpx_action_active_max": 0,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        },
+        {
+          "arm": "hpx",
+          "case": "P3b",
+          "C": 4,
+          "N": 1000,
+          "warmup_n": 100,
+          "direction": "A",
+          "rep": 3,
+          "n_completed": 1000,
+          "completion_rate_per_s": 453.5827809660059,
+          "elapsed_s": 2.204669229,
+          "latency_stats": {
+            "n": 1000,
+            "requested_k": 1000,
+            "p50_ns": 8518608.5,
+            "p90_ns": 11012917.0,
+            "p99_ns": 13283701.59,
+            "p99_scope": "n=1000",
+            "p99_reliable": true,
+            "iqr_ns": 2457263.5,
+            "mad_ns": 1192853.5,
+            "min_ns_diagnostic": 5943974,
+            "max_ns_diagnostic": 14643449,
+            "phase": "accepted"
+          },
+          "verifier": {
+            "capacity": 256,
+            "high_water": 0,
+            "enqueue_block_ns": 0,
+            "enqueue_attempts": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "first_invalid": null,
+            "exception": null,
+            "max_verify_latency_ns": 33978
+          },
+          "witness_deltas": {
+            "coord_outgoing_ray_fetch": 0,
+            "peer_serving_ray_fetch": 0,
+            "peer_hpx_actions_served": 1000,
+            "coord_serving_ray_fetch": 0,
+            "coord_hpx_actions_served": 0,
+            "peer_outgoing_ray_fetch": 0
+          },
+          "active_witness": {
+            "coordinate_active_max": 4,
+            "ray_peer_active_max": 0,
+            "hpx_action_active_max": 2,
+            "coord_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "peer_currents": {
+              "coordinate_active_current": 0,
+              "ray_peer_active_current": 0,
+              "hpx_action_active_current": 0
+            },
+            "coord_underflow": false,
+            "peer_underflow": false
+          },
+          "outstanding": {
+            "mean": 3.994,
+            "max": 4,
+            "fraction_at_C": 0.997,
+            "target_C": 4
+          },
+          "gates": {
+            "full_completions": true,
+            "all_verified": true,
+            "verifier_bounded": true,
+            "witness_deltas_ok": true,
+            "coordinator_service_overlap": true,
+            "no_counter_leak": true,
+            "no_counter_underflow": true,
+            "achieved_concurrency_ok": true,
+            "peer_immutable": true,
+            "capability_proof_available": true
+          },
+          "gates_failed": [],
+          "failure_class": "pass",
+          "batch_pass": true,
+          "peer_overlap_observed": true,
+          "annotations": [],
+          "capability_proof_source": "rep_3_C4_P3b_soak",
+          "capability_proof_available": true
+        }
+      ],
+      "pregate": {
+        "pass": true,
+        "cases": [
+          {
+            "name": "tiny_k1",
+            "failed": []
+          },
+          {
+            "name": "tiny_k3",
+            "failed": []
+          },
+          {
+            "name": "cross_both",
+            "failed": []
+          },
+          {
+            "name": "tie_cutoff",
+            "failed": []
+          },
+          {
+            "name": "shardA_dom",
+            "failed": []
+          },
+          {
+            "name": "both_contrib",
+            "failed": []
+          },
+          {
+            "name": "k1_large",
+            "failed": []
+          }
+        ]
+      },
+      "placement": {
+        "a": {
+          "node_id": "681d4f2933f572ada834b10746011ff5d8d7b3dd2c0f5b06b6ba43eb",
+          "hostname": "medusa01.rostam.cct.lsu.edu",
+          "pid": 1444549,
+          "placement_soft": false
+        },
+        "b": {
+          "node_id": "9e2e9afbf485bd98a3195bcd96331ce7d9b0f9d15f0b8e100919fc35",
+          "hostname": "medusa11.rostam.cct.lsu.edu",
+          "pid": 4015114,
+          "placement_soft": false
+        },
+        "root_host": "medusa00.rostam.cct.lsu.edu"
+      },
+      "rep_capability": {
+        "capability_case": "P3b",
+        "capability_concurrency": 4,
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true,
+        "capability_proof_source": "rep_3_C4_P3b_soak"
+      }
+    }
+  ],
+  "across_reps_per_arm_never_differenced": {
+    "P0": {
+      "2": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 876.5616289470131,
+              "n_completed": 1000,
+              "latency_p50_ns": 2225993.5,
+              "latency_p90_ns": 2893004.5,
+              "latency_p99_ns": 3682077.7899999996,
+              "latency_iqr_ns": 641579.0,
+              "latency_mad_ns": 325286.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 824.8234612818319,
+              "n_completed": 1000,
+              "latency_p50_ns": 2282581.0,
+              "latency_p90_ns": 3138825.4,
+              "latency_p99_ns": 3595388.389999999,
+              "latency_iqr_ns": 844813.25,
+              "latency_mad_ns": 359416.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 1,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 838.8934499106315,
+              "n_completed": 1000,
+              "latency_p50_ns": 2445996.0,
+              "latency_p90_ns": 2840704.8000000003,
+              "latency_p99_ns": 3218447.9499999993,
+              "latency_iqr_ns": 497003.25,
+              "latency_mad_ns": 248114.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 1404.6852179791224,
+              "n_completed": 1000,
+              "latency_p50_ns": 1389825.0,
+              "latency_p90_ns": 1608027.4000000001,
+              "latency_p99_ns": 2267577.4099999988,
+              "latency_iqr_ns": 205951.0,
+              "latency_mad_ns": 103674.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 1459.6146250150919,
+              "n_completed": 1000,
+              "latency_p50_ns": 1324733.5,
+              "latency_p90_ns": 1561958.7,
+              "latency_p99_ns": 2265741.89,
+              "latency_iqr_ns": 207736.5,
+              "latency_mad_ns": 99205.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 1417.4416504085048,
+              "n_completed": 1000,
+              "latency_p50_ns": 1301712.5,
+              "latency_p90_ns": 1545039.2000000002,
+              "latency_p99_ns": 1957809.7999999998,
+              "latency_iqr_ns": 201988.25,
+              "latency_mad_ns": 94385.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      },
+      "4": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 1385.894651944241,
+              "n_completed": 1000,
+              "latency_p50_ns": 2875565.5,
+              "latency_p90_ns": 3839659.7,
+              "latency_p99_ns": 4453253.93,
+              "latency_iqr_ns": 1186519.25,
+              "latency_mad_ns": 593816.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 1240.9634207107053,
+              "n_completed": 1000,
+              "latency_p50_ns": 3146442.5,
+              "latency_p90_ns": 4224722.3,
+              "latency_p99_ns": 5033871.46,
+              "latency_iqr_ns": 1229687.0,
+              "latency_mad_ns": 597792.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 1316.743374561455,
+              "n_completed": 1000,
+              "latency_p50_ns": 3008058.0,
+              "latency_p90_ns": 3976074.9,
+              "latency_p99_ns": 4916606.65,
+              "latency_iqr_ns": 1119990.75,
+              "latency_mad_ns": 563181.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 3,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 2505.7927727067868,
+              "n_completed": 1000,
+              "latency_p50_ns": 1446307.0,
+              "latency_p90_ns": 2056297.9000000001,
+              "latency_p99_ns": 3436899.44,
+              "latency_iqr_ns": 405147.75,
+              "latency_mad_ns": 154491.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 1954.4582917466955,
+              "n_completed": 1000,
+              "latency_p50_ns": 1955684.0,
+              "latency_p90_ns": 2543951.3,
+              "latency_p99_ns": 3846994.7099999995,
+              "latency_iqr_ns": 558701.75,
+              "latency_mad_ns": 271699.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 2098.629130541267,
+              "n_completed": 1000,
+              "latency_p50_ns": 1791849.5,
+              "latency_p90_ns": 2344539.1,
+              "latency_p99_ns": 3243341.43,
+              "latency_iqr_ns": 503643.0,
+              "latency_mad_ns": 245616.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 1,
+              "peer_overlap_observed": false,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      }
+    },
+    "P2": {
+      "2": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 29.49103965110253,
+              "n_completed": 1000,
+              "latency_p50_ns": 67557779.5,
+              "latency_p90_ns": 68140909.3,
+              "latency_p99_ns": 73560213.55,
+              "latency_iqr_ns": 569546.0,
+              "latency_mad_ns": 286415.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 29.92826488622763,
+              "n_completed": 1000,
+              "latency_p50_ns": 66621866.5,
+              "latency_p90_ns": 67193488.5,
+              "latency_p99_ns": 72226100.27999999,
+              "latency_iqr_ns": 497414.75,
+              "latency_mad_ns": 249140.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 29.97094783884072,
+              "n_completed": 1000,
+              "latency_p50_ns": 66544860.0,
+              "latency_p90_ns": 67094520.6,
+              "latency_p99_ns": 69903135.14999999,
+              "latency_iqr_ns": 481619.0,
+              "latency_mad_ns": 241772.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 37.90594481904044,
+              "n_completed": 1000,
+              "latency_p50_ns": 53646905.5,
+              "latency_p90_ns": 55084254.3,
+              "latency_p99_ns": 65546547.169999994,
+              "latency_iqr_ns": 4034437.5,
+              "latency_mad_ns": 1522349.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 38.28447350633904,
+              "n_completed": 1000,
+              "latency_p50_ns": 53114292.0,
+              "latency_p90_ns": 55209598.3,
+              "latency_p99_ns": 65219863.39,
+              "latency_iqr_ns": 3947063.25,
+              "latency_mad_ns": 2035239.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 38.16319843279656,
+              "n_completed": 1000,
+              "latency_p50_ns": 53059615.5,
+              "latency_p90_ns": 54444217.099999994,
+              "latency_p99_ns": 66657228.63999999,
+              "latency_iqr_ns": 3936383.75,
+              "latency_mad_ns": 939240.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      },
+      "4": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 33.14253397693986,
+              "n_completed": 1000,
+              "latency_p50_ns": 123164587.5,
+              "latency_p90_ns": 155634428.10000002,
+              "latency_p99_ns": 187052779.82999998,
+              "latency_iqr_ns": 41805040.5,
+              "latency_mad_ns": 20302637.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 31.98441979037177,
+              "n_completed": 1000,
+              "latency_p50_ns": 131178582.5,
+              "latency_p90_ns": 160622864.7,
+              "latency_p99_ns": 183122768.25,
+              "latency_iqr_ns": 39253927.75,
+              "latency_mad_ns": 18203280.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 34.11581336833202,
+              "n_completed": 1000,
+              "latency_p50_ns": 124636140.5,
+              "latency_p90_ns": 155224293.2,
+              "latency_p99_ns": 179682178.73999998,
+              "latency_iqr_ns": 37322583.75,
+              "latency_mad_ns": 18126050.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 52.262843488869734,
+              "n_completed": 1000,
+              "latency_p50_ns": 75433601.5,
+              "latency_p90_ns": 95095364.0,
+              "latency_p99_ns": 115915057.72,
+              "latency_iqr_ns": 19442652.5,
+              "latency_mad_ns": 9317678.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 54.71877236492339,
+              "n_completed": 1000,
+              "latency_p50_ns": 70498744.0,
+              "latency_p90_ns": 95588822.00000001,
+              "latency_p99_ns": 113285649.69,
+              "latency_iqr_ns": 19282742.5,
+              "latency_mad_ns": 10054241.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 53.73884427338076,
+              "n_completed": 1000,
+              "latency_p50_ns": 71950373.0,
+              "latency_p90_ns": 93028105.7,
+              "latency_p99_ns": 113135057.86,
+              "latency_iqr_ns": 19178284.0,
+              "latency_mad_ns": 9676574.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      }
+    },
+    "P3b": {
+      "2": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 256.4564555282843,
+              "n_completed": 1000,
+              "latency_p50_ns": 7825280.5,
+              "latency_p90_ns": 8316059.800000001,
+              "latency_p99_ns": 8746079.49,
+              "latency_iqr_ns": 529258.25,
+              "latency_mad_ns": 263440.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 263.1238858361115,
+              "n_completed": 1000,
+              "latency_p50_ns": 7625148.0,
+              "latency_p90_ns": 8102431.3,
+              "latency_p99_ns": 8515679.78,
+              "latency_iqr_ns": 549380.75,
+              "latency_mad_ns": 267953.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 266.7142340478903,
+              "n_completed": 1000,
+              "latency_p50_ns": 7491837.5,
+              "latency_p90_ns": 8180665.5,
+              "latency_p99_ns": 8682679.87,
+              "latency_iqr_ns": 802848.0,
+              "latency_mad_ns": 400896.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 275.88963106268153,
+              "n_completed": 1000,
+              "latency_p50_ns": 7411030.5,
+              "latency_p90_ns": 8091291.8,
+              "latency_p99_ns": 10160047.94,
+              "latency_iqr_ns": 1408678.5,
+              "latency_mad_ns": 662911.0,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 280.0406100666656,
+              "n_completed": 1000,
+              "latency_p50_ns": 7236348.0,
+              "latency_p90_ns": 7774771.399999999,
+              "latency_p99_ns": 9819308.430000002,
+              "latency_iqr_ns": 1110595.5,
+              "latency_mad_ns": 364474.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 252.43403370228708,
+              "n_completed": 1000,
+              "latency_p50_ns": 7640533.5,
+              "latency_p90_ns": 8191326.8,
+              "latency_p99_ns": 31189723.189999986,
+              "latency_iqr_ns": 1220659.0,
+              "latency_mad_ns": 346666.5,
+              "coordinate_active_max": 2,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 1.999,
+              "fraction_at_C": 0.999,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      },
+      "4": {
+        "ray": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 512.1362895454902,
+              "n_completed": 1000,
+              "latency_p50_ns": 7583140.0,
+              "latency_p90_ns": 8926344.799999999,
+              "latency_p99_ns": 9892907.75,
+              "latency_iqr_ns": 1136485.75,
+              "latency_mad_ns": 504879.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 1,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 509.58642284922655,
+              "n_completed": 1000,
+              "latency_p50_ns": 7605558.5,
+              "latency_p90_ns": 9066969.3,
+              "latency_p99_ns": 10125816.969999999,
+              "latency_iqr_ns": 1228937.75,
+              "latency_mad_ns": 543928.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 528.7581347079442,
+              "n_completed": 1000,
+              "latency_p50_ns": 7391755.5,
+              "latency_p90_ns": 8523446.3,
+              "latency_p99_ns": 9755624.07,
+              "latency_iqr_ns": 834815.5,
+              "latency_mad_ns": 373323.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 4,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        },
+        "hpx": {
+          "per_rep": [
+            {
+              "rep": 1,
+              "completion_rate_per_s": 460.1906896670642,
+              "n_completed": 1000,
+              "latency_p50_ns": 8446321.0,
+              "latency_p90_ns": 10852807.100000001,
+              "latency_p99_ns": 13082728.92,
+              "latency_iqr_ns": 2426683.5,
+              "latency_mad_ns": 1181890.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_1_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 2,
+              "completion_rate_per_s": 454.4457163112645,
+              "n_completed": 1000,
+              "latency_p50_ns": 8591415.5,
+              "latency_p90_ns": 11085952.100000001,
+              "latency_p99_ns": 13017212.059999997,
+              "latency_iqr_ns": 2467891.5,
+              "latency_mad_ns": 1215883.0,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_2_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            },
+            {
+              "rep": 3,
+              "completion_rate_per_s": 453.5827809660059,
+              "n_completed": 1000,
+              "latency_p50_ns": 8518608.5,
+              "latency_p90_ns": 11012917.0,
+              "latency_p99_ns": 13283701.59,
+              "latency_iqr_ns": 2457263.5,
+              "latency_mad_ns": 1192853.5,
+              "coordinate_active_max": 4,
+              "peer_active_max": 2,
+              "peer_overlap_observed": true,
+              "capability_proof_available": true,
+              "capability_proof_source": "rep_3_C4_P3b_soak",
+              "mean_outstanding": 3.994,
+              "fraction_at_C": 0.997,
+              "verifier_high_water": 0,
+              "verifier_enqueue_block_ns": 0,
+              "batch_pass": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "overall": "pass",
+  "safe_claim": "Across three Rostam nodes, the identical deterministic exp68 vocabulary-sharded top-k request was driven closed-loop at bounded concurrency C through a Ray-mediated and an HPX-mediated path (A coordinator, hard placement), collecting per-arm verified-completion goodput and latency-under-load distributions with proven server-side service overlap and a bounded correctness verifier. Per-arm distributions ONLY; NO throughput/latency ratio, difference, or winner is computed or implied.",
+  "final_orphans": {
+    "ray_nodeR": [],
+    "peer_nodeR": [],
+    "ray_nodeA": [],
+    "peer_nodeA": [],
+    "ray_nodeB": [],
+    "peer_nodeB": [],
+    "no_ray_orphans": true,
+    "no_peer_orphans": true
+  }
+}

@@ -1,0 +1,11 @@
+# exp69 -- raw/scratch outputs stay out of git (artifact rules). Curated aggregate JSONs beside
+# this file are the only tracked evidence outputs.
+build/
+_exp69_runs/
+__pycache__/
+*.so
+*.pyc
+*.o
+*.dylib
+*.log
+*.jsonl

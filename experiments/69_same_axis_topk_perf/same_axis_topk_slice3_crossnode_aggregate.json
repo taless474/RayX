@@ -1,0 +1,2247 @@
+{
+  "experiment": "69_same_axis_topk_perf",
+  "kind": "slice3_causal_decomposition_matrix",
+  "placement": "crossnode_three_node_hard_placement",
+  "case": "P3b",
+  "hypothesis_under_test": "thread_supply_resource_asymmetry",
+  "hypothesis_note": "HYPOTHESIS not established cause: Ray native execution scales to max_concurrency=C while the accepted HPX config supplies only hpx_threads for posted work + peer actions + continuations + merge. NOT same_axis_work_mismatch (logical native work stays matched).",
+  "bands": [
+    {
+      "band": "C2_cpu2_ht2",
+      "C": 2,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "kind": "baseline_matched"
+    },
+    {
+      "band": "C4_cpu2_ht2",
+      "C": 4,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "kind": "accepted_oversubscribed_control"
+    },
+    {
+      "band": "C4_cpu4_ht4",
+      "C": 4,
+      "num_cpus": 4,
+      "hpx_threads": 4,
+      "kind": "matched_decisive"
+    }
+  ],
+  "sampling": {
+    "N": 1000,
+    "warmup_n": 100,
+    "reps": 3,
+    "mode": "accepted"
+  },
+  "measured_contrast": "Ray-mediated peer-candidate transport and Python boundary handling versus HPX-mediated peer-candidate transport and native future/continuation composition, with identical local top-k and merge algorithms",
+  "peer_local_policy": "peer-local durations are attribution-only and NEVER subtracted from coordinator timestamps",
+  "generation_rule": {
+    "name": "int_grid_over_8",
+    "formula": "h=(uint32(token_id)*2654435761 + uint32(seed)*40503) mod 2^32; grid=(h%131)-65; logit=float32(grid)/8.0",
+    "grid_range": [
+      -65,
+      65
+    ],
+    "denominator": 8,
+    "float32_exact": true,
+    "total_order": "higher logit; tie -> lower global token id",
+    "value_range": [
+      -8.125,
+      8.125
+    ]
+  },
+  "total_order": "higher logit wins; on equal logit, lower global token id wins",
+  "ratio_fences": {
+    "speedup_computed": false,
+    "ratio_reported": false,
+    "arms_differenced": false,
+    "placement_bands_differenced": false
+  },
+  "claim_fences": {
+    "not_real_llm_inference": true,
+    "no_model_weights_tokenizer_gpu": true,
+    "not_cross_node": false,
+    "not_python_3_14": true,
+    "not_free_threaded": true,
+    "no_elasticity_churn_or_recovery": true,
+    "not_production_api": true,
+    "no_ratio_speedup_winner_claim": true,
+    "per_arm_distributions_only": true,
+    "qd1_latency_only_no_throughput": false,
+    "timing_not_correctness_oracle": true,
+    "ray_arm_not_pure_standalone_ray": true,
+    "b_control_reported_separately_never_pooled": true
+  },
+  "provenance": {
+    "python_version_full": "3.12.3 (main, May 22 2024, 15:27:39) [GCC 11.4.1 20231218 (Red Hat 11.4.1-3)]",
+    "python_implementation": "cpython",
+    "python_ext_suffix": ".cpython-312-x86_64-linux-gnu.so",
+    "py_gil_disabled_config": null,
+    "gil_enabled_runtime": null,
+    "free_threaded_build": false,
+    "ray_version": "2.55.1",
+    "ray_commit": "237c2455ebb1ea15a32dd9e1fdeb2d617badc37f",
+    "platform": "Linux-5.14.0-570.37.1.el9_6.x86_64-x86_64-with-glibc2.34",
+    "machine": "x86_64",
+    "processor_count": 40,
+    "expected_hpx_commit": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+    "actor_ext_file": "exp69_actor_ext.cpython-312-x86_64-linux-gnu.so",
+    "actor_ext_abi_match": true,
+    "hpx_complete_version": "Versions:\n  HPX: V2.0.0 (AGAS: V3.0), Git: 20bc3d4bf3\n  Boost: V1.91.0\n  Hwloc: V2.12.0\n\nBuild:\n  Type: release\n  Date: Jul 13 2026 19:07:30\n  Platform: linux\n  Compiler: GNU C++ version 15.1.0\n  Standard Library: GNU libstdc++ version 20250425\n  Allocator: system\n",
+    "hpx_git_sha_observed": "20bc3d4bf3"
+  },
+  "band_reps": [
+    {
+      "band": "C2_cpu2_ht2",
+      "band_kind": "baseline_matched",
+      "C": 2,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 1,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": null,
+        "hpx_peer_concurrency_capability_proven": null
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 1,
+            "goodput_per_s": 263.80175442929044,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7543933.5,
+              "p90_ns": 8264201.2,
+              "p99_ns": 8742349.479999999,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 724868.75,
+              "mad_ns": 362746.0,
+              "min_ns_diagnostic": 6645762,
+              "max_ns_diagnostic": 9577007,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2266310,
+                  "p90": 2275819,
+                  "p99": 2290973,
+                  "mean": 2266932.128,
+                  "min": 2239990,
+                  "max": 2493072
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3595061,
+                  "p90": 3992734,
+                  "p99": 4303013,
+                  "mean": 3642887.526,
+                  "min": 3215687,
+                  "max": 4980842
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 60697,
+                  "p90": 258255,
+                  "p99": 293814,
+                  "mean": 108523.29,
+                  "min": 23513,
+                  "max": 323823
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 6026533,
+                  "p90": 6401088,
+                  "p99": 6682036,
+                  "mean": 6020160.282,
+                  "min": 5504752,
+                  "max": 7355030
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 1,
+            "goodput_per_s": 270.1480519329784,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7243958.5,
+              "p90_ns": 8123183.0,
+              "p99_ns": 19757599.199999996,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 1421543.5,
+              "mad_ns": 761211.5,
+              "min_ns_diagnostic": 6018261,
+              "max_ns_diagnostic": 38945853,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 306,
+                  "p90": 382,
+                  "p99": 472,
+                  "mean": 313.077,
+                  "min": 148,
+                  "max": 3685
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4931,
+                  "p90": 5911,
+                  "p99": 1843082,
+                  "mean": 35886.859,
+                  "min": 3510,
+                  "max": 2094876
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2247610,
+                  "p90": 2256967,
+                  "p99": 2268027,
+                  "mean": 2294133.021,
+                  "min": 2214346,
+                  "max": 33061682
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 17283,
+                  "p90": 20512,
+                  "p99": 27292,
+                  "mean": 16238.79,
+                  "min": 3473,
+                  "max": 48233
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 2483802,
+                  "p90": 3917384,
+                  "p99": 6256241,
+                  "mean": 3178558.49,
+                  "min": 2353157,
+                  "max": 19530045
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 491,
+                  "p90": 834,
+                  "p99": 1207,
+                  "mean": 503.487,
+                  "min": 109,
+                  "max": 1730
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4969,
+                  "p90": 6565,
+                  "p99": 10313,
+                  "mean": 5301.211,
+                  "min": 3728,
+                  "max": 21558
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2719,
+                  "p90": 4003,
+                  "p99": 9718,
+                  "mean": 2947.889,
+                  "min": 934,
+                  "max": 22471
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 5203917,
+                  "p90": 6400902,
+                  "p99": 18183047,
+                  "mean": 5783720.739,
+                  "min": 4731698,
+                  "max": 37147556
+                }
+              },
+              "same_worker_fraction": 0.676,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2244500,
+                  "p90": 2256250,
+                  "p99": 2265783,
+                  "mean": 2247247.561,
+                  "min": 2218656,
+                  "max": 2781059
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2247179,
+                  "p90": 2258945,
+                  "p99": 2268836,
+                  "mean": 2250004.538,
+                  "min": 2221547,
+                  "max": 2784222
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C2_cpu2_ht2",
+      "band_kind": "baseline_matched",
+      "C": 2,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 2,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": null,
+        "hpx_peer_concurrency_capability_proven": null
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 2,
+            "goodput_per_s": 263.8500002975304,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7546566.5,
+              "p90_ns": 8234852.7,
+              "p99_ns": 8608957.19,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 730467.0,
+              "mad_ns": 365546.5,
+              "min_ns_diagnostic": 6611524,
+              "max_ns_diagnostic": 10235609,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2270987,
+                  "p90": 2279524,
+                  "p99": 2298873,
+                  "mean": 2272593.189,
+                  "min": 2244194,
+                  "max": 2850056
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3606039,
+                  "p90": 3969906,
+                  "p99": 4216563,
+                  "mean": 3629388.542,
+                  "min": 3208647,
+                  "max": 5094210
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 60132,
+                  "p90": 245300,
+                  "p99": 279718,
+                  "mean": 107202.084,
+                  "min": 22260,
+                  "max": 459112
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 6043255,
+                  "p90": 6367923,
+                  "p99": 6699213,
+                  "mean": 6010959.0,
+                  "min": 5505796,
+                  "max": 7416286
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 2,
+            "goodput_per_s": 264.98781769253327,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7538217.0,
+              "p90_ns": 8194890.1,
+              "p99_ns": 17869308.679999985,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 1447748.5,
+              "mad_ns": 604565.5,
+              "min_ns_diagnostic": 5891940,
+              "max_ns_diagnostic": 35191950,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 311,
+                  "p90": 390,
+                  "p99": 513,
+                  "mean": 321.994,
+                  "min": 139,
+                  "max": 7157
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4716,
+                  "p90": 5587,
+                  "p99": 1391568,
+                  "mean": 33600.211,
+                  "min": 3704,
+                  "max": 2117658
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2252126,
+                  "p90": 2261497,
+                  "p99": 2275810,
+                  "mean": 2271136.133,
+                  "min": 2223617,
+                  "max": 16387478
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 14872,
+                  "p90": 19544,
+                  "p99": 25120,
+                  "mean": 12596.39,
+                  "min": 3071,
+                  "max": 36326
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 3544119,
+                  "p90": 3944426,
+                  "p99": 6442100,
+                  "mean": 3339466.523,
+                  "min": 2329691,
+                  "max": 21664225
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 461,
+                  "p90": 636,
+                  "p99": 906,
+                  "mean": 446.537,
+                  "min": 119,
+                  "max": 2396
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4772,
+                  "p90": 6454,
+                  "p99": 8498,
+                  "mean": 5099.103,
+                  "min": 3641,
+                  "max": 15111
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2504,
+                  "p90": 3754,
+                  "p99": 9703,
+                  "mean": 2753.47,
+                  "min": 990,
+                  "max": 18193
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 6015873,
+                  "p90": 6409724,
+                  "p99": 16171594,
+                  "mean": 5945197.237,
+                  "min": 4719247,
+                  "max": 33404153
+                }
+              },
+              "same_worker_fraction": 0.665,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2239930,
+                  "p90": 2246901,
+                  "p99": 2258558,
+                  "mean": 2242439.699,
+                  "min": 2209583,
+                  "max": 2923389
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2242647,
+                  "p90": 2249654,
+                  "p99": 2262249,
+                  "mean": 2245171.661,
+                  "min": 2212043,
+                  "max": 2942022
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C2_cpu2_ht2",
+      "band_kind": "baseline_matched",
+      "C": 2,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 3,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": null,
+        "hpx_peer_concurrency_capability_proven": null
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 3,
+            "goodput_per_s": 278.41080901857663,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7102085.0,
+              "p90_ns": 7529335.8,
+              "p99_ns": 8427307.45,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 292689.0,
+              "mad_ns": 142692.0,
+              "min_ns_diagnostic": 6625812,
+              "max_ns_diagnostic": 8977384,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2282603,
+                  "p90": 2315201,
+                  "p99": 2552672,
+                  "mean": 2298086.926,
+                  "min": 2256709,
+                  "max": 2995783
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3471445,
+                  "p90": 3739948,
+                  "p99": 4253866,
+                  "mean": 3503988.638,
+                  "min": 3246459,
+                  "max": 5004045
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 37737,
+                  "p90": 78514,
+                  "p99": 112155,
+                  "mean": 45841.234,
+                  "min": 26749,
+                  "max": 330591
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 5818296,
+                  "p90": 6103879,
+                  "p99": 6653308,
+                  "mean": 5850483.487,
+                  "min": 5562199,
+                  "max": 7558606
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 3,
+            "goodput_per_s": 275.98221609126625,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7179990.0,
+              "p90_ns": 7785198.7,
+              "p99_ns": 18095837.929999974,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 1259040.75,
+              "mad_ns": 675661.0,
+              "min_ns_diagnostic": 5988319,
+              "max_ns_diagnostic": 38197031,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 2,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 279,
+                  "p90": 345,
+                  "p99": 496,
+                  "mean": 281.047,
+                  "min": 139,
+                  "max": 723
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4366,
+                  "p90": 5707,
+                  "p99": 567691,
+                  "mean": 32897.538,
+                  "min": 3254,
+                  "max": 2078474
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2256190,
+                  "p90": 2265638,
+                  "p99": 2278002,
+                  "mean": 2305685.289,
+                  "min": 2229256,
+                  "max": 33070001
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 16451,
+                  "p90": 21000,
+                  "p99": 26915,
+                  "mean": 16092.458,
+                  "min": 3853,
+                  "max": 45019
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 2800092,
+                  "p90": 3834647,
+                  "p99": 6273824,
+                  "mean": 3154850.319,
+                  "min": 2338042,
+                  "max": 21157298
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 544,
+                  "p90": 790,
+                  "p99": 1243,
+                  "mean": 525.522,
+                  "min": 117,
+                  "max": 3003
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4846,
+                  "p90": 6606,
+                  "p99": 8409,
+                  "mean": 5159.337,
+                  "min": 3234,
+                  "max": 14769
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2792,
+                  "p90": 3966,
+                  "p99": 11338,
+                  "mean": 3038.384,
+                  "min": 1186,
+                  "max": 19179
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 5623869,
+                  "p90": 6339227,
+                  "p99": 16379608,
+                  "mean": 5757018.157,
+                  "min": 4740106,
+                  "max": 36717258
+                }
+              },
+              "same_worker_fraction": 0.658,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2243894,
+                  "p90": 2251646,
+                  "p99": 2261414,
+                  "mean": 2245999.97,
+                  "min": 2217050,
+                  "max": 2807240
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2246670,
+                  "p90": 2254539,
+                  "p99": 2264399,
+                  "mean": 2248814.28,
+                  "min": 2219492,
+                  "max": 2810107
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu2_ht2",
+      "band_kind": "accepted_oversubscribed_control",
+      "C": 4,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 1,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 1,
+            "goodput_per_s": 515.1763447623528,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7615480.5,
+              "p90_ns": 8522238.2,
+              "p99_ns": 9822491.11,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 734713.25,
+              "mad_ns": 352848.5,
+              "min_ns_diagnostic": 6760240,
+              "max_ns_diagnostic": 12802767,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2281976,
+                  "p90": 2424378,
+                  "p99": 2774278,
+                  "mean": 2318490.574,
+                  "min": 2249164,
+                  "max": 3464246
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3681729,
+                  "p90": 4164064,
+                  "p99": 4889397,
+                  "mean": 3752427.254,
+                  "min": 3269943,
+                  "max": 6293731
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 47292,
+                  "p90": 265019,
+                  "p99": 431198,
+                  "mean": 86427.711,
+                  "min": 24642,
+                  "max": 649687
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 6089615,
+                  "p90": 6651662,
+                  "p99": 7473186,
+                  "mean": 6159983.472,
+                  "min": 5570422,
+                  "max": 9460290
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 1,
+            "goodput_per_s": 434.0694704895351,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 8656584.0,
+              "p90_ns": 11391884.5,
+              "p99_ns": 26058118.699999955,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 2520831.25,
+              "mad_ns": 1257017.0,
+              "min_ns_diagnostic": 5983805,
+              "max_ns_diagnostic": 40633857,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 313,
+                  "p90": 391,
+                  "p99": 548,
+                  "mean": 327.131,
+                  "min": 161,
+                  "max": 6175
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4958,
+                  "p90": 1884128,
+                  "p99": 2170106,
+                  "mean": 411221.705,
+                  "min": 3450,
+                  "max": 3760089
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2254396,
+                  "p90": 2264944,
+                  "p99": 2733542,
+                  "mean": 2266129.066,
+                  "min": 2221970,
+                  "max": 2789573
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 13232,
+                  "p90": 17839,
+                  "p99": 25098,
+                  "mean": 27072.638,
+                  "min": 2899,
+                  "max": 2279441
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 3472188,
+                  "p90": 5999110,
+                  "p99": 22258029,
+                  "mean": 3931581.183,
+                  "min": 117552,
+                  "max": 36367629
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 336,
+                  "p90": 530,
+                  "p99": 685,
+                  "mean": 339.686,
+                  "min": 117,
+                  "max": 927
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4506,
+                  "p90": 5504,
+                  "p99": 9384,
+                  "mean": 4716.157,
+                  "min": 3062,
+                  "max": 33491
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2084,
+                  "p90": 3589,
+                  "p99": 12546,
+                  "mean": 2533.857,
+                  "min": 926,
+                  "max": 19207
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 6926785,
+                  "p90": 8869059,
+                  "p99": 24623331,
+                  "mean": 7125818.073,
+                  "min": 4681725,
+                  "max": 39360193
+                }
+              },
+              "same_worker_fraction": 0.503,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2246486,
+                  "p90": 2255520,
+                  "p99": 2592573,
+                  "mean": 2315668.462,
+                  "min": 2220933,
+                  "max": 36194188
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2249356,
+                  "p90": 2258318,
+                  "p99": 2595630,
+                  "mean": 2318486.672,
+                  "min": 2223479,
+                  "max": 36198179
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu2_ht2",
+      "band_kind": "accepted_oversubscribed_control",
+      "C": 4,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 2,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 2,
+            "goodput_per_s": 515.5064755083013,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7590760.0,
+              "p90_ns": 8569023.4,
+              "p99_ns": 10311243.940000001,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 720726.25,
+              "mad_ns": 339502.0,
+              "min_ns_diagnostic": 6683902,
+              "max_ns_diagnostic": 12318608,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2278446,
+                  "p90": 2346858,
+                  "p99": 2687730,
+                  "mean": 2298420.713,
+                  "min": 2247884,
+                  "max": 4041966
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3660716,
+                  "p90": 4118875,
+                  "p99": 4989313,
+                  "mean": 3737670.81,
+                  "min": 3285145,
+                  "max": 5737153
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 46529,
+                  "p90": 251240,
+                  "p99": 437790,
+                  "mean": 85994.548,
+                  "min": 23056,
+                  "max": 715320
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 6048874,
+                  "p90": 6567394,
+                  "p99": 7620341,
+                  "mean": 6124476.938,
+                  "min": 5590786,
+                  "max": 8756767
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 2,
+            "goodput_per_s": 445.3686608211163,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 8528539.5,
+              "p90_ns": 11323017.200000001,
+              "p99_ns": 15120693.689999988,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 2397322.75,
+              "mad_ns": 1152626.5,
+              "min_ns_diagnostic": 5965367,
+              "max_ns_diagnostic": 45343549,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 320,
+                  "p90": 396,
+                  "p99": 505,
+                  "mean": 326.02,
+                  "min": 167,
+                  "max": 749
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4925,
+                  "p90": 1867968,
+                  "p99": 2155736,
+                  "mean": 443454.425,
+                  "min": 3239,
+                  "max": 3583430
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2254112,
+                  "p90": 2264854,
+                  "p99": 2709711,
+                  "mean": 2264101.752,
+                  "min": 2220545,
+                  "max": 2755426
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 13256,
+                  "p90": 18309,
+                  "p99": 23094,
+                  "mean": 17558.956,
+                  "min": 2788,
+                  "max": 2189572
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 3556067,
+                  "p90": 5993639,
+                  "p99": 7975796,
+                  "mean": 3698555.936,
+                  "min": 583735,
+                  "max": 10030230
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 376,
+                  "p90": 568,
+                  "p99": 824,
+                  "mean": 380.664,
+                  "min": 117,
+                  "max": 4651
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4532,
+                  "p90": 5514,
+                  "p99": 7563,
+                  "mean": 4680.594,
+                  "min": 3016,
+                  "max": 23674
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2034,
+                  "p90": 3732,
+                  "p99": 13432,
+                  "mean": 2491.935,
+                  "min": 926,
+                  "max": 15804
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 6831391,
+                  "p90": 8825264,
+                  "p99": 12812975,
+                  "mean": 6866461.944,
+                  "min": 4705493,
+                  "max": 43393886
+                }
+              },
+              "same_worker_fraction": 0.483,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2240967,
+                  "p90": 2251310,
+                  "p99": 2259905,
+                  "mean": 2241963.06,
+                  "min": 2208526,
+                  "max": 2711778
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2243742,
+                  "p90": 2254112,
+                  "p99": 2262570,
+                  "mean": 2244761.324,
+                  "min": 2211164,
+                  "max": 2715237
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu2_ht2",
+      "band_kind": "accepted_oversubscribed_control",
+      "C": 4,
+      "num_cpus": 2,
+      "hpx_threads": 2,
+      "rep": 3,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 3,
+            "goodput_per_s": 522.4769639527797,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7494945.5,
+              "p90_ns": 8384291.5,
+              "p99_ns": 9600378.2,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 619615.5,
+              "mad_ns": 298356.0,
+              "min_ns_diagnostic": 6727136,
+              "max_ns_diagnostic": 12545238,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2282058,
+                  "p90": 2402714,
+                  "p99": 2688902,
+                  "mean": 2311766.171,
+                  "min": 2243379,
+                  "max": 3692226
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3626880,
+                  "p90": 4068394,
+                  "p99": 4722534,
+                  "mean": 3699891.017,
+                  "min": 3322722,
+                  "max": 6965338
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 42380,
+                  "p90": 144711,
+                  "p99": 443802,
+                  "mean": 71301.49,
+                  "min": 22598,
+                  "max": 1115158
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 5982547,
+                  "p90": 6541977,
+                  "p99": 7244906,
+                  "mean": 6085616.369,
+                  "min": 5621512,
+                  "max": 10825339
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 3,
+            "goodput_per_s": 444.12863878152336,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 8679852.0,
+              "p90_ns": 11688468.5,
+              "p99_ns": 13945701.47,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 2651235.0,
+              "mad_ns": 1388179.0,
+              "min_ns_diagnostic": 6018975,
+              "max_ns_diagnostic": 15645486,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 2,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 337,
+                  "p90": 424,
+                  "p99": 614,
+                  "mean": 342.834,
+                  "min": 178,
+                  "max": 919
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 5086,
+                  "p90": 1895565,
+                  "p99": 2334922,
+                  "mean": 418078.521,
+                  "min": 3248,
+                  "max": 3696750
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2253206,
+                  "p90": 2586423,
+                  "p99": 2737468,
+                  "mean": 2296668.457,
+                  "min": 2218217,
+                  "max": 3254343
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 13453,
+                  "p90": 18486,
+                  "p99": 30122,
+                  "mean": 21030.092,
+                  "min": 2765,
+                  "max": 2249874
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 3331030,
+                  "p90": 6113266,
+                  "p99": 8173995,
+                  "mean": 3679418.343,
+                  "min": 125427,
+                  "max": 9466374
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 386,
+                  "p90": 610,
+                  "p99": 829,
+                  "mean": 396.785,
+                  "min": 126,
+                  "max": 2569
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4480,
+                  "p90": 5269,
+                  "p99": 7755,
+                  "mean": 4575.205,
+                  "min": 3082,
+                  "max": 12894
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2073,
+                  "p90": 3733,
+                  "p99": 11386,
+                  "mean": 3451.88,
+                  "min": 1031,
+                  "max": 989188
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 6937595,
+                  "p90": 8957602,
+                  "p99": 11169718,
+                  "mean": 6894298.531,
+                  "min": 4712079,
+                  "max": 13191548
+                }
+              },
+              "same_worker_fraction": 0.478,
+              "hpx_worker_count_observed": 2,
+              "distinct_own_workers": [
+                0,
+                1
+              ],
+              "distinct_cont_workers": [
+                0,
+                1
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2248058,
+                  "p90": 2255644,
+                  "p99": 2262623,
+                  "mean": 2250422.823,
+                  "min": 2226554,
+                  "max": 3258493
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2250792,
+                  "p90": 2258463,
+                  "p99": 2265426,
+                  "mean": 2253244.829,
+                  "min": 2229247,
+                  "max": 3271220
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu4_ht4",
+      "band_kind": "matched_decisive",
+      "C": 4,
+      "num_cpus": 4,
+      "hpx_threads": 4,
+      "rep": 1,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 1,
+            "goodput_per_s": 511.20375021647624,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7518064.0,
+              "p90_ns": 8996511.000000002,
+              "p99_ns": 10751398.299999999,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 1124602.0,
+              "mad_ns": 470052.0,
+              "min_ns_diagnostic": 6675315,
+              "max_ns_diagnostic": 11400623,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2264996,
+                  "p90": 2279131,
+                  "p99": 2530815,
+                  "mean": 2276990.912,
+                  "min": 2239600,
+                  "max": 2913370
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3546988,
+                  "p90": 4087890,
+                  "p99": 4902192,
+                  "mean": 3653100.04,
+                  "min": 3244225,
+                  "max": 6051576
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 48617,
+                  "p90": 266843,
+                  "p99": 761092,
+                  "mean": 110260.161,
+                  "min": 22424,
+                  "max": 1334787
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 5904491,
+                  "p90": 6580540,
+                  "p99": 7676012,
+                  "mean": 6042284.19,
+                  "min": 5534623,
+                  "max": 8856171
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 1,
+            "goodput_per_s": 501.1671451105593,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7515302.5,
+              "p90_ns": 9861602.100000001,
+              "p99_ns": 17022838.199999955,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 2077173.25,
+              "mad_ns": 1026472.5,
+              "min_ns_diagnostic": 5920884,
+              "max_ns_diagnostic": 38589218,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 327,
+                  "p90": 409,
+                  "p99": 580,
+                  "mean": 333.447,
+                  "min": 155,
+                  "max": 952
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4826,
+                  "p90": 1145640,
+                  "p99": 2106097,
+                  "mean": 257361.819,
+                  "min": 3586,
+                  "max": 2393983
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2247265,
+                  "p90": 2258570,
+                  "p99": 2733335,
+                  "mean": 2268209.571,
+                  "min": 2220374,
+                  "max": 2865589
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 5558,
+                  "p90": 18807,
+                  "p99": 22090,
+                  "mean": 8635.813,
+                  "min": 2835,
+                  "max": 25556
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 2426144,
+                  "p90": 4568706,
+                  "p99": 12298244,
+                  "mean": 3328917.183,
+                  "min": 2349977,
+                  "max": 31861350
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 466,
+                  "p90": 736,
+                  "p99": 896,
+                  "mean": 480.66,
+                  "min": 147,
+                  "max": 2415
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4468,
+                  "p90": 5676,
+                  "p99": 8901,
+                  "mean": 4692.226,
+                  "min": 3343,
+                  "max": 20611
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2434,
+                  "p90": 3190,
+                  "p99": 5282,
+                  "mean": 2595.656,
+                  "min": 1591,
+                  "max": 14971
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 5454278,
+                  "p90": 7056916,
+                  "p99": 14678073,
+                  "mean": 6016302.042,
+                  "min": 4713689,
+                  "max": 36403490
+                }
+              },
+              "same_worker_fraction": 0.245,
+              "hpx_worker_count_observed": 4,
+              "distinct_own_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "distinct_cont_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2248465,
+                  "p90": 2257062,
+                  "p99": 2271782,
+                  "mean": 2266092.117,
+                  "min": 2214454,
+                  "max": 17357860
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2251167,
+                  "p90": 2259850,
+                  "p99": 2275183,
+                  "mean": 2268813.347,
+                  "min": 2217060,
+                  "max": 17361804
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu4_ht4",
+      "band_kind": "matched_decisive",
+      "C": 4,
+      "num_cpus": 4,
+      "hpx_threads": 4,
+      "rep": 2,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 2,
+            "goodput_per_s": 525.0664041898917,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7405384.5,
+              "p90_ns": 8501006.0,
+              "p99_ns": 9862075.72,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 683138.25,
+              "mad_ns": 320241.0,
+              "min_ns_diagnostic": 6667943,
+              "max_ns_diagnostic": 12486432,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2273130,
+                  "p90": 2391844,
+                  "p99": 2690832,
+                  "mean": 2303072.156,
+                  "min": 2232928,
+                  "max": 4034658
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3530506,
+                  "p90": 4007514,
+                  "p99": 4830275,
+                  "mean": 3618272.393,
+                  "min": 3260486,
+                  "max": 5436062
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 43152,
+                  "p90": 194353,
+                  "p99": 451342,
+                  "mean": 76613.269,
+                  "min": 23087,
+                  "max": 1007665
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 5894772,
+                  "p90": 6428307,
+                  "p99": 7424061,
+                  "mean": 6000504.161,
+                  "min": 5544721,
+                  "max": 9136440
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 2,
+            "goodput_per_s": 515.8860849257524,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7576290.5,
+              "p90_ns": 9365044.6,
+              "p99_ns": 11465032.579999998,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 1952121.0,
+              "mad_ns": 992963.5,
+              "min_ns_diagnostic": 5966835,
+              "max_ns_diagnostic": 42307438,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 3,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 288,
+                  "p90": 380,
+                  "p99": 637,
+                  "mean": 321.104,
+                  "min": 140,
+                  "max": 7042
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 4835,
+                  "p90": 1231002,
+                  "p99": 2067815,
+                  "mean": 263968.901,
+                  "min": 3610,
+                  "max": 2260589
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2245107,
+                  "p90": 2254808,
+                  "p99": 2729324,
+                  "mean": 2261201.407,
+                  "min": 2213906,
+                  "max": 2804131
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 15470,
+                  "p90": 22063,
+                  "p99": 27849,
+                  "mean": 13415.22,
+                  "min": 3073,
+                  "max": 33680
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 2453147,
+                  "p90": 4551905,
+                  "p99": 6070089,
+                  "mean": 3120169.619,
+                  "min": 2350766,
+                  "max": 6824206
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 382,
+                  "p90": 662,
+                  "p99": 958,
+                  "mean": 423.347,
+                  "min": 113,
+                  "max": 6157
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4903,
+                  "p90": 6432,
+                  "p99": 11771,
+                  "mean": 5219.718,
+                  "min": 3432,
+                  "max": 19679
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2878,
+                  "p90": 3904,
+                  "p99": 10895,
+                  "mean": 3139.496,
+                  "min": 1767,
+                  "max": 26362
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 5472629,
+                  "p90": 7042737,
+                  "p99": 8891676,
+                  "mean": 5837490.033,
+                  "min": 4718167,
+                  "max": 38377609
+                }
+              },
+              "same_worker_fraction": 0.263,
+              "hpx_worker_count_observed": 4,
+              "distinct_own_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "distinct_cont_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2246261,
+                  "p90": 2256013,
+                  "p99": 2268715,
+                  "mean": 2248801.189,
+                  "min": 2220236,
+                  "max": 2783101
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2249006,
+                  "p90": 2258684,
+                  "p99": 2271206,
+                  "mean": 2251527.637,
+                  "min": 2222675,
+                  "max": 2785603
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "band": "C4_cpu4_ht4",
+      "band_kind": "matched_decisive",
+      "C": 4,
+      "num_cpus": 4,
+      "hpx_threads": 4,
+      "rep": 3,
+      "rep_pass": true,
+      "island_gates_failed": [],
+      "capability": {
+        "ray_peer_concurrency_capability_proven": true,
+        "hpx_peer_concurrency_capability_proven": true
+      },
+      "arms": {
+        "ray": [
+          {
+            "rep": 3,
+            "goodput_per_s": 514.1261469806019,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7561966.0,
+              "p90_ns": 8705408.200000001,
+              "p99_ns": 10526666.229999999,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 704981.5,
+              "mad_ns": 338643.0,
+              "min_ns_diagnostic": 6687476,
+              "max_ns_diagnostic": 12910914,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 4,
+            "stage_decomp": {
+              "arm": "ray",
+              "coordinator_stage_ns": {
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2283202,
+                  "p90": 2406619,
+                  "p99": 2772265,
+                  "mean": 2316832.116,
+                  "min": 2247096,
+                  "max": 3460926
+                },
+                "peer_call_ns": {
+                  "n": 1000,
+                  "p50": 3619950,
+                  "p90": 4116780,
+                  "p99": 5025942,
+                  "mean": 3712511.517,
+                  "min": 3239226,
+                  "max": 6470027
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 45970,
+                  "p90": 257490,
+                  "p99": 550524,
+                  "mean": 90692.132,
+                  "min": 22808,
+                  "max": 1304239
+                },
+                "total_ns": {
+                  "n": 1000,
+                  "p50": 6026939,
+                  "p90": 6610959,
+                  "p99": 7804004,
+                  "mean": 6122582.263,
+                  "min": 5550003,
+                  "max": 9288876
+                }
+              },
+              "peer_call_ns_note": "caller-observed; includes Ray queue/transport/peer service/return; NOT pure transport time"
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ],
+        "hpx": [
+          {
+            "rep": 3,
+            "goodput_per_s": 511.0985685364421,
+            "n_completed": 1000,
+            "verified": 1000,
+            "invalid": 0,
+            "timeouts": 0,
+            "latency_stats": {
+              "n": 1000,
+              "requested_k": 1000,
+              "p50_ns": 7618373.5,
+              "p90_ns": 9736762.0,
+              "p99_ns": 12002176.399999999,
+              "p99_scope": "n=1000",
+              "p99_reliable": true,
+              "iqr_ns": 2024483.25,
+              "mad_ns": 999184.5,
+              "min_ns_diagnostic": 6004306,
+              "max_ns_diagnostic": 12890784,
+              "phase": "accepted"
+            },
+            "coordinate_active_max": 4,
+            "peer_active_max": 3,
+            "stage_decomp": {
+              "arm": "hpx",
+              "coordinator_stage_ns": {
+                "entry_to_post_ns": {
+                  "n": 1000,
+                  "p50": 308,
+                  "p90": 398,
+                  "p99": 593,
+                  "mean": 319.923,
+                  "min": 152,
+                  "max": 3050
+                },
+                "post_to_start_ns": {
+                  "n": 1000,
+                  "p50": 5007,
+                  "p90": 1423826,
+                  "p99": 2086183,
+                  "mean": 275093.004,
+                  "min": 3377,
+                  "max": 2296183
+                },
+                "own_topk_ns": {
+                  "n": 1000,
+                  "p50": 2249756,
+                  "p90": 2261811,
+                  "p99": 2732789,
+                  "mean": 2265840.204,
+                  "min": 2217097,
+                  "max": 2912394
+                },
+                "dispatch_ns": {
+                  "n": 1000,
+                  "p50": 15838,
+                  "p90": 21761,
+                  "p99": 26623,
+                  "mean": 13395.045,
+                  "min": 2821,
+                  "max": 70676
+                },
+                "dispatch_to_cont_ns": {
+                  "n": 1000,
+                  "p50": 2461869,
+                  "p90": 4570249,
+                  "p99": 6487469,
+                  "mean": 3154178.945,
+                  "min": 2315794,
+                  "max": 7154536
+                },
+                "reply_get_ns": {
+                  "n": 1000,
+                  "p50": 413,
+                  "p90": 671,
+                  "p99": 887,
+                  "mean": 426.77,
+                  "min": 152,
+                  "max": 1067
+                },
+                "merge_ns": {
+                  "n": 1000,
+                  "p50": 4920,
+                  "p90": 6411,
+                  "p99": 12448,
+                  "mean": 5538.815,
+                  "min": 3334,
+                  "max": 176885
+                },
+                "cont_to_delivered_ns": {
+                  "n": 1000,
+                  "p50": 2834,
+                  "p90": 3897,
+                  "p99": 9104,
+                  "mean": 3093.405,
+                  "min": 1676,
+                  "max": 22009
+                },
+                "total_native_ns": {
+                  "n": 1000,
+                  "p50": 5631444,
+                  "p90": 7125904,
+                  "p99": 9113835,
+                  "mean": 5896455.443,
+                  "min": 4737485,
+                  "max": 10657147
+                }
+              },
+              "same_worker_fraction": 0.234,
+              "hpx_worker_count_observed": 4,
+              "distinct_own_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "distinct_cont_workers": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "peer_local_ns_NOT_SUBTRACTED": {
+                "peer_local_topk_ns": {
+                  "n": 1000,
+                  "p50": 2247116,
+                  "p90": 2257664,
+                  "p99": 2281323,
+                  "mean": 2251397.791,
+                  "min": 2215135,
+                  "max": 2893009
+                },
+                "peer_action_body_ns": {
+                  "n": 1000,
+                  "p50": 2249835,
+                  "p90": 2260299,
+                  "p99": 2284104,
+                  "mean": 2254153.906,
+                  "min": 2218516,
+                  "max": 2895956
+                }
+              }
+            },
+            "batch_pass": true,
+            "failure_class": "pass"
+          }
+        ]
+      }
+    }
+  ],
+  "phase": "rostam-cross-node-slice3",
+  "slice3_mode": "accepted",
+  "single_node": false,
+  "cross_node": true,
+  "ray_cluster": {
+    "root_node": "medusa01",
+    "actor_a_node": "medusa11",
+    "actor_b_node": "medusa12",
+    "root_ip": "10.42.5.31",
+    "actor_a_ip": "10.42.5.41",
+    "actor_b_ip": "10.42.5.42",
+    "nodeR_ray_node_id": "200ed8863b4509c67914cc45beabed7c34c152bdcccf926cb28632ae",
+    "nodeA_ray_node_id": "666bbe6616147174b183879e162e437657a43ae6b04c9643d15e72c8",
+    "nodeB_ray_node_id": "676b0ade7e9273e1f51b1c4d230ae852129b7ec2958ebbd770dc6dfb",
+    "driver_node_id": "200ed8863b4509c67914cc45beabed7c34c152bdcccf926cb28632ae",
+    "driver_on_nodeR": true
+  },
+  "preflight": {
+    "slurm_job_id": "172125",
+    "slurm_nodelist": "medusa[01,11-12]",
+    "allocation_nodes": [
+      "medusa01",
+      "medusa11",
+      "medusa12"
+    ],
+    "controller_host": "medusa01",
+    "nodeR": "medusa01",
+    "nodeA": "medusa11",
+    "nodeB": "medusa12",
+    "nodeR_ip": "10.42.5.31",
+    "nodeA_ip": "10.42.5.41",
+    "nodeB_ip": "10.42.5.42",
+    "subnet_prefix": "10.42.5."
+  },
+  "final_orphans": {
+    "ray_nodeR": [],
+    "peer_nodeR": [],
+    "ray_nodeA": [],
+    "peer_nodeA": [],
+    "ray_nodeB": [],
+    "peer_nodeB": [],
+    "no_ray_orphans": true,
+    "no_peer_orphans": true
+  },
+  "resources": {
+    "per_band": [
+      {
+        "band": "C2_cpu2_ht2",
+        "C": 2,
+        "num_cpus": 2,
+        "hpx_threads": 2
+      },
+      {
+        "band": "C4_cpu2_ht2",
+        "C": 4,
+        "num_cpus": 2,
+        "hpx_threads": 2
+      },
+      {
+        "band": "C4_cpu4_ht4",
+        "C": 4,
+        "num_cpus": 4,
+        "hpx_threads": 4
+      }
+    ],
+    "note": "resources are configured per band; the (C, num_cpus, hpx_threads) tuple is the band identity; within a band the Ray and HPX arms receive the SAME resources -- never given to only one arm"
+  },
+  "matrix_complete": true,
+  "overall": "pass"
+}
