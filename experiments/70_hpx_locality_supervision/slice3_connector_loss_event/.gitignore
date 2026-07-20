@@ -1,0 +1,10 @@
+# exp70 Slice 3 -- EXPERIMENT-ONLY run artifacts stay untracked (curated aggregate is the only
+# tracked evidence, added after acceptance). Mirrors Slice 1 / Slice 2 / exp68 hygiene.
+build/
+build*/
+_exp70_slice3_runs/
+__pycache__/
+*.so
+*.dylib
+*.o
+*.pyc

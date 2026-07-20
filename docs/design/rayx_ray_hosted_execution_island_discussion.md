@@ -3,8 +3,32 @@
 > **Status: exploratory `docs/design/` discussion-prep note** for a technical conversation
 > with HPX maintainers / upstream reviewers. Not promoted reference. Not an implementation
 > decision. Not an API spec. Not a benchmark. Not fabric/endpoint work. No performance claim.
-> **The Ray-hosting seam is NOT yet characterized**, and nothing here claims it is solved or
-> validated. The evidence cited is in-process, single-node, structural, counts-only.
+> The evidence cited **in this note** is in-process, single-node, structural, counts-only.
+>
+> **Superseded on the seam question (2026-07).** When this note was written the Ray-hosting
+> seam was not characterized. It since has been: exp66 proved one Ray actor can host an HPX
+> connect-mode locality in-process, exp67 proved two actors can join one shared runtime and
+> communicate bidirectionally across nodes, and exp68 proved an exactly checkable
+> vocabulary-sharded top-k workload across them. **exp70** then closed the lifecycle-supervision
+> A-path on two-node hardware — explicit completion, classified connector departure vs loss,
+> classified root completion vs bounded suspected loss, and Ray-supervised whole-island
+> replacement — using backend-neutral **external** reference implementations; the HPX-native
+> backends remain upstream-blocked. The architectural picture that emerged is:
+>
+> ```text
+> Ray actors host HPX connect-mode localities in-process
+>         ↓
+> a separately supervised work-free HPX root anchors the runtime
+>         ↓
+> external lifecycle backends classify completion or bounded suspicion
+>         ↓
+> RayX treats unexpected loss as whole-island failure
+>         ↓
+> Ray replaces the complete island
+> ```
+>
+> See [experiments/70_hpx_locality_supervision/](../../experiments/70_hpx_locality_supervision/README.md).
+> The body below is retained unchanged as a record of the pre-characterization framing.
 
 ## Thesis
 

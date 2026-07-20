@@ -201,11 +201,15 @@ Design potential, explicitly not proven product outcomes:
 
 ## Roadmap
 
-1. **Locality supervision (exp70, active):** heartbeat/failure detection for actor-hosted
-   localities, characterization of dispatch to departed localities, and upstream
-   engagement on connector-lifetime behavior.
-2. **Root isolation and supervised whole-island restart** as an explicit, tested policy
-   rather than an assumption.
+1. **Locality supervision (exp70, A-path complete):** exp70 closes the actor-hosted HPX
+   lifecycle-supervision A-path — explicit completion, connector departure/loss
+   classification, root completion/loss classification, and Ray-supervised whole-island
+   replacement were demonstrated on two-node hardware using backend-neutral **external**
+   reference implementations. Native HPX B backends remain blocked on upstream lifecycle
+   APIs. See [experiments/70_hpx_locality_supervision/](experiments/70_hpx_locality_supervision/README.md).
+2. **Native lifecycle backends (blocked upstream):** implement the B slices against the
+   unchanged A-slice acceptance harnesses if HPX exposes completion, connector
+   departure/loss, or root liveness as runtime facts.
 3. **Matched-resource comparison discipline** carried into any future band (the exp69
    guard: for C ≥ 4, match worker supply or label the band oversubscribed).
 4. **Production-shaped native workloads** beyond closed-value probes, with the same
@@ -324,6 +328,7 @@ write-ups and curated evidence packages.
 ### Evidence
 
 * [docs/evidence_index.md](docs/evidence_index.md) — the chronological **"what we learned"** index for every benchmark and experiment arc, including the distributed arc (exp61–69) and its accepted job IDs.
+* [experiments/70_hpx_locality_supervision/](experiments/70_hpx_locality_supervision/README.md) — the lifecycle-supervision overview: what an **external** supervisor can classify about a connected HPX locality's completion and loss, and where that approach reaches its ceiling.
 * The durable experiment reports linked in the [What is implemented](#what-is-implemented) table above.
 * Source write-ups live beside the code under [benchmarks/](benchmarks/) and [experiments/](experiments/).
 

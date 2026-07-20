@@ -598,8 +598,37 @@ no claim that `num_cpus` physically caps Ray OS threads; the dispatch-to-continu
 interval is a composite, not pure transport. A comparison-validity guard stands for future
 bands: for C ≥ 4, match `num_cpus == hpx_threads == C` or label the band oversubscribed.
 
-**exp70 (status note):** locality supervision — heartbeat/failure detection and
-departed-locality dispatch behavior — is **active work, not accepted evidence**. A
-self-contained upstream reproducer for the connector-lifetime gap is committed under
-[experiments/70_hpx_locality_supervision/upstream_reproducer/](../experiments/70_hpx_locality_supervision/upstream_reproducer/README.md);
-its raw run and build directories are untracked.
+**exp70 — HPX locality lifecycle supervision (A-path complete, hardware-verified).** exp70
+asks who may declare a dynamically connected actor-hosted HPX locality *done*, and who may
+declare it *gone*. Slice 0 reduced the fixed-connector-lifetime failure to two loopback
+processes and produced the public upstream reproducer; Slice 1 proved Ray-supervised
+cross-node **whole-island replacement** after unexpected connector loss (job 173489,
+medusa00/01); Slice 2A made completion an explicit, testable event (job 173796,
+medusa11/12); Slice 3A classified graceful connector departure distinctly from unexpected
+loss (job 173797, medusa06/07); Slice 4A distinguished explicit root completion from
+**bounded suspicion** after unexpected loss of the separately supervised work-free root
+(job 173798, medusa00/01). Every slice ran two passing cross-node runs under hard Ray node
+affinity with bit-exact deterministic workloads and post-copy-back hash verification.
+
+*What we learned:* the missing fact was never the connector lifetime — it was that "no
+further work will be sent" and "this locality is gone" are not expressible as HPX runtime
+events. An external supervisor can classify completion and separate graceful departure from
+loss, but its loss verdict is **bounded suspicion, never certainty**. Two behaviours matter
+for anyone building on this: after unexpected root loss, actor-hosted HPX calls **blocked**
+rather than failing promptly (bounded probes are mandatory), and membership still contained
+a departed locality at the observation point, so membership polling is not a loss signal.
+
+*Non-claims:* no HPX-native heartbeat, completion, or loss notification; no failure
+certainty; no transparent recovery; no partial-island continuation; no AGAS repair; no
+performance claim. The B-path (native backends) is **upstream-blocked, not harness-blocked**.
+
+Overview [experiments/70_hpx_locality_supervision/README.md](../experiments/70_hpx_locality_supervision/README.md)
+· per-slice records [evidence_index.md](../experiments/70_hpx_locality_supervision/evidence_index.md)
+· gaps [native_backend_gap_matrix.md](../experiments/70_hpx_locality_supervision/native_backend_gap_matrix.md)
+· slices [0](../experiments/70_hpx_locality_supervision/upstream_reproducer/README.md),
+[1](../experiments/70_hpx_locality_supervision/slice1_actor_hosted_island_restart/README.md),
+[2A](../experiments/70_hpx_locality_supervision/slice2_explicit_completion/README.md),
+[3A](../experiments/70_hpx_locality_supervision/slice3_connector_loss_event/README.md),
+[4A](../experiments/70_hpx_locality_supervision/slice4_root_loss_event/README.md).
+Curated evidence JSON is tracked beside each slice README; raw run, copy-back and build
+directories are untracked.

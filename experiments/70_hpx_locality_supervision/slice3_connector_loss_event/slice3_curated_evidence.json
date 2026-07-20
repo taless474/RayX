@@ -1,0 +1,296 @@
+{
+  "backend": "external_witness (epoch-scoped island.events marker; backend-neutral contract)",
+  "classifier": {
+    "allowlist": [
+      "actor_call_raised",
+      "actor_error_type",
+      "clean_disconnect_recorded",
+      "connector",
+      "pid_gone",
+      "stop_rc"
+    ],
+    "blindness": "structural: _assert_blind raises BlindnessViolation on any field outside the allow-list; the injection record is stored on a separate marker branch the evidence collector never reads",
+    "fingerprint": "9a5d1ec8edd0116612d1cc4f332d4b98ebb9f64f24a877aade515084bd090cb4",
+    "labels": [
+      "graceful_departure",
+      "unexpected_loss",
+      "indeterminate"
+    ]
+  },
+  "curated_at_utc": "2026-07-19T22:05:30Z",
+  "experiment": "exp70_slice3a_connector_loss_event",
+  "hardware_evidence": {
+    "artifacts_verified": "35/35 evidence artifacts sha256-verified after copy-back; the 36th entry is the Slurm job log, which the in-job manifest necessarily hashes before the job finishes writing it (verified as an exact byte-prefix; final remote hash == final local hash)",
+    "copyback_dir": "_exp70_slice3_runs/rostam_copyback_20260719T220347Z",
+    "copyback_verification_sha256": "51d24757cf97e63d889adef2bc1edebf2dac9a0a9346df243a3c39d34517cedb",
+    "elapsed": "00:01:58",
+    "environment": {
+      "hpx_fixed_sha": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+      "hpx_install": "<hpx-install-root>/hpx-master-20bc3d4b-install",
+      "identity_file": "hardware_identity_173797.txt",
+      "modules": "gcc/15.1.0 cmake/3.29.2 boost/1.91.0-release hwloc/2.12.0 python/3.12.3 (module purge first)",
+      "path_note": "Cluster paths are symbolized for publication; the reproducibility anchor is hpx_fixed_sha plus the recorded module set. The .sbatch launchers retain the literal site paths because they are byte-identical to the artifacts hashed in the accepted hardware evidence.",
+      "subnet": "10.42.5.",
+      "venv": "<venv-root>/rayx-a2b"
+    },
+    "exp68_built_artifacts": {
+      "exp68_actor_ext.cpython-312-x86_64-linux-gnu.so": "fa040fa7777afeb3e72a3d369e98068fff9b195db37b1526c959af3d29092f5a",
+      "exp68_peer": "fd6029ff90508d9133e3abccc9337cd19da13100c4ae2151bd06927050cf9e63"
+    },
+    "exp68_dependency_hashes": {
+      "CMakeLists.txt": "dd0ed720ac88bab6dcf4967ede4e342819ebd067f83b562e93b8df7aa50aa91c",
+      "actor_ext.cpp": "bc1631ee3b0cec81d7139b9d35f4f29770e764fc6cd26d603a2043e62791f268",
+      "exp68_peer.cpp": "bbff2902f7a1e47da1f06e0c961b25201c51b261249707b2e1b876e67f8b6862",
+      "run_exp68.py": "517095b0d220220e6a27b74e3662b784a5547efb8aa2c8816ea658001c755b86",
+      "shared_topk.hpp": "941cd05dc23685178d9a8ee9c1a3369b3ecebbb0586bb3659356340728a11037",
+      "topk_action.hpp": "d60832b1cb2f30ba80378771e0ce6ab78f5142cd5021ff375ab2100544845f8a"
+    },
+    "manifest_sha256": "5a372a93e4cc74e4dc4966d2da630a91e35fc8dac36a4c09be835e5d5ebad749",
+    "nodeA": "medusa06 (controller / Ray head / work-free HPX root / actor A) 10.42.5.36",
+    "nodeB": "medusa07 (actor B = departing connector) 10.42.5.37",
+    "nodes": [
+      "medusa06",
+      "medusa07"
+    ],
+    "placement": "hard NodeAffinitySchedulingStrategy(soft=False), attested per arm; no same-node fallback",
+    "runs": [
+      {
+        "arms": {
+          "graceful": {
+            "basis": {
+              "actor_call_raised": false,
+              "clean_disconnect_recorded": true,
+              "pid_gone": false
+            },
+            "classification": "graceful_departure",
+            "epoch_id": "exp70s3a-graceful-20260719T170156Z",
+            "evidence": {
+              "actor_call_raised": false,
+              "actor_error_type": null,
+              "clean_disconnect_recorded": true,
+              "connector": "b",
+              "pid_gone": false,
+              "stop_rc": 0
+            },
+            "graceful_hpx_attempted": true,
+            "identities": {
+              "a": {
+                "actor_id": "d229bb899e0a8ffe9c9e863201000000",
+                "hostname": "medusa06.rostam.cct.lsu.edu",
+                "locality_id": 1,
+                "node_id": "dd37bfcdf14a6133833aa2b721cd88c5fe96cb305f9c7ff427770807",
+                "pid": 3361344
+              },
+              "b": {
+                "actor_id": "ae9de63cc33bbb44b2d7b06001000000",
+                "hostname": "medusa07.rostam.cct.lsu.edu",
+                "locality_id": 2,
+                "node_id": "a307566bd96b12ebd68e357731c976ad834f3ba780c7234873b379a9",
+                "pid": 2510488
+              }
+            },
+            "observation_elapsed_s": 0.0003,
+            "ports": {
+              "a": 7952,
+              "b": 7953,
+              "root": 7951
+            },
+            "publication_latency_s": 3.236,
+            "teardown_mode": "graceful_root_finalize"
+          },
+          "loss": {
+            "basis": {
+              "actor_call_raised": true,
+              "clean_disconnect_recorded": false,
+              "pid_gone": true
+            },
+            "classification": "unexpected_loss",
+            "epoch_id": "exp70s3a-loss-20260719T170156Z",
+            "evidence": {
+              "actor_call_raised": true,
+              "actor_error_type": "ActorDiedError",
+              "clean_disconnect_recorded": false,
+              "connector": "b",
+              "pid_gone": true,
+              "stop_rc": null
+            },
+            "graceful_hpx_attempted": false,
+            "identities": {
+              "a": {
+                "actor_id": "1fde01820f539461776a444001000000",
+                "hostname": "medusa06.rostam.cct.lsu.edu",
+                "locality_id": 1,
+                "node_id": "dd37bfcdf14a6133833aa2b721cd88c5fe96cb305f9c7ff427770807",
+                "pid": 3361337
+              },
+              "b": {
+                "actor_id": "4de1989b6d19b0c8764896b801000000",
+                "hostname": "medusa07.rostam.cct.lsu.edu",
+                "locality_id": 2,
+                "node_id": "a307566bd96b12ebd68e357731c976ad834f3ba780c7234873b379a9",
+                "pid": 2511124
+              }
+            },
+            "observation_elapsed_s": 0.0003,
+            "ports": {
+              "a": 7962,
+              "b": 7963,
+              "root": 7961
+            },
+            "publication_latency_s": 0.083,
+            "teardown_mode": "external_whole_island"
+          }
+        },
+        "classifier_fingerprint": "9a5d1ec8edd0116612d1cc4f332d4b98ebb9f64f24a877aade515084bd090cb4",
+        "failure_class": "pass",
+        "gate_checks_total": 176,
+        "gate_groups": 28,
+        "gates_failed": [],
+        "loss_post_departure_membership": "membership_stale",
+        "overall": "pass",
+        "runid": "20260719T170156Z"
+      },
+      {
+        "arms": {
+          "graceful": {
+            "basis": {
+              "actor_call_raised": false,
+              "clean_disconnect_recorded": true,
+              "pid_gone": false
+            },
+            "classification": "graceful_departure",
+            "epoch_id": "exp70s3a-graceful-20260719T170216Z",
+            "evidence": {
+              "actor_call_raised": false,
+              "actor_error_type": null,
+              "clean_disconnect_recorded": true,
+              "connector": "b",
+              "pid_gone": false,
+              "stop_rc": 0
+            },
+            "graceful_hpx_attempted": true,
+            "identities": {
+              "a": {
+                "actor_id": "bdf4e5d8ae4ced792d12d67601000000",
+                "hostname": "medusa06.rostam.cct.lsu.edu",
+                "locality_id": 1,
+                "node_id": "94a6239996944aaa69b72c41cab8eebd2945db6aee670fbbc0ae23b0",
+                "pid": 3364262
+              },
+              "b": {
+                "actor_id": "f0d3ce4d6ef85a138ded617701000000",
+                "hostname": "medusa07.rostam.cct.lsu.edu",
+                "locality_id": 2,
+                "node_id": "e498f6031634d4350af042760e717ea4f6d7d67abab16fca5d747877",
+                "pid": 2512390
+              }
+            },
+            "observation_elapsed_s": 0.0002,
+            "ports": {
+              "a": 7982,
+              "b": 7983,
+              "root": 7981
+            },
+            "publication_latency_s": 3.242,
+            "teardown_mode": "graceful_root_finalize"
+          },
+          "loss": {
+            "basis": {
+              "actor_call_raised": true,
+              "clean_disconnect_recorded": false,
+              "pid_gone": true
+            },
+            "classification": "unexpected_loss",
+            "epoch_id": "exp70s3a-loss-20260719T170216Z",
+            "evidence": {
+              "actor_call_raised": true,
+              "actor_error_type": "ActorDiedError",
+              "clean_disconnect_recorded": false,
+              "connector": "b",
+              "pid_gone": true,
+              "stop_rc": null
+            },
+            "graceful_hpx_attempted": false,
+            "identities": {
+              "a": {
+                "actor_id": "ef71311207a470d4988d30d501000000",
+                "hostname": "medusa06.rostam.cct.lsu.edu",
+                "locality_id": 1,
+                "node_id": "94a6239996944aaa69b72c41cab8eebd2945db6aee670fbbc0ae23b0",
+                "pid": 3364263
+              },
+              "b": {
+                "actor_id": "73498615c8be012220c8ad5601000000",
+                "hostname": "medusa07.rostam.cct.lsu.edu",
+                "locality_id": 2,
+                "node_id": "e498f6031634d4350af042760e717ea4f6d7d67abab16fca5d747877",
+                "pid": 2513004
+              }
+            },
+            "observation_elapsed_s": 0.0004,
+            "ports": {
+              "a": 7992,
+              "b": 7993,
+              "root": 7991
+            },
+            "publication_latency_s": 0.068,
+            "teardown_mode": "external_whole_island"
+          }
+        },
+        "classifier_fingerprint": "9a5d1ec8edd0116612d1cc4f332d4b98ebb9f64f24a877aade515084bd090cb4",
+        "failure_class": "pass",
+        "gate_checks_total": 176,
+        "gate_groups": 28,
+        "gates_failed": [],
+        "loss_post_departure_membership": "membership_stale",
+        "overall": "pass",
+        "runid": "20260719T170216Z"
+      }
+    ],
+    "slurm_job_id": "173797",
+    "source_hashes": {
+      ".gitignore": "d5361daf529ae118c6d001eb2fa99d20eca0db0f363db12340e2710752139def",
+      "exp70_slice3_crossnode.sbatch": "f6f1e6c9bf11e82a22d12b022bbec83625ed769d2e031275270df2352856621c",
+      "run_slice3.py": "aece9af5416a2a48d705edfb27abf95c4fff639ed64f9877c248acc8131ec9c6"
+    },
+    "subnet": "10.42.5."
+  },
+  "local_evidence": {
+    "curated_local_aggregate_sha256": "cc52c3b50a5a1a4e0ae808b01c52b32b6fb67370e4769a1c7f2127784b6375e7",
+    "runs": [
+      {
+        "failure_class": "pass",
+        "gate_checks_total": 164,
+        "gate_groups": 27,
+        "graceful_classification": "graceful_departure",
+        "loss_classification": "unexpected_loss",
+        "loss_post_departure_membership": "membership_stale",
+        "overall": "pass",
+        "runid": "20260719T145940Z"
+      },
+      {
+        "failure_class": "pass",
+        "gate_checks_total": 164,
+        "gate_groups": 27,
+        "graceful_classification": "graceful_departure",
+        "loss_classification": "unexpected_loss",
+        "loss_post_departure_membership": "membership_stale",
+        "overall": "pass",
+        "runid": "20260719T150004Z"
+      }
+    ]
+  },
+  "non_claims": [
+    "no HPX-native loss detection",
+    "no HPX-native heartbeat",
+    "no HPX-native eviction or membership repair",
+    "no recovery or failover claim",
+    "no runtime-level enforcement",
+    "no performance claim"
+  ],
+  "observational_only": {
+    "post_departure_membership": "after the loss the survivor's bounded probe reported membership_stale in all runs; this is recorded and categorized but is NOT a gate. A shrinking membership would be a FINDING."
+  },
+  "selftest": "96/96",
+  "summary_claim": "In a two-node actor-hosted HPX island, a departing connector produced exactly one terminal lifecycle event whose graceful-vs-lost classification was computed injection-blind from observable evidence, was published within a bounded interval, and was observed by the surviving connector for the exact island epoch."
+}

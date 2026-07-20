@@ -1,0 +1,182 @@
+{
+  "curated_at_utc": "2026-07-19T05:47:03Z",
+  "experiment": "exp70_slice1_actor_hosted_island_restart",
+  "hardware_evidence": {
+    "artifacts_verified": "25/25 sha256 verified after copy-back; both run dirs complete",
+    "copyback_dir": "_exp70_slice1_runs/rostam_copyback_20260719T053456Z",
+    "environment": {
+      "hpx_fixed_sha": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+      "hpx_install": "<hpx-install-root>/hpx-master-20bc3d4b-install",
+      "modules": "gcc/15.1.0 cmake/3.29.2 boost/1.91.0-release hwloc/2.12.0 python/3.12.3 (module purge first)",
+      "nodeA_ip": "10.42.5.30",
+      "nodeB_ip": "10.42.5.31",
+      "path_note": "Cluster paths are symbolized for publication; the reproducibility anchor is hpx_fixed_sha plus the recorded module set. The .sbatch launchers retain the literal site paths because they are byte-identical to the artifacts hashed in the accepted hardware evidence.",
+      "python": "Python 3.9.23",
+      "ray_version_from_job_log": "2.55.1",
+      "subnet": "10.42.5.",
+      "venv": "<venv-root>/rayx-a2b"
+    },
+    "exp68_dependency_hashes": {
+      "CMakeLists.txt": "dd0ed720ac88bab6dcf4967ede4e342819ebd067f83b562e93b8df7aa50aa91c",
+      "actor_ext.cpp": "bc1631ee3b0cec81d7139b9d35f4f29770e764fc6cd26d603a2043e62791f268",
+      "exp68_peer.cpp": "bbff2902f7a1e47da1f06e0c961b25201c51b261249707b2e1b876e67f8b6862",
+      "run_exp68.py": "517095b0d220220e6a27b74e3662b784a5547efb8aa2c8816ea658001c755b86",
+      "shared_topk.hpp": "941cd05dc23685178d9a8ee9c1a3369b3ecebbb0586bb3659356340728a11037",
+      "topk_action.hpp": "d60832b1cb2f30ba80378771e0ce6ab78f5142cd5021ff375ab2100544845f8a"
+    },
+    "manifest_sha256": "953494974e44f55c277977c90755b048f8682fbd12cd8b2e9dba0d81838060c0",
+    "runs": [
+      {
+        "failure_class": "pass",
+        "gate_group_count": 19,
+        "gate_groups_all_true": true,
+        "identities": {
+          "epoch0": {
+            "a": {
+              "actor_id": "950a085caf2d67219dfd23c401000000",
+              "hostname": "medusa00.rostam.cct.lsu.edu",
+              "node_id": "37fbac397fd4fc9791faab19423ed20c16d5d8bf038a8ba86f25ec6d",
+              "pid": 276746
+            },
+            "b": {
+              "actor_id": "f0af9b229d30f77c1a4f555e01000000",
+              "hostname": "medusa01.rostam.cct.lsu.edu",
+              "node_id": "41c915623a54d3706ca0c2e5a8bcee4106b6378ded36444d1c9a237d",
+              "pid": 1729030
+            },
+            "ports": {
+              "a": 7812,
+              "b": 7813,
+              "root": 7811
+            },
+            "root_pid": 278926
+          },
+          "epoch1": {
+            "a": {
+              "actor_id": "daeaedddc54d815c79658b3e01000000",
+              "hostname": "medusa00.rostam.cct.lsu.edu",
+              "node_id": "37fbac397fd4fc9791faab19423ed20c16d5d8bf038a8ba86f25ec6d",
+              "pid": 276745
+            },
+            "b": {
+              "actor_id": "e39a52db55e94e11488f9c1e01000000",
+              "hostname": "medusa01.rostam.cct.lsu.edu",
+              "node_id": "41c915623a54d3706ca0c2e5a8bcee4106b6378ded36444d1c9a237d",
+              "pid": 1729566
+            },
+            "ports": {
+              "a": 7822,
+              "b": 7823,
+              "root": 7821
+            },
+            "root_pid": 279021
+          }
+        },
+        "overall": "pass",
+        "post_loss_membership_category": "membership_stale",
+        "runid": "20260719T003244Z"
+      },
+      {
+        "failure_class": "pass",
+        "gate_group_count": 19,
+        "gate_groups_all_true": true,
+        "identities": {
+          "epoch0": {
+            "a": {
+              "actor_id": "a06187c757a5b3ace1f3c43901000000",
+              "hostname": "medusa00.rostam.cct.lsu.edu",
+              "node_id": "187958913fe29c4b4329ded7e7203ba1e80b4143bb18a18f1c7dd6a1",
+              "pid": 280262
+            },
+            "b": {
+              "actor_id": "99a68766cdb48852845c5a5301000000",
+              "hostname": "medusa01.rostam.cct.lsu.edu",
+              "node_id": "c4977e2752ea0ccafae22e25337916af9afaf37cf9a61cc88c47624f",
+              "pid": 1731197
+            },
+            "ports": {
+              "a": 7812,
+              "b": 7813,
+              "root": 7811
+            },
+            "root_pid": 282446
+          },
+          "epoch1": {
+            "a": {
+              "actor_id": "6d11ffcf34a8758d07c4113101000000",
+              "hostname": "medusa00.rostam.cct.lsu.edu",
+              "node_id": "187958913fe29c4b4329ded7e7203ba1e80b4143bb18a18f1c7dd6a1",
+              "pid": 280268
+            },
+            "b": {
+              "actor_id": "2972b080727ade2497ea1ba201000000",
+              "hostname": "medusa01.rostam.cct.lsu.edu",
+              "node_id": "c4977e2752ea0ccafae22e25337916af9afaf37cf9a61cc88c47624f",
+              "pid": 1731723
+            },
+            "ports": {
+              "a": 7822,
+              "b": 7823,
+              "root": 7821
+            },
+            "root_pid": 282508
+          }
+        },
+        "overall": "pass",
+        "post_loss_membership_category": "membership_stale",
+        "runid": "20260719T003302Z"
+      }
+    ],
+    "slurm": {
+      "job_id": "173489",
+      "nodes": [
+        "medusa00",
+        "medusa01"
+      ],
+      "partition": "medusa",
+      "topology": {
+        "nodeA_medusa00": "controller/Ray head/work-free root/actor A",
+        "nodeB_medusa01": "actor B (failure-injection victim)"
+      }
+    },
+    "source_hashes": {
+      ".gitignore": "9ebde53b20af07a3e40eab5edc43acfab3925ba2a37b5a36b2940945c044d82c",
+      "exp70_slice1_crossnode.sbatch": "a8beeec876498794a094585106055cc525cd1af3ced71549e652e7c9d36db0fe",
+      "run_slice1.py": "7be9f757df3449dca37ccec9b924f045efb57163150681fcc8aeaf09ebffa7d4"
+    }
+  },
+  "local_evidence": {
+    "consistency": {
+      "both_pass": true,
+      "runs_curated": 3,
+      "same_post_loss_category": true
+    },
+    "curated_local_aggregate_sha256": "7c6e39083a235c0b512fcfa0f6caf5a1837f43d7a17f62abe1b5e6a7e2af3393",
+    "provenance": {
+      "hostname": "local-macos-host",
+      "platform": "macOS-26.5.2-arm64-arm-64bit",
+      "python": "3.11.15",
+      "ray_version": "2.55.1"
+    },
+    "runs": [
+      {
+        "overall": "pass",
+        "post_loss_membership_category": "membership_stale",
+        "runid": "20260717T230159Z"
+      },
+      {
+        "overall": "pass",
+        "post_loss_membership_category": "membership_stale",
+        "runid": "20260717T230329Z"
+      },
+      {
+        "overall": "pass",
+        "post_loss_membership_category": "membership_stale",
+        "runid": "20260718T221930Z"
+      }
+    ]
+  },
+  "non_claims": "The result does not demonstrate HPX-native heartbeat, authoritative failure detection, transparent HPX recovery, partial-island continuation, or application-state restoration.",
+  "note": "Tracked curated summary. Raw artifacts live in the ignored _exp70_slice1_runs/ area and are referenced by sha256; nothing raw was modified.",
+  "summary_claim": "Unexpected loss of one actor-hosted HPX locality caused the supervising RayX controller to classify the complete island as failed, discard the old root and surviving connector, construct a fresh island, and verify the same deterministic distributed workload on the replacement."
+}

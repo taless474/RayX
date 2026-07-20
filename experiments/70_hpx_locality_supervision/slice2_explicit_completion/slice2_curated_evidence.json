@@ -1,0 +1,209 @@
+{
+  "backend": "external_witness (epoch-scoped island.complete marker; backend-neutral contract)",
+  "curated_at_utc": "2026-07-19T21:43:02Z",
+  "experiment": "exp70_slice2a_explicit_completion",
+  "hardware_evidence": {
+    "artifacts_verified": "25/25 evidence artifacts sha256-verified after copy-back; the 26th entry is the Slurm job log, which the in-job manifest necessarily hashes before the job finishes writing it (verified as an exact byte-prefix; final remote hash == final local hash)",
+    "copyback_dir": "_exp70_slice2_runs/rostam_copyback_20260719T214109Z",
+    "copyback_verification_sha256": "0d94f6749424aa74dff8134acaa9a7d35605744eff16f90e091ede73edcb3802",
+    "elapsed": "00:00:43",
+    "environment": {
+      "hpx_fixed_sha": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+      "hpx_install": "<hpx-install-root>/hpx-master-20bc3d4b-install",
+      "identity_file": "hardware_identity_173796.txt",
+      "modules": "gcc/15.1.0 cmake/3.29.2 boost/1.91.0-release hwloc/2.12.0 python/3.12.3 (module purge first)",
+      "path_note": "Cluster paths are symbolized for publication; the reproducibility anchor is hpx_fixed_sha plus the recorded module set. The .sbatch launchers retain the literal site paths because they are byte-identical to the artifacts hashed in the accepted hardware evidence.",
+      "subnet": "10.42.5.",
+      "venv": "<venv-root>/rayx-a2b"
+    },
+    "exp68_built_artifacts": {
+      "exp68_actor_ext.cpython-312-x86_64-linux-gnu.so": "fa040fa7777afeb3e72a3d369e98068fff9b195db37b1526c959af3d29092f5a",
+      "exp68_peer": "fd6029ff90508d9133e3abccc9337cd19da13100c4ae2151bd06927050cf9e63"
+    },
+    "exp68_dependency_hashes": {
+      "CMakeLists.txt": "dd0ed720ac88bab6dcf4967ede4e342819ebd067f83b562e93b8df7aa50aa91c",
+      "actor_ext.cpp": "bc1631ee3b0cec81d7139b9d35f4f29770e764fc6cd26d603a2043e62791f268",
+      "exp68_peer.cpp": "bbff2902f7a1e47da1f06e0c961b25201c51b261249707b2e1b876e67f8b6862",
+      "run_exp68.py": "517095b0d220220e6a27b74e3662b784a5547efb8aa2c8816ea658001c755b86",
+      "shared_topk.hpp": "941cd05dc23685178d9a8ee9c1a3369b3ecebbb0586bb3659356340728a11037",
+      "topk_action.hpp": "d60832b1cb2f30ba80378771e0ce6ab78f5142cd5021ff375ab2100544845f8a"
+    },
+    "manifest_sha256": "8bf43e19db2062637241a343a018778e6ded66afe4e0541030a3cc1c2026d66f",
+    "nodeA": "medusa11 (controller / Ray head / work-free HPX root / actor A) 10.42.5.41",
+    "nodeB": "medusa12 (actor B) 10.42.5.42",
+    "nodes": [
+      "medusa11",
+      "medusa12"
+    ],
+    "placement": "hard NodeAffinitySchedulingStrategy(soft=False); no same-node fallback",
+    "runs": [
+      {
+        "epoch_id": "exp70s2a-20260719T164029Z",
+        "failure_class": "pass",
+        "gate_checks_total": 109,
+        "gate_groups": 15,
+        "gate_groups_all_true": true,
+        "gates_failed": [],
+        "identities": {
+          "a": {
+            "actor_id": "033834df7257584657c3590101000000",
+            "hostname": "medusa11.rostam.cct.lsu.edu",
+            "hpx_endpoints": [
+              "--hpx:agas=10.42.5.41:7911",
+              "--hpx:hpx=10.42.5.41:7912"
+            ],
+            "locality_id": 1,
+            "pid": 132633,
+            "ray_node_id": "d556be943a64e0bce1869bc65bfc5dc4197c8c5c8b614a0b8cd989d1"
+          },
+          "b": {
+            "actor_id": "4647870bd61fbe6591a0cb3101000000",
+            "hostname": "medusa12.rostam.cct.lsu.edu",
+            "hpx_endpoints": [
+              "--hpx:agas=10.42.5.41:7911",
+              "--hpx:hpx=10.42.5.42:7913"
+            ],
+            "locality_id": 2,
+            "pid": 1679263,
+            "ray_node_id": "29a93a6d420e21d1d33ee1eb17ed6169b8417849918145c57e55768a"
+          }
+        },
+        "idle_elapsed_s": 6.0001,
+        "overall": "pass",
+        "ports": {
+          "a": 7912,
+          "b": 7913,
+          "root": 7911
+        },
+        "runid": "20260719T164029Z",
+        "state_history": [
+          "STARTING",
+          "READY",
+          "WORK_1_VERIFIED",
+          "IDLE",
+          "WORK_2_VERIFIED",
+          "COMPLETION_PUBLISHED",
+          "CONNECTORS_LEAVING",
+          "ROOT_ALONE",
+          "FINALIZED"
+        ],
+        "work1_case": "cross_both",
+        "work2_case": "both_contrib"
+      },
+      {
+        "epoch_id": "exp70s2a-20260719T164049Z",
+        "failure_class": "pass",
+        "gate_checks_total": 109,
+        "gate_groups": 15,
+        "gate_groups_all_true": true,
+        "gates_failed": [],
+        "identities": {
+          "a": {
+            "actor_id": "8e955f54a295d13f07d30fe301000000",
+            "hostname": "medusa11.rostam.cct.lsu.edu",
+            "hpx_endpoints": [
+              "--hpx:agas=10.42.5.41:7931",
+              "--hpx:hpx=10.42.5.41:7932"
+            ],
+            "locality_id": 1,
+            "pid": 136080,
+            "ray_node_id": "feaf1dd0157e00954a84d04f13dcc92a479c9148be7b3b48650e518f"
+          },
+          "b": {
+            "actor_id": "c554fd0c5ac09f8ca22894c901000000",
+            "hostname": "medusa12.rostam.cct.lsu.edu",
+            "hpx_endpoints": [
+              "--hpx:agas=10.42.5.41:7931",
+              "--hpx:hpx=10.42.5.42:7933"
+            ],
+            "locality_id": 2,
+            "pid": 1680822,
+            "ray_node_id": "289b6ddb7595ceef1418713a22437308a6ac496058f288fcbc5ab858"
+          }
+        },
+        "idle_elapsed_s": 6.0001,
+        "overall": "pass",
+        "ports": {
+          "a": 7932,
+          "b": 7933,
+          "root": 7931
+        },
+        "runid": "20260719T164049Z",
+        "state_history": [
+          "STARTING",
+          "READY",
+          "WORK_1_VERIFIED",
+          "IDLE",
+          "WORK_2_VERIFIED",
+          "COMPLETION_PUBLISHED",
+          "CONNECTORS_LEAVING",
+          "ROOT_ALONE",
+          "FINALIZED"
+        ],
+        "work1_case": "cross_both",
+        "work2_case": "both_contrib"
+      }
+    ],
+    "slurm_job_id": "173796",
+    "source_hashes": {
+      ".gitignore": "41a3838948a5269084c62dc139aaa604db7a1da59dc37256dfc11c07fd3e14ff",
+      "README.md": "2ec92eaeb71640751130783d021fbe8fc0e55c9bc9e87efd2d3cdf0329aeb848",
+      "exp70_slice2_crossnode.sbatch": "277c2dcb3b0dc3115eecc233d4fde30dedc6697a97fcea9acfd52e823b0b66d5",
+      "run_slice2.py": "e54480d5bb029a2362402389500266373cd1a50cb7dcac5f406afcabdb6f9250"
+    },
+    "subnet": "10.42.5."
+  },
+  "local_evidence": {
+    "curated_local_aggregate_sha256": "a3b776729bf03ad225d66747f86fbbbbe45a265c2e2e030bfeab36f2bb99c0c4",
+    "runs": [
+      {
+        "configured_idle_s": 6.0,
+        "failure_class": "pass",
+        "gate_groups": 14,
+        "gates_failed": [],
+        "note": "predates the cross-node addition",
+        "overall": "pass",
+        "runid": "20260718T225645Z",
+        "work1_case": "cross_both",
+        "work2_case": "both_contrib"
+      },
+      {
+        "configured_idle_s": 6.0,
+        "failure_class": "pass",
+        "gate_groups": 14,
+        "gates_failed": [],
+        "note": "predates the cross-node addition",
+        "overall": "pass",
+        "runid": "20260718T225705Z",
+        "work1_case": "cross_both",
+        "work2_case": "both_contrib"
+      },
+      {
+        "configured_idle_s": 6.0,
+        "failure_class": "pass",
+        "gate_groups": 14,
+        "gates_failed": [],
+        "note": "re-verified against the current run_slice2.py (post cross-node edit)",
+        "overall": "pass",
+        "runid": "20260719T135320Z",
+        "work1_case": "cross_both",
+        "work2_case": "both_contrib"
+      }
+    ]
+  },
+  "non_claims": [
+    "no HPX-native completion",
+    "no HPX-native heartbeat",
+    "no HPX-native failure detection",
+    "no runtime-level enforcement against arbitrary parcels after completion",
+    "no recovery claim",
+    "no performance claim"
+  ],
+  "selftest": "73/73 (includes 8 cross-node placement/preflight checks)",
+  "summary_claim": "In a two-node actor-hosted HPX island, both connectors remained available across an idle interval longer than the former fixed serving window, accepted later valid distributed work, and departed cleanly only after explicit completion was published through the external backend.",
+  "superseded": {
+    "copyback_dir": "_exp70_slice2_runs/rostam_copyback_20260719T213725Z",
+    "reason": "both live runs passed on the same node pair, but shared one port block; retained for provenance only. Job 173796 gives the two runs disjoint port blocks.",
+    "slurm_job_id": "173795"
+  }
+}

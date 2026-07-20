@@ -1,0 +1,33 @@
+# exp70 -- experiment-scoped artifact hygiene.
+#
+# Raw run artifacts, build trees, logs and Ray sessions stay UNTRACKED. Curated evidence
+# (per-slice `slice*_curated_evidence.json`), READMEs, launchers and runners stay TRACKABLE.
+# Nothing here deletes evidence: ignored files remain on disk for local inspection.
+
+# Slice 0 hardware run artifacts (raw stdout/stderr/rc/work trees from the Linux loopback
+# confirmation runs). The tracked record for Slice 0 is upstream_reproducer/README.md.
+_exp70_rostam_runs/*
+# ... but the runner that produced them is source, not an artifact.
+!_exp70_rostam_runs/exp70_slice0_runner.sh
+
+# Reproducer build trees. `build/` is already covered by the repository-root .gitignore;
+# the versioned variants are not, and they contain compiled binaries.
+upstream_reproducer/build*/
+
+# Per-slice raw run areas are also ignored by each slice's own .gitignore; repeated here so
+# the rule survives if a slice directory is ever added without one.
+_exp70_slice*_runs/
+
+# Generic build / log / session noise anywhere under exp70.
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+*.log
+logs/
+session_*/
+__pycache__/
+*.pyc
+*.so
+*.dylib
+*.o

@@ -1,0 +1,472 @@
+{
+  "actor_observation_categories": [
+    "call_returned",
+    "call_error_result",
+    "call_raised",
+    "call_timeout",
+    "actor_unavailable"
+  ],
+  "backend": "external_root_witness (epoch-scoped root.completion + exp68 root.alive refresh token)",
+  "backend_is_not": [
+    "HPX-native heartbeat",
+    "HPX failure detection",
+    "authoritative proof of failure"
+  ],
+  "classifier": {
+    "allowlist": [
+      "classification_bound_s",
+      "completion_witness_epoch_match",
+      "completion_witness_present",
+      "epoch_id",
+      "expected_refresh_s",
+      "observation_deadline_exceeded",
+      "observed_silence_s",
+      "root_pid_alive",
+      "witness_read_error"
+    ],
+    "blindness": "structural: _assert_root_blind raises RootBlindnessViolation on any field outside the allow-list; the injection record lives at markers.json arms.loss.injection_record_private, never read by the observer",
+    "fingerprint": "774ebdc6147bad94220fe34d374c84769dab32b89c19e974d1627bec053809d0",
+    "policy": "a dead root pid does NOT shortcut the silence bound; suspicion requires observed_silence_s >= classification_bound_s, measured in MONOTONIC time"
+  },
+  "curated_at_utc": "2026-07-19T23:51:30Z",
+  "event_classes": [
+    "explicit_completion",
+    "suspected_root_loss",
+    "observation_error",
+    "observation_timeout"
+  ],
+  "experiment": "exp70_slice4a_root_loss_event",
+  "hardware_evidence": {
+    "artifacts_verified": {
+      "exact": true,
+      "mismatched": 0,
+      "missing": 0,
+      "total": 38,
+      "verified": 38
+    },
+    "copyback_dir": "_exp70_slice4_runs/rostam_copyback_20260719T234917Z",
+    "copyback_verification_sha256": "bb12228435bdf8a1468fa19e7302526f11436358465c1f169720cc1dce7b1a1e",
+    "elapsed": "00:02:34",
+    "environment": {
+      "hpx_fixed_sha": "20bc3d4bf3068383edcb63be13f22e9ff95842fa",
+      "hpx_install": "<hpx-install-root>/hpx-master-20bc3d4b-install",
+      "identity_file": "hardware_identity_173798.txt",
+      "modules": "gcc/15.1.0 cmake/3.29.2 boost/1.91.0-release hwloc/2.12.0 python/3.12.3 (module purge first)",
+      "path_note": "Cluster paths are symbolized for publication; the reproducibility anchor is hpx_fixed_sha plus the recorded module set. The .sbatch launchers retain the literal site paths because they are byte-identical to the artifacts hashed in the accepted hardware evidence.",
+      "subnet": "10.42.5.",
+      "venv": "<venv-root>/rayx-a2b"
+    },
+    "exp68_built_artifacts": {
+      "exp68_actor_ext.cpython-312-x86_64-linux-gnu.so": "fa040fa7777afeb3e72a3d369e98068fff9b195db37b1526c959af3d29092f5a",
+      "exp68_peer": "fd6029ff90508d9133e3abccc9337cd19da13100c4ae2151bd06927050cf9e63"
+    },
+    "exp68_dependency_hashes": {
+      "CMakeLists.txt": "dd0ed720ac88bab6dcf4967ede4e342819ebd067f83b562e93b8df7aa50aa91c",
+      "actor_ext.cpp": "bc1631ee3b0cec81d7139b9d35f4f29770e764fc6cd26d603a2043e62791f268",
+      "exp68_peer.cpp": "bbff2902f7a1e47da1f06e0c961b25201c51b261249707b2e1b876e67f8b6862",
+      "run_exp68.py": "517095b0d220220e6a27b74e3662b784a5547efb8aa2c8816ea658001c755b86",
+      "shared_topk.hpp": "941cd05dc23685178d9a8ee9c1a3369b3ecebbb0586bb3659356340728a11037",
+      "topk_action.hpp": "d60832b1cb2f30ba80378771e0ce6ab78f5142cd5021ff375ab2100544845f8a"
+    },
+    "hashing_protocol": "two-stage: in-job manifest over closed artifacts + post-job manifest for the completed Slurm log; combined verification exact",
+    "in_job_manifest_sha256": "d66df03a06f1d90682b5e0595e4c34500ac96d2885c70083a582d254c349ed57",
+    "nodeA": "medusa00 (controller / Ray head / work-free HPX root / actor A) 10.42.5.30",
+    "nodeB": "medusa01 (actor B) 10.42.5.31",
+    "nodes": [
+      "medusa00",
+      "medusa01"
+    ],
+    "placement": "hard NodeAffinitySchedulingStrategy(soft=False), attested per arm",
+    "post_job_manifest_sha256": "3f5cf1b9dd77c9026a2ab824d4bb2f6544650323b878b62ed2596e6cc107e50b",
+    "runs": [
+      {
+        "arms": {
+          "loss": {
+            "disposal_mode": "poisoned_island_discard",
+            "epoch_id": "exp70s4a-loss-20260719T184648Z",
+            "event": "suspected_root_loss",
+            "evidence": {
+              "classification_bound_s": 5.0,
+              "completion_witness_epoch_match": false,
+              "completion_witness_present": false,
+              "epoch_id": "exp70s4a-loss-20260719T184648Z",
+              "expected_refresh_s": 0.2,
+              "observation_deadline_exceeded": false,
+              "observed_silence_s": 5.013088084757328,
+              "root_pid_alive": true,
+              "witness_read_error": false
+            },
+            "identities": {
+              "a": {
+                "actor_id": "7e9577f6646c2f211d34e81101000000",
+                "hostname": "medusa00.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8021",
+                  "--hpx:hpx=10.42.5.30:8022"
+                ],
+                "locality_id": 1,
+                "pid": 352690,
+                "ray_node_id": "7c46cc7943e4f69e947aea9c6ef46a42240f82914e0dfdf7f7df8741"
+              },
+              "b": {
+                "actor_id": "e94008592912aba3562d2da401000000",
+                "hostname": "medusa01.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8021",
+                  "--hpx:hpx=10.42.5.31:8023"
+                ],
+                "locality_id": 2,
+                "pid": 1784635,
+                "ray_node_id": "d522c57c92e0377ce005d7c5b1619064546b00533899dfcf3ddc2cb3"
+              }
+            },
+            "injection_preconditions": {
+              "both_actors_alive": true,
+              "command_matches_run": true,
+              "epoch_matches": true,
+              "no_completion_published": true,
+              "no_later_epoch": true,
+              "not_actor_worker": true,
+              "not_driver": true,
+              "pid_matches_live": true,
+              "root_pid": 354959,
+              "start_identity_matches": true,
+              "workload_passed": true
+            },
+            "monotonic": {
+              "classification_bound_s": 5.0,
+              "classification_elapsed_s": 5.013114269822836,
+              "expected_refresh_s": 0.2,
+              "last_advance_monotonic": 6848505.179848895,
+              "observed_silence_s": 5.013088084757328
+            },
+            "poisoned_island": {
+              "actor_pids_gone": true,
+              "completion_witness_written": false,
+              "mechanical_done_written": false,
+              "root_final_present": false,
+              "root_process_gone": true
+            },
+            "ports": {
+              "a": 8022,
+              "b": 8023,
+              "root": 8021
+            },
+            "post_loss_actor_observations": {
+              "a": {
+                "bound_s": 15.0,
+                "bounded": true,
+                "category": "call_timeout",
+                "elapsed_s": 15.001
+              },
+              "b": {
+                "bound_s": 15.0,
+                "bounded": true,
+                "category": "call_timeout",
+                "elapsed_s": 15.001
+              }
+            },
+            "pre_bound_probe": {
+              "classification_elapsed_s": 2.0078204656019807,
+              "event": "observation_timeout",
+              "observed_silence_s": 0.0
+            },
+            "root_pid": 354959
+          },
+          "normal": {
+            "completion_after_result_verification": true,
+            "completion_published_wall_ms": 1784504815031,
+            "disposal_mode": "graceful_completion",
+            "epoch_id": "exp70s4a-normal-20260719T184648Z",
+            "event": "explicit_completion",
+            "evidence": {
+              "classification_bound_s": 5.0,
+              "completion_witness_epoch_match": true,
+              "completion_witness_present": true,
+              "epoch_id": "exp70s4a-normal-20260719T184648Z",
+              "expected_refresh_s": 0.2,
+              "observation_deadline_exceeded": false,
+              "observed_silence_s": 7.395632565021515e-06,
+              "root_pid_alive": true,
+              "witness_read_error": false
+            },
+            "identities": {
+              "a": {
+                "actor_id": "0d0a35d5a11317c8835b98a401000000",
+                "hostname": "medusa00.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8011",
+                  "--hpx:hpx=10.42.5.30:8012"
+                ],
+                "locality_id": 1,
+                "pid": 352691,
+                "ray_node_id": "7c46cc7943e4f69e947aea9c6ef46a42240f82914e0dfdf7f7df8741"
+              },
+              "b": {
+                "actor_id": "34c9111352d4bc7b70e528c901000000",
+                "hostname": "medusa01.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8011",
+                  "--hpx:hpx=10.42.5.31:8013"
+                ],
+                "locality_id": 2,
+                "pid": 1784275,
+                "ray_node_id": "d522c57c92e0377ce005d7c5b1619064546b00533899dfcf3ddc2cb3"
+              }
+            },
+            "monotonic": {
+              "classification_bound_s": 5.0,
+              "classification_elapsed_s": 7.535703480243683e-05,
+              "expected_refresh_s": 0.2,
+              "last_advance_monotonic": 6848501.152656052,
+              "observed_silence_s": 7.395632565021515e-06
+            },
+            "ports": {
+              "a": 8012,
+              "b": 8013,
+              "root": 8011
+            },
+            "result_verified_wall_ms": 1784504814726,
+            "root_final": {
+              "graceful_stops_ok": true,
+              "root_exit_path": "finalized_clean",
+              "root_final_membership": 1,
+              "root_final_present": true
+            },
+            "root_pid": 354876
+          }
+        },
+        "classifier_fingerprint": "774ebdc6147bad94220fe34d374c84769dab32b89c19e974d1627bec053809d0",
+        "expected_refresh_s": 0.2,
+        "failure_class": "pass",
+        "gate_checks_total": 205,
+        "gate_groups": 31,
+        "gates_failed": [],
+        "overall": "pass",
+        "runid": "20260719T184648Z",
+        "suspicion_bound_s": 5.0
+      },
+      {
+        "arms": {
+          "loss": {
+            "disposal_mode": "poisoned_island_discard",
+            "epoch_id": "exp70s4a-loss-20260719T184749Z",
+            "event": "suspected_root_loss",
+            "evidence": {
+              "classification_bound_s": 5.0,
+              "completion_witness_epoch_match": false,
+              "completion_witness_present": false,
+              "epoch_id": "exp70s4a-loss-20260719T184749Z",
+              "expected_refresh_s": 0.2,
+              "observation_deadline_exceeded": false,
+              "observed_silence_s": 5.0142117673531175,
+              "root_pid_alive": true,
+              "witness_read_error": false
+            },
+            "identities": {
+              "a": {
+                "actor_id": "50c2abbbfebd4f5a2fbd546f01000000",
+                "hostname": "medusa00.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8051",
+                  "--hpx:hpx=10.42.5.30:8052"
+                ],
+                "locality_id": 1,
+                "pid": 355617,
+                "ray_node_id": "8c879c12fcad03cb2ff8074ebd890f1b099b692b713244717b5284af"
+              },
+              "b": {
+                "actor_id": "7b483d4ac3b1f719ba14522c01000000",
+                "hostname": "medusa01.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8051",
+                  "--hpx:hpx=10.42.5.31:8053"
+                ],
+                "locality_id": 2,
+                "pid": 1786164,
+                "ray_node_id": "c9017e3d6ace59a1cd114d89019bf883efe12cf8a2e96b2f72ecd770"
+              }
+            },
+            "injection_preconditions": {
+              "both_actors_alive": true,
+              "command_matches_run": true,
+              "epoch_matches": true,
+              "no_completion_published": true,
+              "no_later_epoch": true,
+              "not_actor_worker": true,
+              "not_driver": true,
+              "pid_matches_live": true,
+              "root_pid": 357849,
+              "start_identity_matches": true,
+              "workload_passed": true
+            },
+            "monotonic": {
+              "classification_bound_s": 5.0,
+              "classification_elapsed_s": 5.014260173775256,
+              "expected_refresh_s": 0.2,
+              "last_advance_monotonic": 6848565.791922492,
+              "observed_silence_s": 5.0142117673531175
+            },
+            "poisoned_island": {
+              "actor_pids_gone": true,
+              "completion_witness_written": false,
+              "mechanical_done_written": false,
+              "root_final_present": false,
+              "root_process_gone": true
+            },
+            "ports": {
+              "a": 8052,
+              "b": 8053,
+              "root": 8051
+            },
+            "post_loss_actor_observations": {
+              "a": {
+                "bound_s": 15.0,
+                "bounded": true,
+                "category": "call_timeout",
+                "elapsed_s": 15.002
+              },
+              "b": {
+                "bound_s": 15.0,
+                "bounded": true,
+                "category": "call_timeout",
+                "elapsed_s": 15.002
+              }
+            },
+            "pre_bound_probe": {
+              "classification_elapsed_s": 2.007897854782641,
+              "event": "observation_timeout",
+              "observed_silence_s": 0.10046853311359882
+            },
+            "root_pid": 357849
+          },
+          "normal": {
+            "completion_after_result_verification": true,
+            "completion_published_wall_ms": 1784504874902,
+            "disposal_mode": "graceful_completion",
+            "epoch_id": "exp70s4a-normal-20260719T184749Z",
+            "event": "explicit_completion",
+            "evidence": {
+              "classification_bound_s": 5.0,
+              "completion_witness_epoch_match": true,
+              "completion_witness_present": true,
+              "epoch_id": "exp70s4a-normal-20260719T184749Z",
+              "expected_refresh_s": 0.2,
+              "observation_deadline_exceeded": false,
+              "observed_silence_s": 2.3043714463710785e-05,
+              "root_pid_alive": true,
+              "witness_read_error": false
+            },
+            "identities": {
+              "a": {
+                "actor_id": "da93f936c7dd5402bead7b6201000000",
+                "hostname": "medusa00.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8041",
+                  "--hpx:hpx=10.42.5.30:8042"
+                ],
+                "locality_id": 1,
+                "pid": 355619,
+                "ray_node_id": "8c879c12fcad03cb2ff8074ebd890f1b099b692b713244717b5284af"
+              },
+              "b": {
+                "actor_id": "203da110398dc09d2c64bd6e01000000",
+                "hostname": "medusa01.rostam.cct.lsu.edu",
+                "hpx_endpoints": [
+                  "--hpx:agas=10.42.5.30:8041",
+                  "--hpx:hpx=10.42.5.31:8043"
+                ],
+                "locality_id": 2,
+                "pid": 1785816,
+                "ray_node_id": "c9017e3d6ace59a1cd114d89019bf883efe12cf8a2e96b2f72ecd770"
+              }
+            },
+            "monotonic": {
+              "classification_bound_s": 5.0,
+              "classification_elapsed_s": 0.00022982340306043625,
+              "expected_refresh_s": 0.2,
+              "last_advance_monotonic": 6848561.023619416,
+              "observed_silence_s": 2.3043714463710785e-05
+            },
+            "ports": {
+              "a": 8042,
+              "b": 8043,
+              "root": 8041
+            },
+            "result_verified_wall_ms": 1784504874596,
+            "root_final": {
+              "graceful_stops_ok": true,
+              "root_exit_path": "finalized_clean",
+              "root_final_membership": 1,
+              "root_final_present": true
+            },
+            "root_pid": 357800
+          }
+        },
+        "classifier_fingerprint": "774ebdc6147bad94220fe34d374c84769dab32b89c19e974d1627bec053809d0",
+        "expected_refresh_s": 0.2,
+        "failure_class": "pass",
+        "gate_checks_total": 205,
+        "gate_groups": 31,
+        "gates_failed": [],
+        "overall": "pass",
+        "runid": "20260719T184749Z",
+        "suspicion_bound_s": 5.0
+      }
+    ],
+    "slurm_job_id": "173798",
+    "source_hashes": {
+      ".gitignore": "1d7a445b796b98417d0c9188106e1acd0f7e6da967d8e9401cee959495facf2c",
+      "exp70_slice4_crossnode.sbatch": "60d1f2f2ad050c2129bbe7907b6abc4e00f8054405237132ce5382944d4e4ca8",
+      "run_slice4.py": "f07d484849f969f8e6b5dbd1b91c534d350b766aef349e8563fd7be96e2e2593"
+    },
+    "subnet": "10.42.5."
+  },
+  "local_evidence": {
+    "curated_local_aggregate_sha256": "956b543cd3ef1fd976ae6ea0e46d5ca310da1c7834ffb11753157be9e9796d0b",
+    "runs": [
+      {
+        "failure_class": "pass",
+        "gate_checks_total": 193,
+        "gate_groups": 30,
+        "loss_actor_observation_categories": {
+          "a": "call_timeout",
+          "b": "call_timeout"
+        },
+        "loss_event": "suspected_root_loss",
+        "loss_observed_silence_s": 5.04064179197303,
+        "normal_event": "explicit_completion",
+        "overall": "pass",
+        "runid": "20260719T164253Z",
+        "suspicion_bound_s": 5.0
+      },
+      {
+        "failure_class": "pass",
+        "gate_checks_total": 193,
+        "gate_groups": 30,
+        "loss_actor_observation_categories": {
+          "a": "call_timeout",
+          "b": "call_timeout"
+        },
+        "loss_event": "suspected_root_loss",
+        "loss_observed_silence_s": 5.042289500008337,
+        "normal_event": "explicit_completion",
+        "overall": "pass",
+        "runid": "20260719T164403Z",
+        "suspicion_bound_s": 5.0
+      }
+    ]
+  },
+  "non_claims": [
+    "no HPX-native root-loss notification",
+    "no HPX-native heartbeat",
+    "no authoritative failure certainty",
+    "no transparent recovery",
+    "no automatic AGAS repair",
+    "no partial-island continuation",
+    "no performance claim"
+  ],
+  "observer_surface": "observe_root_event(epoch, root_identity, bound); publish_completion(...)",
+  "selftest": "115/115",
+  "summary_claim": "In a two-node actor-hosted HPX island, the external root-lifecycle backend distinguished explicit root completion from bounded suspicion after unexpected loss of the separately supervised work-free root, while the supervisor discarded the poisoned island."
+}

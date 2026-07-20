@@ -2,7 +2,7 @@
 
 ## Project identity
 
-RayX is a narrow Ray-vs-HPX comparison harness for synthetic ML serving-control workloads.
+RayX is a research prototype exploring a hybrid distributed-runtime architecture in which Ray owns placement, actor lifecycle, and supervision while selected Ray actors host HPX localities in-process for native distributed C++ execution and composition.
 
 The project compares:
 
@@ -172,7 +172,8 @@ Durable interpretation:
 * exp66 closes the one-Ray-actor in-process HPX-hosting gate for the tested local and two-node environments.
 * exp67 closes the two-Ray-actor shared-HPX-runtime and bidirectional actor-to-actor action gate locally and across three nodes.
 * exp68 closes the first deterministic LLM-shaped distributed-workload gate locally and across three nodes, with exact token-ID, ordering, and float32-bit agreement against an independent oracle.
-* exp69 is planned as the first experiment explicitly permitted to compare Ray-mediated and HPX-mediated execution-path performance for the identical exp68 workload at the same Python caller boundary. Until exp69 passes its same-axis gates, no ratio, speedup, or cross-arm winner claim is permitted.
+* exp69 completes the matched Ray-mediated versus HPX-mediated performance study for the identical exp68 workload at the same Python caller boundary. Slices 1–3 cover QD1 latency, bounded-concurrency verified-completion goodput, and a causal resource-band decomposition. Scoped ratios are permitted only where exp69’s correctness, placement, resource, sampling, and same-axis gates explicitly licensed them; no general speedup or winner claim is permitted. 
+* exp69 Slice 3 resolved the P3b/C=4 reversal as a thread-supply resource asymmetry. Under the matched `C=4 / num_cpus=4 / hpx_threads=4` band, the per-arm goodput distributions converged to the same approximate region; this is a causal resource finding, not statistical equivalence or a winner claim.
 * exp61 remains the scalar QD1 predecessor. It is useful for explaining why same-axis Python-boundary measurement matters.
 * exp63 is mechanism/progress evidence for HPX-native composition after connector-lifetime hardening. It does not claim Ray performance, HPX collectives, payload-size behavior, or production API behavior.
 * exp58/59/60 remain useful precursor and within-runtime decomposition evidence, but they are no longer the headline Ray-vs-HPX measurement framing.
@@ -452,7 +453,7 @@ For every completed benchmark, diagnostic, or experiment report, include a short
 
   * Ray-hosted distributed HPX direction: exp66 proves one Ray actor can host HPX in-process; exp67 proves two Ray actors can join one shared HPX runtime and communicate bidirectionally across nodes; exp68 proves an exactly checkable vocabulary-sharded top-k workload across those actors. Ray owns placement, lifecycle, supervision, and whole-island restart; HPX actions and futures own the distributed operation/composition path.
 
-  * Same-axis comparison direction: exp61–64 provide predecessor scalar, fanout/fanin, composition, and payload evidence under strict claim fences. exp69 is the planned matched Ray-mediated versus HPX-mediated performance experiment for the identical exp68 workload, topology, resources, and Python caller boundary. Ratios are allowed only if exp69 explicitly passes all correctness, placement, resource, sampling, and same-axis gates.
+  * Same-axis comparison direction: exp61–64 provide predecessor scalar, fanout/fanin, composition, and payload evidence under strict claim fences. Exp69 completes the matched Ray-mediated versus HPX-mediated study for the identical exp68 workload, topology, resources, and Python caller boundary. Only the scoped ratios explicitly licensed by exp69’s correctness, placement, resource, sampling, and same-axis gates may be reported.
 
 * Next recommended step: end with one concrete technical next step, not a vague list.
 
