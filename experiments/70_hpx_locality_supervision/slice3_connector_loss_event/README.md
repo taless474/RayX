@@ -1,4 +1,17 @@
-# exp70 Slice 3A — classified connector loss/departure events for an actor-hosted HPX island
+# exp70 Slice 3 — connector loss/departure events for an actor-hosted HPX island
+
+This directory holds two related but separate slices:
+
+* **Slice 3A** (below) — complete, hardware-verified: an **external**, application-computed,
+  injection-blind classifier for graceful-vs-lost connector departure, built when no upstream
+  HPX API classified this natively.
+* **Slice 3B** (`native/`, `run_slice3b.py`) — added 2026-08-18, after upstream HPX landed
+  `components/supervision_dispatch` + `hpx::force_disconnect` (issues #7390/#7441, merged PR
+  #7447): a **native** validation of the same silent-crash scenario against the real upstream
+  API. See "Slice 3B" below. Slice 3A's evidence, claim, and non-claims are **unchanged** — 3B
+  does not supersede them, it tests whether the runtime gap 3A described has since been closed.
+
+## Slice 3A — classified connector loss/departure events for an actor-hosted HPX island
 
 **Status:** complete — local phase and two-node hardware phase both green. Mechanism /
 application-contract evidence only. Not a performance experiment, not a Ray comparison, not
@@ -165,9 +178,178 @@ improvement. **The classification is computed by the supervisor from observable 
 not claimed to report it.** The post-departure membership observation is not evidence of
 detection.
 
+## Slice 3B — native validation against upstream supervision_dispatch + force_disconnect
+
+**Status (2026-08-18): native harness implemented, selftested, and run on Rostam hardware
+(medusa00, job 185466–185474). Build/topology/registration validated; the run is BLOCKED at
+`discover_and_join()` before any of the 16 gates could be exercised — see "Hardware run result"
+below.** Added
+after hkaiser's status comment on HPX issue #7390 reported new upstream work (issue #7441,
+merged PR #7447 "Adding hpx::force_disconnect") built on top of the `components/supervision_dispatch`
+component landed since Slice 3A's 07-19 assessment. See
+[`native_backend_gap_matrix.md`](../native_backend_gap_matrix.md) for the gate-by-gate mapping
+and exactly what remains open even with this harness.
+
+### Question
+
+Can current upstream HPX autonomously classify and fence the silent crash of a late-connected
+connector locality, after which the surviving root can use `hpx::force_disconnect` to clean up
+that failed locality and permit a replacement connector to join successfully?
+
+### Topology (Slice 3's, reused unmodified)
+
+One standalone, separately supervised, work-free root locality
+(`native/root_supervised.cpp`) plus Ray-actor-hosted connect-mode connectors
+(`native/connector_ext.cpp`, the exp66/67/68 in-Ray-actor hosting mechanism, unchanged). Single
+scenario, not two arms — Slice 3A already owns the graceful-vs-loss comparison; 3B tests only the
+silent-crash-then-recover path:
+
+```text
+root starts -> connector A and B join late, call hpx::supervision::init() ->
+root discover_and_join()s both -> useful plain HPX work verified on A and B ->
+B is SIGKILLed (no disconnect(), no graceful shutdown, no app-authored event::failed) ->
+root polls check_admission()/query_state() until rejected_fenced is observed ->
+root explicitly calls hpx::force_disconnect(B) -> effect verified (resolve fails, membership
+shrinks, a plain post-force_disconnect dispatch fails, and connector A independently confirms
+B's old locality is unreachable) -> replacement connector C joins -> C's locality/epoch proven
+distinct from B's -> B's old (locality, epoch) pair still rejected, never confused with C
+```
+
+### Three responsibilities kept observably distinct
+
+1. **HPX classifies the crash, not the application.** `root_supervised.cpp` never calls
+   `hpx::supervision::publish_event(..., event::failed, ...)` anywhere — classification is
+   entirely `components/supervision_dispatch`'s own `failure_detection_loop()` background sweep,
+   started automatically by `hpx::supervision::init()`.
+2. **supervision_dispatch fences the failed incarnation**, observed via
+   `hpx::supervision::check_admission()` — a pure local latch read with no cross-binary
+   action-registration risk. The templated `dispatch_work<Action>()`/`fenced_action<>` path is
+   also attempted, but recorded only as a **non-gating diagnostic**: whether HPX guarantees a
+   fenced action instantiated only in the root binary is registered in a separately-compiled
+   connector binary that never itself calls `dispatch_work()` was not independently verified
+   against upstream (see the file comment in `root_supervised.cpp`).
+3. **Root explicitly invokes `hpx::force_disconnect`**, only after step 2 is observed — never
+   automatically. Upstream does not wire fencing to `force_disconnect`; this experiment does not
+   imply otherwise.
+
+### Gates (16 independent fields, `run_slice3b.py:GATE_FIELDS` / `eval_gates()`)
+
+```text
+connector_late_join_proven · pre_crash_work_ok · hard_crash_used ·
+graceful_disconnect_used_is_false · application_failed_event_publish_count_is_zero ·
+runtime_failure_classification_observed · failed_epoch_or_incarnation_identified ·
+stale_incarnation_fenced · fenced_outcome_is_specific · force_disconnect_invoked ·
+force_disconnect_completed · force_disconnect_effect_observed · replacement_joined ·
+replacement_incarnation_distinct · replacement_work_ok ·
+stale_incarnation_not_confused_with_replacement
+```
+
+None are collapsed into one boolean; the selftest proves each gate is independently wired by
+flipping one underlying signal at a time and checking exactly that gate (and only that gate's
+downstream `failure_class`) breaks.
+
+### Build requirement (explicit, not assumed)
+
+`native/CMakeLists.txt` requires `-DHPX_WITH_SUPERVISION=ON` (which also enables
+`HPX_HAVE_FORCE_DISCONNECT`) and refuses to configure without it — this is a hard requirement,
+not a skip, because the whole point of the slice is exercising that capability. The local macOS
+HPX build used elsewhere in this repo predates the supervision merge and does not have it; a
+hardware run needs a fresh HPX checkout/build on Rostam with the flag enabled first. Both
+`root.started` and `root_result.json` also record `hpx_have_supervision`/
+`hpx_have_force_disconnect` as observed at compile time, so a result file is self-describing
+about which capability it actually exercised.
+
+### Results
+
+**Selftest: 12/12 checks, 0 failures** (pure logic/schema; no Ray, no HPX) — a synthetic
+all-pass marker set rolls up correctly, six independent signal flips each break exactly their
+own gate and the overall pass, a fully-graceful departure independently fails both
+`hard_crash_used` and `graceful_disconnect_used_is_false`, a missing-classification case names
+the specific `classification_not_observed` failure class rather than a generic one, and
+`GATE_FIELDS` stays in lockstep with `eval_gates()`.
+
+### Hardware run result (2026-08-18, Rostam job 185466–185474, medusa00)
+
+**Verdict: BLOCKED at discovery, not PASS.** HPX (pinned commit `7b88345b6c72dfe1dabce1c0398e021f5ca55a4f`)
+was rebuilt from scratch with `-DHPX_WITH_SUPERVISION=ON -DHPX_WITH_FORCE_DISCONNECT=ON` into an
+isolated install (`/work/bitayekrang/apps/hpx-supervision-install`, untouched canonical
+`hpx-master-20bc3d4b` install). The native harness built and linked against it (`ldd` confirmed
+both binaries load `libhpx_supervision_dispatch.so.2` from the new install). Root started;
+connectors A and B each hosted an HPX connect-mode locality in-process inside a Ray actor,
+reached the expected locality ids (1, 2), and each independently completed
+`hpx::supervision::init()` successfully (`ok=true`, correct epoch).
+
+The run consistently failed at the next step: `hpx::supervision::discover_and_join()` found
+**zero peers**, from **both directions**, across five consecutive attempts (jobs 185469, 185470,
+185471, 185472, 185474) including one with a 30s bounded retry loop. Diagnostics isolated this
+precisely:
+
+* `hpx::find_remote_localities()` correctly reported 2 remote localities from root's side.
+* Each connector's own `supervision_dispatch` registry name (`"/" + locality_id +
+  "/supervision_dispatch/registry"`) self-resolved successfully via a raw
+  `hpx::agas::resolve_name()` call from its own locality (`self_resolve_ok=true` for both).
+* The SAME raw `resolve_name()` call for those exact names, issued from root (a different
+  locality), returned "not found" with **no error code** — a clean miss, not a timeout.
+* Connector A independently running `discover_and_join()` itself (the
+  connector-discovers-root/peer direction, mirroring upstream's own
+  `late_component_worker.cpp` example) **also** found zero peers.
+
+This rules out a client-side race, a naming-convention mismatch (confirmed identical in
+`registry::register_name()` and `discover_peers()`), and direction-specificity. It is consistent
+with a cross-locality AGAS symbol-visibility gap specific to
+`components/supervision_dispatch`'s discovery mechanism in a topology where distinct localities
+run in **independently-launched OS processes** (one standalone root binary + Ray-actor-hosted,
+separately-compiled connector processes) — a topology upstream's own example family
+(`late_component_launcher`/`late_component_worker`) is *built* for but is not wired into
+`add_hpx_example_test()` (i.e., not exercised by upstream's own CI), unlike the same-binary
+`LOCALITIES 2` tests (`plain_worker`, `component_worker`) that likely do pass. Per the debugging
+protocol for this run, no workaround or weaker discovery oracle was substituted; none of the 16
+Slice 3B gates were exercised because the run never got past this point. Raw artifacts, all
+seven run directories, and eight Rostam job logs are preserved under `_exp70_slice3b_runs/`
+(gitignored, kept locally) for independent review.
+
+### Rostam build/run (not executed this session)
+
+```bash
+cd /work/bitayekrang/RayX
+module purge
+module load gcc/15.1.0 cmake/3.29.2 boost/1.91.0-release hwloc/2.12.0 python/3.12.3
+# 1. HPX must be (re)built with supervision enabled -- this repo's existing Rostam HPX build
+#    predates the merge, same as the local macOS one.
+cmake -S <hpx-src> -B <hpx-build> -DHPX_WITH_SUPERVISION=ON -DHPX_WITH_DISTRIBUTED_RUNTIME=ON \
+      -DHPX_WITH_NETWORKING=ON -DHPX_WITH_PARCELPORT_TCP=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build <hpx-build> -j"$(nproc)" --target install
+# 2. configure/build exp70 Slice 3B against that install
+cmake -S experiments/70_hpx_locality_supervision/slice3_connector_loss_event/native \
+      -B experiments/70_hpx_locality_supervision/slice3_connector_loss_event/native/build \
+      -G Ninja -DCMAKE_BUILD_TYPE=Release -DPYBIND11_FINDPYTHON=ON \
+      -DCMAKE_PREFIX_PATH="<hpx-install>;$(python -m pybind11 --cmakedir)"
+cmake --build experiments/70_hpx_locality_supervision/slice3_connector_loss_event/native/build
+# 3. run
+source /work/bitayekrang/venvs/rayx-a2b/bin/activate
+python3 experiments/70_hpx_locality_supervision/slice3_connector_loss_event/run_slice3b.py \
+        --selftest
+python3 experiments/70_hpx_locality_supervision/slice3_connector_loss_event/run_slice3b.py \
+        --phase local
+```
+
+### Non-claims (Slice 3B specifically, in addition to Slice 3A's own)
+
+* Not autonomous/automatic recovery — `force_disconnect` is an explicit, deliberate root-side
+  call made only after fencing is observed, never triggered by HPX itself.
+* Not a claim that fencing and `force_disconnect` are wired together upstream.
+* Not console/root-loss evidence (see Slice 4B, which remains blocked for a structural reason:
+  `force_disconnect` cannot target the console).
+* Does not supersede Slice 3A's external, application-contract evidence.
+* No performance, Ray-vs-HPX, or general-fabric claim. Not production API.
+
 ## Files
 
-* `run_slice3.py` — instrument: selftest, local live phase, cross-node phase, curation.
-* `exp70_slice3_crossnode.sbatch` — two-node Rostam launcher (never rebuilds exp68).
-* `slice3_curated_evidence.json` — curated local + hardware evidence with hashes.
-* `_exp70_slice3_runs/` — ignored raw run area (see `.gitignore`).
+* `run_slice3.py` — Slice 3A instrument: selftest, local live phase, cross-node phase, curation.
+* `exp70_slice3_crossnode.sbatch` — two-node Rostam launcher for Slice 3A (never rebuilds exp68).
+* `slice3_curated_evidence.json` — curated Slice 3A local + hardware evidence with hashes.
+* `_exp70_slice3_runs/` — ignored raw Slice 3A run area (see `.gitignore`).
+* `native/root_supervised.cpp`, `native/connector_ext.cpp`, `native/CMakeLists.txt` — Slice 3B's
+  native harness against upstream `hpx::supervision`/`hpx::force_disconnect`.
+* `run_slice3b.py` — Slice 3B instrument: selftest (12/12) and local live phase (requires an HPX
+  build with `HPX_WITH_SUPERVISION=ON`; see the Rostam commands above).

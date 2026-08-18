@@ -95,6 +95,24 @@ Overview: [`README.md`](README.md) · gaps:
 
 ---
 
+## Slice 3B — native validation against upstream supervision_dispatch + force_disconnect
+
+| | |
+|---|---|
+| **Purpose** | Test whether upstream `components/supervision_dispatch` + `hpx::force_disconnect` (HPX #7390/#7441, merged PR #7447, landed after Slice 3A's 07-19 assessment) natively classifies+fences a silently-crashed late-connected connector, and whether root's explicit `force_disconnect` call then admits a replacement |
+| **Added** | 2026-08-18, in response to hkaiser's status comment on issue #7390 |
+| **Sources** | `slice3_connector_loss_event/native/root_supervised.cpp`, `connector_ext.cpp`, `CMakeLists.txt` (tracked, public) |
+| **Runner** | `slice3_connector_loss_event/run_slice3b.py` |
+| **Topology** | Slice 3's, reused unmodified: one standalone work-free root + Ray-actor-hosted connectors (single scenario, not two arms) |
+| **Selftest** | 12/12 (pure logic/schema; gate-independence proven via one-signal-at-a-time flips) |
+| **Build requirement** | `-DHPX_WITH_SUPERVISION=ON` (also enables `HPX_HAVE_FORCE_DISCONNECT`); `native/CMakeLists.txt` refuses to configure without it |
+| **Accepted local/hardware runs** | **none yet** — requires an HPX rebuild with supervision enabled; not available on the current macOS dev build or the prior Rostam HPX install used by Slices 0–4A |
+| **Key finding (design-time)** | The runtime-side classification half of Slice 3A's gap is very plausibly closed (`failure_detection_loop()` publishes `event::failed` against its own local shadow entirely inside `components/supervision_dispatch`, with zero application code); the AGAS-repair half is closed only for late-connecting localities and only via an explicit, non-automatic root call to `force_disconnect` |
+| **Supported claim** | none yet — pending the hardware run; see `slice3_connector_loss_event/README.md`'s Slice 3B section and `native_backend_gap_matrix.md` for exactly what is/isn't established at the source-reading level so far |
+| **Limitations** | Not autonomous recovery (force_disconnect is explicit, not triggered by fencing); does not supersede Slice 3A; the templated `dispatch_work<Action>()` fenced-dispatch path is a non-gating diagnostic only (cross-binary action-registration behavior not independently verified against upstream); no performance claim |
+
+---
+
 ## Slice 4A — explicit root completion vs bounded suspected root loss
 
 | | |
@@ -114,6 +132,19 @@ Overview: [`README.md`](README.md) · gaps:
 | **Key finding** | **After unexpected root loss, actor-hosted HPX calls blocked rather than failing promptly. The supervisor required bounded observations to avoid becoming stranded.** Every post-loss actor probe returned `call_timeout`. Not generalized beyond the tested HPX build and topology |
 | **Supported claim** | *In a two-node actor-hosted HPX island, the external root-lifecycle backend distinguished explicit root completion from bounded suspicion after unexpected loss of the separately supervised work-free root, while the supervisor discarded the poisoned island.* |
 | **Limitations** | The loss verdict is **bounded suspicion, not detection**. No native root event, no heartbeat, no certainty, no recovery, no AGAS repair, no partial-island continuation, no performance claim |
+
+**2026-08-18 source-level update (no new hardware run; see `native_backend_gap_matrix.md`):**
+root-loss *detection* by a connector now looks plausibly buildable natively — the same
+`failure_detection_loop()` mechanism is symmetric, and upstream's own
+`late_component_worker.cpp` example already has a worker detecting fenced *root* silence via
+`check_admission()`. Root-loss *recovery* stays structurally blocked regardless:
+`hpx::force_disconnect` can only be called from, and can never target, the console/root locality
+(upstream's own `test_console_cannot_disconnect_itself` test asserts `bad_parameter`), so the one
+locality that would need force_disconnect-based cleanup after dying is also the only locality
+categorically forbidden from ever being its target. The "sharpest gap" also stands unchanged:
+supervision fencing only protects a call that checks admission *before* dispatching, so an
+ordinary, un-fenced HPX call to a dead root still blocks exactly as Slice 4A measured
+(`call_timeout`) unless the application opts into a check-first pattern itself.
 
 ---
 

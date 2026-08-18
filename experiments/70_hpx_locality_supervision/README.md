@@ -1,8 +1,14 @@
 # exp70: HPX locality lifecycle supervision
 
-**Status:** the A-path is complete and hardware-verified on two-node Rostam hardware. The B-path
-(HPX-native backends) is **upstream-blocked, not harness-blocked** — no HPX API exposes the
-required lifecycle facts.
+**Status:** the A-path is complete and hardware-verified on two-node Rostam hardware. As of
+2026-08-18, the B-path is no longer uniformly "no HPX API exists": upstream landed
+`components/supervision_dispatch` + `hpx::force_disconnect` (HPX #7390/#7441, merged PR #7447).
+Slice 3B now has a **native harness implemented and selftested** against that real API, pending
+a hardware run; Slice 4B's blocking reasons **narrowed but did not close** (recovery via
+`force_disconnect` is structurally excluded for the console/root locality); Slice 2B's status is
+unchanged from the 07-30 assessment (unblocked in principle, no native harness built yet). See
+[`native_backend_gap_matrix.md`](native_backend_gap_matrix.md) for the full, dated,
+non-destructive chronology.
 
 ## Question
 
@@ -107,11 +113,11 @@ refers to a hypothetical future HPX-native facility.
 | 0 | Why fixed connector lifetimes fail | Complete |
 | 1 | Can Ray replace the complete failed island? | Complete |
 | 2A | Can completion be explicit and testable? | Complete |
-| 2B | HPX-native completion backend | Blocked on missing HPX API |
+| 2B | HPX-native completion backend | Unblocked in principle (2026-07-30); no native harness implemented yet |
 | 3A | Can connector loss be classified externally? | Complete |
-| 3B | HPX-native connector departure/loss event | Blocked on missing HPX API |
+| 3B | HPX-native connector departure/loss event + recovery | **Native harness implemented, selftested, and run on Rostam hardware (2026-08-18): blocked at `discover_and_join()` before any gate — see gap matrix** |
 | 4A | Can root loss be classified externally? | Complete |
-| 4B | HPX-native root completion/loss event | Blocked on missing HPX API |
+| 4B | HPX-native root completion/loss event | Narrowed (2026-08-18): detection plausible, recovery structurally excluded — see gap matrix |
 
 The A slices are **executable external reference implementations and acceptance harnesses**. The
 B slices must be satisfied by **real HPX-native runtime facts**. Moving the existing external
@@ -190,6 +196,29 @@ runs but was **not gated**.
 
 [`slice3_connector_loss_event/`](slice3_connector_loss_event/README.md)
 
+### Slice 3B — native validation against upstream supervision_dispatch + force_disconnect
+
+Added 2026-08-18 after upstream HPX landed `components/supervision_dispatch` +
+`hpx::force_disconnect` (issues #7390/#7441, merged PR #7447). Reuses Slice 3's exact topology
+(one standalone work-free root, Ray-actor-hosted connectors) but replaces the external evidence
+backend with the real upstream API for a single silent-crash-then-recover scenario: root
+observes native classification (`failure_detection_loop()`, zero application code — the harness
+never calls `publish_event(event::failed)` itself), observes fencing
+(`hpx::supervision::check_admission()`), then **explicitly** invokes `hpx::force_disconnect`
+before a replacement connector joins as a provably distinct incarnation.
+
+**Status (2026-08-18): native harness implemented, 12/12 selftest, run on Rostam hardware
+(job 185466-185474, medusa00) — blocked before any gate.** A fresh isolated HPX install with
+`-DHPX_WITH_SUPERVISION=ON` built and linked correctly; root and both connectors started and
+each connector's own `supervision_init()` succeeded. The run then consistently failed at
+`hpx::supervision::discover_and_join()`, which found zero cross-process peers in both directions
+across five consecutive attempts, despite each side's own registry name self-resolving
+successfully. See the Slice 3B section below for the full diagnostic trail. No gate claim is
+made; only the discovery-blocked finding itself.
+
+[`slice3_connector_loss_event/README.md`](slice3_connector_loss_event/README.md) (Slice 3B
+section) · [`native_backend_gap_matrix.md`](native_backend_gap_matrix.md) (gate-by-gate mapping)
+
 ### Slice 4A — explicit root completion vs bounded suspected root loss
 
 One backend-neutral root-lifecycle schema, two arms, and the **same classifier fingerprint in
@@ -232,12 +261,21 @@ a fresh one. exp70 adds no partial-island continuation and no AGAS repair.
 
 ```text
 Slice 2B requires: HPX-native explicit-completion publication and observation
-Slice 3B requires: HPX-native connector graceful-departure/loss notification
+                    -- unblocked in principle since 2026-07-30; no native harness built yet
+Slice 3B requires: HPX-native connector departure/loss classification + recovery
+                    -- native harness implemented AND RUN on Rostam hardware 2026-08-18
+                       (components/supervision_dispatch + hpx::force_disconnect); blocked at
+                       discover_and_join() finding zero cross-process peers, before any of the
+                       16 gates -- see native_backend_gap_matrix.md for the diagnostic trail
 Slice 4B requires: HPX-native root completion/loss or runtime liveness notification
+                    -- narrowed 2026-08-18 (detection plausible via the same failure_detection_
+                       loop() mechanism this run showed IS NOT YET RELIABLE cross-process), but
+                       recovery stays structurally excluded regardless: hpx::force_disconnect
+                       can never target the console/root locality
 ```
 
 Gate-by-gate mapping from each A-slice acceptance gate to the upstream runtime fact its B
-equivalent needs: [`native_backend_gap_matrix.md`](native_backend_gap_matrix.md).
+equivalent needs, plus the full 2026-08-18 update: [`native_backend_gap_matrix.md`](native_backend_gap_matrix.md).
 
 ## Supported claims
 
@@ -274,6 +312,7 @@ cd experiments/70_hpx_locality_supervision
 python3 slice1_actor_hosted_island_restart/run_slice1.py --selftest
 python3 slice2_explicit_completion/run_slice2.py --selftest
 python3 slice3_connector_loss_event/run_slice3.py --selftest
+python3 slice3_connector_loss_event/run_slice3b.py --selftest
 python3 slice4_root_loss_event/run_slice4.py --selftest
 ```
 
@@ -283,6 +322,14 @@ The local live phase needs Ray plus a built exp68 (`experiments/68_vocab_sharded
 python3 slice2_explicit_completion/run_slice2.py --phase local
 python3 slice3_connector_loss_event/run_slice3.py --phase local
 python3 slice4_root_loss_event/run_slice4.py --phase local
+```
+
+Slice 3B's local-live phase additionally needs `slice3_connector_loss_event/native/` built
+against an HPX install configured with `-DHPX_WITH_SUPERVISION=ON` — not the same exp68 build
+the other slices use:
+
+```bash
+python3 slice3_connector_loss_event/run_slice3b.py --phase local
 ```
 
 The cross-node phase skips cleanly with no Slurm submission when run off-cluster. On a cluster
@@ -314,8 +361,12 @@ logs are deliberately untracked (see `.gitignore`); they remain on disk for loca
 
 ## Future work
 
-* Post the lifecycle feature request once these harnesses have stable public URLs.
-* If upstream exposes any of the three lifecycle facts, implement the corresponding B slice
-  against the **unchanged** A-slice state machine and gates.
-* Nothing further is implementable here without upstream movement: the remaining exp70 work is
-  upstream-blocked, not harness-blocked.
+* Build HPX with `-DHPX_WITH_SUPERVISION=ON` on Rostam and run Slice 3B's local-live phase for
+  hardware evidence (see `slice3_connector_loss_event/README.md`'s Slice 3B section for the exact
+  commands) — this is the concrete next step, not a vague direction.
+* If Slice 3B's hardware run passes, consider whether Slice 2B (explicit completion) is now
+  implementable against the same `hpx::supervision` API without a new upstream ask.
+* Slice 4B has no equivalent next step: `hpx::force_disconnect` cannot target the console/root by
+  design, so root-loss recovery stays genuinely upstream-blocked regardless of further local
+  work. Root-loss *detection* narrowed (see the gap matrix) but was not independently prototyped
+  here, per this update's explicit scope ("do not try to solve root loss").
